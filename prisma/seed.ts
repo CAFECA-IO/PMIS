@@ -613,7 +613,7 @@ async function main() {
               order: s.order,
               positionId: s.positionId,
               decision,
-              signedById: done ? aid(opts.signer ?? "wb.li@cafeca.com.tw") : null,
+              signedById: done ? aid(opts.signer ?? "zw.zhang@cafeca.com.tw") : null,
               signedAt: done ? new Date() : null,
             };
           }),
@@ -622,10 +622,10 @@ async function main() {
     });
 
   await mkDoc({ title: "CJ302 連續壁施工計畫", applicant: "jh.wu@cafeca.com.tw", status: "PENDING", currentStep: 1, decisions: ["APPROVED", "PENDING", "PENDING"] });
-  await mkDoc({ title: "潛盾隧道施工計畫", applicant: "jh.wu@cafeca.com.tw", status: "APPROVED", currentStep: 3, decisions: ["APPROVED", "APPROVED", "APPROVED"] });
+  await mkDoc({ title: "潛盾隧道施工計畫", applicant: "zw.zhang@cafeca.com.tw", status: "APPROVED", currentStep: 3, decisions: ["APPROVED", "APPROVED", "APPROVED"] });
   await mkDoc({ title: "車站主體施工計畫（退回修正）", applicant: "yt.tsai@cafeca.com.tw", status: "REJECTED", currentStep: 1, decisions: ["APPROVED", "REJECTED", "PENDING"] });
   await mkDoc({ title: "假設工程施工計畫", applicant: "yt.tsai@cafeca.com.tw", status: "PENDING", currentStep: 0, decisions: ["PENDING", "PENDING", "PENDING"] });
-  await mkDoc({ title: "交通維持計畫書", applicant: "jh.wu@cafeca.com.tw", status: "PENDING", currentStep: 2, decisions: ["APPROVED", "APPROVED", "PENDING"] });
+  await mkDoc({ title: "交通維持計畫書", applicant: "zw.zhang@cafeca.com.tw", status: "PENDING", currentStep: 2, decisions: ["APPROVED", "APPROVED", "PENDING"] });
 
   await prisma.approvalDocument.create({
     data: {

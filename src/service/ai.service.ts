@@ -7,6 +7,7 @@ import {
   AI_SCREEN_FOCUS_PROMPT,
   AI_REPORT_PROMPT,
   AI_VOUCHER_PROMPT,
+  AI_EHS_PROMPT,
 } from "@/constant/ai";
 import * as docRepo from "@/repository/approvalDocument.repository";
 import * as storage from "@/service/storage.service";
@@ -220,6 +221,43 @@ export async function extractVoucher(
     amount: Number(raw.amount) || 0,
     counterparty: typeof raw.counterparty === "string" ? raw.counterparty : "",
     summary: typeof raw.summary === "string" ? raw.summary : "",
+  };
+}
+
+export type ExtractedEhs = {
+  type: "SAFETY" | "ENVIRONMENT" | "TRAFFIC" | "HEALTH";
+  result: "PASS" | "FAIL" | "IMPROVING" | "PENDING";
+  findings: string;
+};
+
+// Info: (20260721 - Luphia) 判讀工地照片並擷取結構化稽核欄位（供新增稽核表單預填）
+export async function extractEhsFinding(
+  base64: string,
+  mimeType: string,
+): Promise<ExtractedEhs> {
+  const text = await callGemini(
+    [
+      {
+        role: "user",
+        parts: [
+          { inlineData: { mimeType: mimeType || "application/octet-stream", data: base64 } },
+          { text: "請依系統指示判讀此工地照片並僅輸出 JSON。" },
+        ],
+      },
+    ],
+    AI_EHS_PROMPT,
+    512,
+  );
+  const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error("無法從照片擷取稽核資料。");
+  const raw = JSON.parse(match[0]) as Partial<ExtractedEhs>;
+  const types = ["SAFETY", "ENVIRONMENT", "TRAFFIC", "HEALTH"];
+  const results = ["PASS", "FAIL", "IMPROVING", "PENDING"];
+  return {
+    type: (types.includes(raw.type as string) ? raw.type : "SAFETY") as ExtractedEhs["type"],
+    result: (results.includes(raw.result as string) ? raw.result : "FAIL") as ExtractedEhs["result"],
+    findings: typeof raw.findings === "string" ? raw.findings : "",
   };
 }
 

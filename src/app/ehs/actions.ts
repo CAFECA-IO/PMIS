@@ -28,11 +28,12 @@ async function actor() {
   return { id: user.id, name: user.name, role: user.role };
 }
 
-// Info: (20260721 - Luphia) 手動新增環安衛稽核紀錄
+// Info: (20260721 - Luphia) 新增環安衛稽核（人工或 AI 判讀皆走此，並可附照片）
 export async function createEhsAction(formData: FormData) {
   const projectId = field(formData, "projectId");
   if (!projectId) return;
-  await ehsService.addAudit(
+  const who = await actor();
+  const audit = await ehsService.addAudit(
     {
       projectId,
       type: field(formData, "type"),
@@ -43,8 +44,13 @@ export async function createEhsAction(formData: FormData) {
       findings: field(formData, "findings"),
       dueDate: field(formData, "dueDate"),
     },
-    await actor(),
+    who,
   );
+  // Info: (20260721 - Luphia) 若附帶照片（含 AI 判讀來源），一併存為附件
+  const photo = formData.get("photo");
+  if (audit && photo instanceof File && photo.size > 0) {
+    await ehsService.addAttachment(audit.id, photo, who);
+  }
   revalidatePath("/ehs");
 }
 

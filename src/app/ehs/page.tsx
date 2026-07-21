@@ -1,5 +1,3 @@
-import { Sparkles } from "lucide-react";
-
 import * as ehsService from "@/service/ehs.service";
 import * as projectService from "@/service/project.service";
 import { requireUser } from "@/service/auth.service";
@@ -7,7 +5,6 @@ import { PageHeader } from "@/components/page-header";
 import { ProjectSwitcher } from "@/components/project-switcher";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ImageAnalyzer } from "./image-analyzer";
 import { ehsTypeMeta } from "@/constant/pmis";
 import { formatDate } from "@/lib/utils";
 import { EhsForm } from "./ehs-form";
@@ -44,24 +41,12 @@ export default async function EhsPage({
       <div className="space-y-6 p-4 sm:p-8">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">新增稽核紀錄</CardTitle>
+            <CardTitle className="text-base">新增稽核</CardTitle>
           </CardHeader>
           <CardContent>
             <EhsForm
               projects={projectList.map((p) => ({ id: p.id, name: p.name }))}
             />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Sparkles className="size-4 text-primary" />
-              AI 工地影像判讀
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ImageAnalyzer />
           </CardContent>
         </Card>
 
@@ -71,34 +56,47 @@ export default async function EhsPage({
         ) : (
           <div className="space-y-3">
             {audits.map((a) => (
-              <div key={a.id} className="space-y-2 rounded-lg border bg-card p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
+              <div key={a.id} className="rounded-lg border bg-card p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex items-center gap-2">
                       <Badge variant={ehsTypeMeta[a.type].variant}>
                         {ehsTypeMeta[a.type].label}
                       </Badge>
                       <span className="text-xs tabular-nums text-muted-foreground">
                         {formatDate(a.auditedAt)}
                       </span>
-                      {a.location ? (
-                        <span className="text-xs text-muted-foreground">
-                          · {a.location}
-                        </span>
-                      ) : null}
                     </div>
-                    <div className="mt-1 text-sm">{a.findings ?? "—"}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {a.project.name} · 改善期限 {formatDate(a.dueDate)}
-                    </div>
+                    <p className="text-sm font-medium leading-snug">
+                      {a.findings ?? "（未填缺失情形）"}
+                    </p>
                   </div>
-                  <EhsResultSelect id={a.id} result={a.result} />
+                  <div className="shrink-0">
+                    <EhsResultSelect id={a.id} result={a.result} />
+                  </div>
                 </div>
-                <EhsTrack
-                  auditId={a.id}
-                  attachments={a.attachments}
-                  notes={a.notes}
-                />
+
+                <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-4">
+                  {[
+                    ["地點", a.location ?? "—"],
+                    ["專案", a.project.name],
+                    ["改善期限", formatDate(a.dueDate)],
+                    ["稽核人", a.inspector ?? "—"],
+                  ].map(([label, value]) => (
+                    <div key={label} className="min-w-0">
+                      <dt className="text-muted-foreground">{label}</dt>
+                      <dd className="truncate">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+
+                <div className="mt-3 border-t pt-2">
+                  <EhsTrack
+                    auditId={a.id}
+                    attachments={a.attachments}
+                    notes={a.notes}
+                  />
+                </div>
               </div>
             ))}
           </div>

@@ -104,7 +104,10 @@ export async function getSubmittalOverview(
       )
     : [];
 
-  return { total: docs.length, statusCounts, applied, signed, pendingMe };
+  // Info: (20260721 - Luphia) 近期文件（全部）— 供個人區塊皆空時的後備清單
+  const recent = docs.slice(0, 10);
+
+  return { total: docs.length, statusCounts, applied, signed, pendingMe, recent };
 }
 
 export async function getDocument(id: string) {

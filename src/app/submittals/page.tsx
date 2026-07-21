@@ -184,11 +184,11 @@ export default async function SubmittalsPage({
                   ))}
                 </div>
 
-                {/* 流程狀態看板 */}
+                {/* 流程狀態看板（全部文件） */}
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">
-                      文件流程狀態（共 {overview.total} 件）
+                      文件流程狀態 · 全部（共 {overview.total} 件）
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -218,6 +218,14 @@ export default async function SubmittalsPage({
                         ) : null,
                       )}
                     </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      {STATUS_ORDER.map((s) => (
+                        <span key={s} className="flex items-center gap-1.5">
+                          <span className={cn("size-2.5 rounded-full", barColor[s])} />
+                          {approvalStatusMeta[s].label}
+                        </span>
+                      ))}
+                    </div>
                   </CardContent>
                 </Card>
 
@@ -239,37 +247,55 @@ export default async function SubmittalsPage({
                   </CardContent>
                 </Card>
 
-                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">我近期送件</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-2">
-                      {overview.applied.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">
-                          尚無送件紀錄。
-                        </p>
-                      ) : (
-                        overview.applied.map((d) => <DocRow key={d.id} d={d} />)
-                      )}
-                    </CardContent>
-                  </Card>
+                {overview.applied.length > 0 || overview.signed.length > 0 ? (
+                  <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">我近期送件</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {overview.applied.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">
+                            尚無送件紀錄。
+                          </p>
+                        ) : (
+                          overview.applied.map((d) => <DocRow key={d.id} d={d} />)
+                        )}
+                      </CardContent>
+                    </Card>
 
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">我近期經手簽核</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {overview.signed.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">
+                            尚無簽核紀錄。
+                          </p>
+                        ) : (
+                          overview.signed.map((d) => <DocRow key={d.id} d={d} />)
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+                ) : (
+                  /* Info: (20260721 - Luphia) 個人區塊皆空時，改列近期全部文件避免總覽空白 */
                   <Card>
                     <CardHeader>
-                      <CardTitle className="text-base">我近期經手簽核</CardTitle>
+                      <CardTitle className="text-base">近期文件（全部）</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2">
-                      {overview.signed.length === 0 ? (
+                      {overview.recent.length === 0 ? (
                         <p className="text-sm text-muted-foreground">
-                          尚無簽核紀錄。
+                          尚無簽核文件。
                         </p>
                       ) : (
-                        overview.signed.map((d) => <DocRow key={d.id} d={d} />)
+                        overview.recent.map((d) => <DocRow key={d.id} d={d} />)
                       )}
                     </CardContent>
                   </Card>
-                </div>
+                )}
               </div>
             );
           })()}

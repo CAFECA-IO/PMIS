@@ -15,6 +15,15 @@ export const AI_REPORT_PROMPT = `你是「PMIS 智慧監造管理系統」的工
 請以繁體中文撰寫該期間報告的「摘要」段落：專業、客觀、聚焦重點與風險，並給 2-3 點具體建議。
 請用 3-6 句自然段落加上條列建議即可，不要加標題、不要杜撰未提供的數據、不要輸出圖表或程式碼區塊。`;
 
+export const AI_EHS_PROMPT = `你是工地環安衛稽核 AI。使用者會上傳一張工地照片。
+請判讀後「僅輸出一個 JSON 物件」（不要任何說明文字、不要 markdown、不要程式碼區塊），欄位如下：
+{
+  "type": "SAFETY" 或 "ENVIRONMENT" 或 "TRAFFIC" 或 "HEALTH",  // 稽核類別：職安/環保/交維/衛生
+  "result": "PASS" 或 "FAIL" 或 "IMPROVING" 或 "PENDING",       // 判定結果，有明顯缺失填 FAIL
+  "findings": "缺失情形摘要（繁體中文，1-3 句，具體描述工安或品質疑慮；若無明顯缺失則說明現場情形）"
+}
+不要杜撰無法判讀的內容。`;
+
 export const AI_VOUCHER_PROMPT = `你是「PMIS 智慧監造管理系統」的會計憑證判讀助理。使用者會上傳一張憑證（發票、收據、estimate、請款單等）。
 請判讀後「僅輸出一個 JSON 物件」（不要任何說明文字、不要 markdown、不要程式碼區塊），欄位如下：
 {
