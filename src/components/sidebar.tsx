@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
-  HardHat,
   LayoutDashboard,
   BookOpen,
   CalendarClock,
@@ -82,9 +81,12 @@ export function Sidebar({ user }: { user: SidebarUser }) {
           <Menu className="size-5" />
         </button>
         <div className="flex items-center gap-2">
-          <div className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <HardHat className="size-4" />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo.svg"
+            alt="PMIS"
+            className="h-7 w-auto"
+          />
           <span className="text-sm font-semibold">PMIS</span>
         </div>
       </div>
@@ -106,9 +108,12 @@ export function Sidebar({ user }: { user: SidebarUser }) {
         )}
       >
         <div className="flex items-center gap-2 border-b px-5 py-4">
-          <div className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <HardHat className="size-5" />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo.svg"
+            alt="PMIS"
+            className="h-8 w-auto shrink-0"
+          />
           <div className="leading-tight">
             <div className="text-sm font-semibold">PMIS</div>
             <div className="text-xs text-muted-foreground">智慧監造管理系統</div>
@@ -133,8 +138,8 @@ export function Sidebar({ user }: { user: SidebarUser }) {
                 className={cn(
                   "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                   active
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
                 )}
               >
                 <Icon className="size-4 shrink-0" />

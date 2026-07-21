@@ -20,6 +20,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "PMIS — 智慧監造管理系統",
   description: "AI-Powered Construction Supervision PMIS",
+  icons: { icon: "/logo.svg" },
 };
 
 export default async function RootLayout({
