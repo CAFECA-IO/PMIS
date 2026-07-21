@@ -3,7 +3,8 @@ import type { NextRequest } from "next/server";
 
 import { SESSION_COOKIE } from "@/lib/auth";
 
-export function middleware(req: NextRequest) {
+// Info: (20260721 - Luphia) Next 16 以 proxy 取代 middleware（同等功能）
+export function proxy(req: NextRequest) {
   const hasSession = Boolean(req.cookies.get(SESSION_COOKIE)?.value);
   const isLoginPage = req.nextUrl.pathname === "/login";
 
