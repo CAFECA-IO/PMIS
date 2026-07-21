@@ -218,6 +218,13 @@ export const ehsResultMeta: Record<EhsResult, Meta> = {
   IMPROVING: { label: "改善中", variant: "warning" },
 };
 
+export const ehsTypeOptions = Object.entries(ehsTypeMeta).map(
+  ([value, meta]) => ({ value, label: meta.label }),
+);
+export const ehsResultOptions = Object.entries(ehsResultMeta).map(
+  ([value, meta]) => ({ value, label: meta.label }),
+);
+
 export const submittalCategoryMeta: Record<SubmittalCategory, Meta> = {
   DESIGN: { label: "設計", variant: "secondary" },
   CONSTRUCTION: { label: "施工", variant: "secondary" },

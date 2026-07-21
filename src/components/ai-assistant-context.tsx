@@ -2,8 +2,10 @@
 
 import { createContext, useContext, useState, type ReactNode } from "react";
 
-/** Shared open/close state for the floating AI 助理, so other UI (e.g. the
- * notification bubbles) can react to whether the assistant card is expanded. */
+/**
+ * Info: (20260721 - Luphia)
+ * 浮動 AI 助理的開合狀態共享，讓其他 UI（如通知氣泡）可依助理卡是否展開而調整。
+ */
 const AiAssistantContext = createContext<{
   expanded: boolean;
   setExpanded: (v: boolean) => void;

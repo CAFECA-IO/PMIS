@@ -81,7 +81,7 @@ export function VoucherForm({ projectId }: { projectId: string }) {
 
   return (
     <div className="space-y-4">
-      {/* 上傳憑證 → AI 轉傳票 */}
+      {/* Info: (20260721 - Luphia) 上傳憑證 → AI 轉傳票 */}
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -131,7 +131,7 @@ export function VoucherForm({ projectId }: { projectId: string }) {
         ) : null}
       </div>
 
-      {/* 傳票表單（可手動或於擷取後確認） */}
+      {/* Info: (20260721 - Luphia) 傳票表單（可手動或於擷取後確認） */}
       <form
         action={createVoucherAction}
         className="grid grid-cols-1 gap-4 rounded-lg border bg-muted/30 p-4 sm:grid-cols-2"

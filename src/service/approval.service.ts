@@ -2,7 +2,7 @@ import * as workflowRepo from "@/repository/approvalWorkflow.repository";
 import * as docRepo from "@/repository/approvalDocument.repository";
 import * as accountRepo from "@/repository/account.repository";
 import * as storage from "@/service/storage.service";
-import type { StepDecision } from "@/generated/prisma/enums";
+import type { StepDecision, ApprovalStatus } from "@/generated/prisma/enums";
 
 // ── workflows ──────────────────────────────────────────────
 export function listWorkflows() {
@@ -32,6 +32,79 @@ export const restoreWorkflow = (id: string) => workflowRepo.restore(id);
 // ── documents ──────────────────────────────────────────────
 export function listDocuments() {
   return docRepo.list();
+}
+
+export type SubmittalPeriod =
+  | "DAILY"
+  | "WEEKLY"
+  | "MONTHLY"
+  | "QUARTERLY"
+  | "ANNUAL"
+  | "ALL";
+
+// Info: (20260721 - Luphia) 依週期計算起始時間（以今日為基準），ALL 回傳 null
+function periodStart(period: SubmittalPeriod): Date | null {
+  if (period === "ALL") return null;
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const d = now.getDate();
+  switch (period) {
+    case "DAILY":
+      return new Date(y, m, d, 0, 0, 0, 0);
+    case "WEEKLY": {
+      const dow = (now.getDay() + 6) % 7; // Info: (20260721 - Luphia) 0 = 星期一
+      return new Date(y, m, d - dow, 0, 0, 0, 0);
+    }
+    case "MONTHLY":
+      return new Date(y, m, 1);
+    case "QUARTERLY":
+      return new Date(y, Math.floor(m / 3) * 3, 1);
+    case "ANNUAL":
+    default:
+      return new Date(y, 0, 1);
+  }
+}
+
+// Info: (20260721 - Luphia) 簽核總覽：狀態看板 + 我送件/我簽核/待我簽核（可依週期篩選）
+export async function getSubmittalOverview(
+  user: { id: string; positionId: string | null },
+  period: SubmittalPeriod = "ALL",
+) {
+  const allDocs = await docRepo.list();
+  const start = periodStart(period);
+  const docs = start
+    ? allDocs.filter((d) => new Date(d.createdAt) >= start)
+    : allDocs;
+
+  const statusCounts: Record<ApprovalStatus, number> = {
+    PENDING: 0,
+    APPROVED: 0,
+    REJECTED: 0,
+    CANCELLED: 0,
+  };
+  for (const d of docs) statusCounts[d.status] += 1;
+
+  const applied = docs.filter((d) => d.applicantId === user.id).slice(0, 10);
+  const signed = docs
+    .filter((d) => d.steps.some((s) => s.signedById === user.id))
+    .slice(0, 10);
+
+  // Info: (20260721 - Luphia) 待我簽核為即時待辦，不受週期篩選影響
+  const pendingMe = user.positionId
+    ? allDocs.filter(
+        (d) =>
+          d.status === "PENDING" &&
+          d.steps.some(
+            (s) =>
+              s.order === d.currentStep &&
+              s.decision === "PENDING" &&
+              s.positionId === user.positionId,
+          ),
+      )
+    : [];
+
+  return { total: docs.length, statusCounts, applied, signed, pendingMe };
 }
 
 export async function getDocument(id: string) {

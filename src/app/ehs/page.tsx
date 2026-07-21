@@ -8,16 +8,11 @@ import { ProjectSwitcher } from "@/components/project-switcher";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ImageAnalyzer } from "./image-analyzer";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { ehsTypeMeta, ehsResultMeta } from "@/constant/pmis";
+import { ehsTypeMeta } from "@/constant/pmis";
 import { formatDate } from "@/lib/utils";
+import { EhsForm } from "./ehs-form";
+import { EhsResultSelect } from "./ehs-result-select";
+import { EhsTrack } from "./ehs-track";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "環安衛管理 — PMIS" };
@@ -46,7 +41,18 @@ export default async function EhsPage({
           />
         }
       />
-      <div className="space-y-6 p-8">
+      <div className="space-y-6 p-4 sm:p-8">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">新增稽核紀錄</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <EhsForm
+              projects={projectList.map((p) => ({ id: p.id, name: p.name }))}
+            />
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
@@ -59,60 +65,44 @@ export default async function EhsPage({
           </CardContent>
         </Card>
 
-        <Card className="overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>類別</TableHead>
-                <TableHead>稽核日期</TableHead>
-                <TableHead>地點</TableHead>
-                <TableHead>缺失情形</TableHead>
-                <TableHead>改善期限</TableHead>
-                <TableHead>專案</TableHead>
-                <TableHead>結果</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {audits.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
-                    尚無稽核紀錄。
-                  </TableCell>
-                </TableRow>
-              ) : (
-                audits.map((a) => (
-                  <TableRow key={a.id}>
-                    <TableCell>
+        {/* Info: (20260721 - Luphia) 稽核清單（卡片式，手機友善） */}
+        {audits.length === 0 ? (
+          <p className="text-sm text-muted-foreground">尚無稽核紀錄。</p>
+        ) : (
+          <div className="space-y-3">
+            {audits.map((a) => (
+              <div key={a.id} className="space-y-2 rounded-lg border bg-card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
                       <Badge variant={ehsTypeMeta[a.type].variant}>
                         {ehsTypeMeta[a.type].label}
                       </Badge>
-                    </TableCell>
-                    <TableCell className="tabular-nums">
-                      {formatDate(a.auditedAt)}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {a.location ?? "—"}
-                    </TableCell>
-                    <TableCell className="max-w-xs truncate text-muted-foreground">
-                      {a.findings ?? "—"}
-                    </TableCell>
-                    <TableCell className="tabular-nums">
-                      {formatDate(a.dueDate)}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {a.project.name}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={ehsResultMeta[a.result].variant}>
-                        {ehsResultMeta[a.result].label}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </Card>
+                      <span className="text-xs tabular-nums text-muted-foreground">
+                        {formatDate(a.auditedAt)}
+                      </span>
+                      {a.location ? (
+                        <span className="text-xs text-muted-foreground">
+                          · {a.location}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-1 text-sm">{a.findings ?? "—"}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {a.project.name} · 改善期限 {formatDate(a.dueDate)}
+                    </div>
+                  </div>
+                  <EhsResultSelect id={a.id} result={a.result} />
+                </div>
+                <EhsTrack
+                  auditId={a.id}
+                  attachments={a.attachments}
+                  notes={a.notes}
+                />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </>
   );

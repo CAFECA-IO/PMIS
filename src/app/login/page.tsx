@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import * as auth from "@/service/auth.service";
 import { accountRoleMeta } from "@/constant/people";
+import { Logo } from "@/components/logo";
 import { LoginForm } from "./login-form";
 
 export const dynamic = "force-dynamic";
@@ -23,12 +24,7 @@ export default async function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-background p-6">
       <div className="w-full max-w-sm rounded-xl border bg-card p-8 shadow-sm">
         <div className="mb-6 flex items-center gap-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/logo.svg"
-            alt="PMIS"
-            className="h-10 w-auto"
-          />
+          <Logo className="h-10 w-auto" />
           <div className="leading-tight">
             <div className="text-base font-semibold">PMIS</div>
             <div className="text-xs text-muted-foreground">智慧監造管理系統</div>

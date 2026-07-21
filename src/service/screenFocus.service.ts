@@ -55,13 +55,15 @@ function milestoneMetrics(
   };
 }
 
-/** Key data points for the screen the user just navigated to (scoped to the
- * viewer's accessible projects; ADMIN/MANAGER see all active projects). */
+/**
+ * Info: (20260721 - Luphia)
+ * 使用者剛切換到之畫面的關鍵數據（依可視專案範圍過濾；ADMIN/MANAGER 見全部）。
+ */
 export async function getScreenFocus(
   route: string,
   viewer: Viewer,
 ): Promise<ScreenFocus> {
-  // Single project detail: /projects/<id>
+  // Info: (20260721 - Luphia) 單一專案明細：/projects/<id>
   const detail = /^\/projects\/([^/]+)$/.exec(route);
   if (detail && detail[1] !== "new") {
     const project = await projectService.getProject(detail[1], viewer);

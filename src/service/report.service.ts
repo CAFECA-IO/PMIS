@@ -49,7 +49,7 @@ function periodRange(type: ReportType, ref: Date) {
         label: `${formatDate(ref)}`,
       };
     case "WEEKLY": {
-      const dow = (ref.getDay() + 6) % 7; // 0 = Monday
+      const dow = (ref.getDay() + 6) % 7; // Info: (20260721 - Luphia) 0 = 星期一
       const start = startOfDay(new Date(y, m, ref.getDate() - dow));
       const end = endOfDay(new Date(y, m, ref.getDate() - dow + 6));
       return { start, end, label: `${formatDate(start)} ~ ${formatDate(end)}` };
@@ -87,7 +87,7 @@ function countBy<T>(items: T[], key: (t: T) => string): Record<string, number> {
   return out;
 }
 
-/** 產出 mermaid 圓餅圖區塊；無資料回傳空字串。 */
+// Info: (20260721 - Luphia) 產出 mermaid 圓餅圖區塊；無資料回傳空字串
 function pie(title: string, entries: [string, number][]): string {
   const rows = entries.filter(([, v]) => v > 0);
   if (rows.length === 0) return `_（本期無資料）_\n`;
@@ -169,7 +169,7 @@ export async function generateReport(
   const msDue = project.milestones.filter((m) => inRange(m.plannedDate));
   const msDone = project.milestones.filter((m) => inRange(m.actualDate));
 
-  // AI 摘要（失敗時以模板回退）
+  // Info: (20260721 - Luphia) AI 摘要（失敗時以模板回退）
   const factsText = [
     `專案：${project.name}（${project.code}）`,
     `期間：${label}（${typeLabel}）`,

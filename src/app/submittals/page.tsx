@@ -8,7 +8,7 @@ import * as projectService from "@/service/project.service";
 import { requireUser } from "@/service/auth.service";
 import { PageHeader } from "@/components/page-header";
 import { ProjectSwitcher } from "@/components/project-switcher";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +31,7 @@ import {
 } from "@/constant/pmis";
 import { cn, formatDate } from "@/lib/utils";
 import { DocumentForm } from "./document-form";
+import { StepFlow } from "./step-flow";
 import {
   createWorkflowAction,
   deleteDocumentAction,
@@ -43,6 +44,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "簽核管理 — PMIS" };
 
 const TABS = [
+  { key: "overview", label: "總覽" },
   { key: "documents", label: "簽核文件" },
   { key: "workflows", label: "流程設定" },
   { key: "submittals", label: "送審清單" },
@@ -51,23 +53,38 @@ const TABS = [
 export default async function SubmittalsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; project?: string }>;
+  searchParams: Promise<{ tab?: string; project?: string; period?: string }>;
 }) {
-  const { tab, project } = await searchParams;
-  const active = TABS.some((t) => t.key === tab) ? tab! : "documents";
+  const { tab, project, period } = await searchParams;
+  const active = TABS.some((t) => t.key === tab) ? tab! : "overview";
+
+  const PERIODS = [
+    { value: "ALL", label: "全部" },
+    { value: "WEEKLY", label: "週" },
+    { value: "MONTHLY", label: "月" },
+    { value: "QUARTERLY", label: "季" },
+    { value: "ANNUAL", label: "年" },
+  ] as const;
+  const activePeriod = (PERIODS.some((p) => p.value === period)
+    ? period
+    : "ALL") as (typeof PERIODS)[number]["value"];
 
   const user = await requireUser();
   const projectList = await projectService.listProjects(user);
   const selectedProjectId =
     project && projectList.some((p) => p.id === project) ? project : undefined;
 
-  const [documents, workflows, accounts, positions, submittals] =
+  const [documents, workflows, accounts, positions, submittals, overview] =
     await Promise.all([
       approval.listDocuments(),
       approval.listWorkflows(),
       people.listAccounts(),
       people.listPositions(),
       submittalService.listSubmittals(selectedProjectId),
+      approval.getSubmittalOverview(
+        { id: user.id, positionId: user.positionId },
+        activePeriod,
+      ),
     ]);
   const projectQuery = selectedProjectId ? `&project=${selectedProjectId}` : "";
 
@@ -105,6 +122,158 @@ export default async function SubmittalsPage({
       </div>
 
       <div className="max-w-5xl space-y-6 p-8">
+        {active === "overview" &&
+          (() => {
+            const STATUS_ORDER = [
+              "PENDING",
+              "APPROVED",
+              "REJECTED",
+              "CANCELLED",
+            ] as const;
+            const barColor: Record<string, string> = {
+              PENDING: "bg-amber-500",
+              APPROVED: "bg-emerald-500",
+              REJECTED: "bg-destructive",
+              CANCELLED: "bg-muted-foreground/40",
+            };
+            const total = overview.total || 1;
+
+            const DocRow = ({
+              d,
+            }: {
+              d: (typeof overview.applied)[number];
+            }) => (
+              <Link
+                href={`/submittals/${d.id}`}
+                className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm transition-colors hover:bg-accent"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium">{d.title}</div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    {d.applicant.name} · {formatDate(d.createdAt)}
+                  </div>
+                </div>
+                <StepFlow
+                  steps={d.steps}
+                  currentStep={d.currentStep}
+                  status={d.status}
+                />
+                <Badge variant={approvalStatusMeta[d.status].variant}>
+                  {approvalStatusMeta[d.status].label}
+                </Badge>
+              </Link>
+            );
+
+            return (
+              <div className="space-y-6">
+                {/* Info: (20260721 - Luphia) 週期切換 */}
+                <div className="flex flex-wrap gap-1.5">
+                  {PERIODS.map((p) => (
+                    <Link
+                      key={p.value}
+                      href={`/submittals?tab=overview&period=${p.value}${projectQuery}`}
+                      className={cn(
+                        "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                        activePeriod === p.value
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:bg-accent",
+                      )}
+                    >
+                      {p.label}
+                    </Link>
+                  ))}
+                </div>
+
+                {/* 流程狀態看板 */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">
+                      文件流程狀態（共 {overview.total} 件）
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      {STATUS_ORDER.map((s) => (
+                        <div key={s} className="rounded-lg border p-3">
+                          <div className="text-2xl font-semibold tabular-nums">
+                            {overview.statusCounts[s]}
+                          </div>
+                          <Badge variant={approvalStatusMeta[s].variant}>
+                            {approvalStatusMeta[s].label}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex h-2.5 overflow-hidden rounded-full bg-muted">
+                      {STATUS_ORDER.map((s) =>
+                        overview.statusCounts[s] > 0 ? (
+                          <div
+                            key={s}
+                            className={barColor[s]}
+                            style={{
+                              width: `${(overview.statusCounts[s] / total) * 100}%`,
+                            }}
+                            title={`${approvalStatusMeta[s].label} ${overview.statusCounts[s]}`}
+                          />
+                        ) : null,
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* 待我簽核 */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">
+                      待我簽核 ({overview.pendingMe.length})
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {overview.pendingMe.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        目前沒有待您簽核的文件。
+                      </p>
+                    ) : (
+                      overview.pendingMe.map((d) => <DocRow key={d.id} d={d} />)
+                    )}
+                  </CardContent>
+                </Card>
+
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">我近期送件</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {overview.applied.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          尚無送件紀錄。
+                        </p>
+                      ) : (
+                        overview.applied.map((d) => <DocRow key={d.id} d={d} />)
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">我近期經手簽核</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {overview.signed.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          尚無簽核紀錄。
+                        </p>
+                      ) : (
+                        overview.signed.map((d) => <DocRow key={d.id} d={d} />)
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+            );
+          })()}
+
         {active === "documents" && (
           <>
             <Card>

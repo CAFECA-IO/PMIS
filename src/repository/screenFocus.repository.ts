@@ -2,9 +2,9 @@ import { prisma } from "./client";
 import type { InspectionResult } from "@/generated/prisma/enums";
 
 /**
- * Project-scoped aggregations for the "screen focus" hints. Every module entity
- * carries a required projectId, so counts are filtered to the viewer's set of
- * accessible projects (ADMIN/MANAGER get all active projects).
+ * Info: (20260721 - Luphia)
+ * 「畫面重點」提示用的專案範圍彙總。各模組實體皆帶必填 projectId，因此計數依
+ * 可視專案範圍過濾（ADMIN/MANAGER 取全部啟用專案）。
  */
 
 export async function accessibleProjectIds(

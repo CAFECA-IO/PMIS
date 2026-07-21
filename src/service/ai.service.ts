@@ -48,7 +48,7 @@ async function callGemini(
       const err = await response.json();
       detail = err?.error?.message ?? "";
     } catch {
-      // ignore
+      // Info: (20260721 - Luphia) 忽略解析錯誤
     }
     throw new Error(
       `Gemini API 錯誤（${response.status}）${detail ? `：${detail}` : ""}`,
@@ -66,7 +66,7 @@ async function callGemini(
   return text || "（AI 沒有回覆內容）";
 }
 
-/** Multi-turn chat used by the AI panel, with an optional inline attachment. */
+// Info: (20260721 - Luphia) AI 面板使用的多輪對話，可帶一個 inline 附件
 export async function chat(
   messages: ChatMessage[],
   attachment?: ChatAttachment,
@@ -79,7 +79,7 @@ export async function chat(
     }));
 
   if (attachment) {
-    // 不限制上傳格式；以檔案的 MIME 類型（若缺則用通用二進位）直接送交模型。
+    // Info: (20260721 - Luphia) 不限制上傳格式；以檔案 MIME 類型（若缺則用通用二進位）直接送交模型
     const imgPart: Part = {
       inlineData: {
         mimeType: attachment.mimeType || "application/octet-stream",
@@ -102,10 +102,9 @@ export async function chat(
 }
 
 /**
- * Turn a screen's key facts into a single natural-language sentence. Combines
- * deterministic data (facts) with AI phrasing, and degrades gracefully to a
- * plain sentence when facts are empty or the AI call is unavailable — so page
- * navigation is never blocked by the model.
+ * Info: (20260721 - Luphia)
+ * 將畫面重點數據彙整為一句自然語言。結合確定性數據與 AI 潤飾，於無資料或 AI 不可用
+ * 時回退為純文字句子，確保不阻擋頁面導航。
  */
 export async function summarizeScreenFocus(
   label: string,
@@ -116,7 +115,7 @@ export async function summarizeScreenFocus(
   }
   const fallback = `${label}重點：${facts.join("、")}。`;
   try {
-    getConfig(); // throws if AI_KEY missing
+    getConfig(); // Info: (20260721 - Luphia) 未設定 AI_KEY 時拋錯
     const prompt = `畫面：${label}\n重點數據：\n${facts
       .map((f) => `- ${f}`)
       .join("\n")}`;
@@ -132,9 +131,8 @@ export async function summarizeScreenFocus(
 }
 
 /**
- * Generate the narrative "摘要" for an auto-generated engineering report from
- * period facts. Degrades to a deterministic template if AI is unavailable so
- * report generation never fails.
+ * Info: (20260721 - Luphia)
+ * 由期間數據生成工程報告的敘述「摘要」；AI 不可用時回退為模板，確保報告一定產出。
  */
 export async function generateReportNarrative(
   factsText: string,
@@ -156,7 +154,7 @@ export async function generateReportNarrative(
   }
 }
 
-/** Analyse an approval attachment (PDF/image) and return a Markdown summary. */
+// Info: (20260721 - Luphia) 判讀簽核附件（PDF/影像）並回傳 Markdown 摘要
 export async function analyzeAttachment(attachmentId: string): Promise<string> {
   const att = await docRepo.findAttachment(attachmentId);
   if (!att) throw new Error("找不到附件。");
@@ -187,7 +185,7 @@ export type ExtractedVoucher = {
   summary: string;
 };
 
-/** Read a receipt/invoice and extract structured accounting-voucher fields. */
+// Info: (20260721 - Luphia) 判讀憑證/發票並擷取結構化會計傳票欄位
 export async function extractVoucher(
   base64: string,
   mimeType: string,
@@ -206,7 +204,7 @@ export async function extractVoucher(
     512,
   );
 
-  // 去除可能的 markdown 圍欄後解析 JSON
+  // Info: (20260721 - Luphia) 去除可能的 markdown 圍欄後解析 JSON
   const cleaned = text
     .replace(/```json/gi, "")
     .replace(/```/g, "")
@@ -225,7 +223,7 @@ export async function extractVoucher(
   };
 }
 
-/** Analyse a site photo (base64) for safety/quality issues. */
+// Info: (20260721 - Luphia) 判讀工地照片（base64）之工安/品質疑慮
 export async function analyzeImage(
   base64: string,
   mimeType: string,

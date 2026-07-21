@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ChangeEvent } from "react";
+import Image from "next/image";
 import { Sparkles, ImageUp } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -61,12 +62,9 @@ export function ImageAnalyzer() {
       </div>
 
       {preview ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={preview}
-          alt="預覽"
-          className="max-h-72 rounded-lg border object-contain"
-        />
+        <div className="relative h-72 w-full overflow-hidden rounded-lg border">
+          <Image src={preview} alt="預覽" fill unoptimized className="object-contain" />
+        </div>
       ) : (
         <p className="text-sm text-muted-foreground">
           上傳工地照片，AI 會判讀工安與品質疑慮並提供改善建議。

@@ -91,7 +91,7 @@ export default async function FinancePage({
     />
   );
 
-  // ── 單一專案檢視 ──
+  // Info: (20260721 - Luphia) ── 單一專案檢視 ──
   if (selectedProjectId) {
     const finance = await financeService.getProjectFinance(
       selectedProjectId,
@@ -202,7 +202,7 @@ export default async function FinancePage({
     );
   }
 
-  // ── 全部專案總覽 ──
+  // Info: (20260721 - Luphia) ── 全部專案總覽 ──
   const cross = await financeService.crossProjectSummary(actor);
   const rows = categoryRows(cross.summary.expenseByCategory);
 

@@ -5,8 +5,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Select } from "@/components/ui/select";
 
 /**
- * Project filter shared across module pages. Writes `?project=<id>` (or clears
- * it for 全部) while preserving other query params (e.g. tab).
+ * Info: (20260721 - Luphia)
+ * 各模組頁共用的專案篩選器。寫入 `?project=<id>`（全部則清除），並保留其他查詢參數（如 tab）。
  */
 export function ProjectSwitcher({
   projects,

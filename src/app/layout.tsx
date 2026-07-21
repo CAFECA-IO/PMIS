@@ -4,6 +4,7 @@ import "./globals.css";
 import { Sidebar } from "@/components/sidebar";
 import { AiPanel } from "@/components/ai-panel";
 import { NotificationProvider } from "@/components/ui/notification";
+import { ConfirmProvider } from "@/components/ui/confirm-provider";
 import { AiAssistantProvider } from "@/components/ai-assistant-context";
 import { getCurrentUser } from "@/service/auth.service";
 
@@ -37,6 +38,7 @@ export default async function RootLayout({
     >
       <body className="h-full overflow-hidden">
         <AiAssistantProvider>
+          <ConfirmProvider>
           <NotificationProvider>
             {user ? (
               <div className="flex h-screen">
@@ -52,6 +54,7 @@ export default async function RootLayout({
               children
             )}
           </NotificationProvider>
+          </ConfirmProvider>
         </AiAssistantProvider>
       </body>
     </html>

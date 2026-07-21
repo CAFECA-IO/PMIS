@@ -8,7 +8,7 @@ export type CurrentUser = NonNullable<
   Awaited<ReturnType<typeof accountRepo.findById>>
 >;
 
-/** Resolve the logged-in account from the session cookie, or null. */
+// Info: (20260721 - Luphia) 由 session cookie 解析登入帳號，未登入回傳 null
 export async function getCurrentUser(): Promise<CurrentUser | null> {
   const store = await cookies();
   const uid = store.get(SESSION_COOKIE)?.value;
@@ -18,14 +18,14 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
   return account;
 }
 
-/** Same as getCurrentUser but redirects to /login when unauthenticated. */
+// Info: (20260721 - Luphia) 同 getCurrentUser，但未登入時導向 /login
 export async function requireUser(): Promise<CurrentUser> {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   return user;
 }
 
-/** Set the session cookie for a validated account id. */
+// Info: (20260721 - Luphia) 為已驗證的帳號設定 session cookie
 export async function login(accountId: string): Promise<boolean> {
   const account = await accountRepo.findById(accountId);
   if (!account || account.status !== "ACTIVE") return false;
@@ -44,7 +44,7 @@ export async function logout(): Promise<void> {
   store.delete(SESSION_COOKIE);
 }
 
-/** Active accounts offered on the login screen. */
+// Info: (20260721 - Luphia) 登入畫面提供的啟用帳號清單
 export function listLoginAccounts() {
   return accountRepo.listActive();
 }

@@ -110,13 +110,13 @@ export function CalendarView({
 
   return (
     <div className="space-y-4">
-      {/* toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+      {/* Info: (20260721 - Luphia) 工具列：窄螢幕拆兩列避免破版 */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-2">
           <button
             type="button"
             onClick={() => step(-1)}
-            className="flex size-8 items-center justify-center rounded-md border hover:bg-accent"
+            className="flex size-8 shrink-0 items-center justify-center rounded-md border hover:bg-accent"
             aria-label="上一期"
           >
             <ChevronLeft className="size-4" />
@@ -124,40 +124,47 @@ export function CalendarView({
           <button
             type="button"
             onClick={() => setAnchor(today)}
-            className="h-8 rounded-md border px-3 text-sm font-medium hover:bg-accent"
+            className="h-8 shrink-0 rounded-md border px-3 text-sm font-medium hover:bg-accent"
           >
             今天
           </button>
           <button
             type="button"
             onClick={() => step(1)}
-            className="flex size-8 items-center justify-center rounded-md border hover:bg-accent"
+            className="flex size-8 shrink-0 items-center justify-center rounded-md border hover:bg-accent"
             aria-label="下一期"
           >
             <ChevronRight className="size-4" />
           </button>
-          <div className="ml-2 text-base font-semibold">{label}</div>
-          <span className="text-xs text-muted-foreground">
+          <div className="ml-1 truncate text-base font-semibold sm:ml-2">
+            {label}
+          </div>
+          <span className="hidden shrink-0 whitespace-nowrap text-xs text-muted-foreground sm:inline">
             本期 {periodCount} 件
           </span>
         </div>
 
-        <div className="inline-flex rounded-md border p-0.5">
-          {MODES.map((m) => (
-            <button
-              key={m.key}
-              type="button"
-              onClick={() => setMode(m.key)}
-              className={cn(
-                "h-7 w-9 rounded text-sm font-medium transition-colors",
-                mode === m.key
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {m.label}
-            </button>
-          ))}
+        <div className="flex items-center justify-between gap-2 sm:justify-end">
+          <span className="whitespace-nowrap text-xs text-muted-foreground sm:hidden">
+            本期 {periodCount} 件
+          </span>
+          <div className="inline-flex shrink-0 rounded-md border p-0.5">
+            {MODES.map((m) => (
+              <button
+                key={m.key}
+                type="button"
+                onClick={() => setMode(m.key)}
+                className={cn(
+                  "h-7 w-9 rounded text-sm font-medium transition-colors",
+                  mode === m.key
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -180,7 +187,12 @@ export function CalendarView({
         />
       )}
       {mode === "month" && (
-        <MonthView anchor={anchor} today={today} eventsOnDay={eventsOnDay} />
+        <MonthView
+          anchor={anchor}
+          today={today}
+          eventsOnDay={eventsOnDay}
+          monthEvents={eventsInMonth(y, anchor.getMonth())}
+        />
       )}
       {mode === "quarter" && (
         <QuarterView anchor={anchor} eventsInMonth={eventsInMonth} />
@@ -274,10 +286,12 @@ function MonthView({
   anchor,
   today,
   eventsOnDay,
+  monthEvents,
 }: {
   anchor: Date;
   today: Date;
   eventsOnDay: (d: Date) => ParsedEvent[];
+  monthEvents: ParsedEvent[];
 }) {
   const y = anchor.getFullYear();
   const m = anchor.getMonth();
@@ -291,7 +305,22 @@ function MonthView({
   );
 
   return (
-    <div className="overflow-hidden rounded-lg border">
+    <>
+      {/* Info: (20260721 - Luphia) 手機以議程列表呈現，避免月曆格過小難讀 */}
+      <div className="divide-y rounded-lg border sm:hidden">
+        {monthEvents.length === 0 ? (
+          <p className="p-4 text-sm text-muted-foreground">本月無事件</p>
+        ) : (
+          monthEvents.map((ev) => (
+            <div key={ev.id} className="px-3">
+              <AgendaRow ev={ev} />
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Info: (20260721 - Luphia) 桌機月曆格 */}
+      <div className="hidden overflow-hidden rounded-lg border sm:block">
       <div className="grid grid-cols-7 border-b bg-muted/50 text-center">
         {WEEKDAYS.map((w) => (
           <div key={w} className="py-2 text-xs font-medium text-muted-foreground">
@@ -338,7 +367,8 @@ function MonthView({
           );
         })}
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 

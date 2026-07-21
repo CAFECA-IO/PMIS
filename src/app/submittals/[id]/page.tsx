@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { notFound } from "next/navigation";
 import { ArrowLeft, FileText, CheckCircle2, XCircle, Clock } from "lucide-react";
 
@@ -204,12 +205,15 @@ export default async function ApprovalDocumentPage({
                       </a>
                     </div>
                     {isImage ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={url}
-                        alt={att.fileName}
-                        className="max-h-96 rounded border object-contain"
-                      />
+                      <div className="relative h-96 w-full overflow-hidden rounded border">
+                        <Image
+                          src={url}
+                          alt={att.fileName}
+                          fill
+                          unoptimized
+                          className="object-contain"
+                        />
+                      </div>
                     ) : (
                       <object
                         data={url}

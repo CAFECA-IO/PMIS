@@ -1,6 +1,9 @@
 import type { FinancialDirection } from "@/generated/prisma/enums";
 
-/** Pure finance calculations — no DB, unit-testable and reusable on the client. */
+/**
+ * Info: (20260721 - Luphia)
+ * 純財務計算，無 DB 依賴，可單元測試並於前端重用。
+ */
 
 export type VoucherLike = {
   direction: FinancialDirection;
@@ -12,8 +15,8 @@ export type VoucherLike = {
 export type FinanceSummary = {
   income: number;
   expense: number;
-  profit: number; // 損益 = 收入 - 支出
-  cash: number; // 現金水位 = 影響現金之收入 - 支出
+  profit: number; // Info: (20260721 - Luphia) 損益 = 收入 - 支出
+  cash: number; // Info: (20260721 - Luphia) 現金水位 = 影響現金之收入 - 支出
   incomeByCategory: Record<string, number>;
   expenseByCategory: Record<string, number>;
   count: number;

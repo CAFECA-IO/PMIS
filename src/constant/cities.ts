@@ -1,4 +1,4 @@
-/** Taiwan administrative divisions (縣市) with ISO 3166-2:TW codes. */
+// Info: (20260721 - Luphia) 台灣縣市（含 ISO 3166-2:TW 代碼）
 export type City = { name: string; code: string; alias?: string };
 
 export const TW_CITIES: City[] = [
@@ -26,7 +26,7 @@ export const TW_CITIES: City[] = [
   { name: "連江縣", code: "LIE" },
 ];
 
-/** Filter cities by name, alias, or code (case-insensitive). */
+// Info: (20260721 - Luphia) 依名稱、別名或代碼過濾縣市（不分大小寫）
 export function searchCities(query: string): City[] {
   const q = query.trim().toLowerCase();
   if (!q) return TW_CITIES;

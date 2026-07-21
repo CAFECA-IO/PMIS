@@ -5,7 +5,7 @@ import type {
   CarbonIntensityBasis,
 } from "@/generated/prisma/enums";
 
-// ── 可存取專案範圍（ADMIN/MANAGER 全部，其餘依指派）──────────
+// Info: (20260721 - Luphia) 可存取專案範圍（ADMIN/MANAGER 全部，其餘依指派）
 export async function accessibleProjectIds(
   seeAll: boolean,
   accountId: string,
@@ -17,7 +17,7 @@ export async function accessibleProjectIds(
   return rows.map((r) => r.id);
 }
 
-// ── 排放係數版本集 / 類別 / 係數 ────────────────────────────
+// Info: (20260721 - Luphia) 排放係數版本集 / 類別 / 係數
 export function listFactorSets() {
   return prisma.emissionFactorSet.findMany({
     where: { active: true },
@@ -51,7 +51,7 @@ export function listFactorsForSet(setId: string) {
   });
 }
 
-// ── 盤查 (CarbonInventory) ──────────────────────────────────
+// Info: (20260721 - Luphia) 盤查 (CarbonInventory)
 export function listInventoriesByProject(projectId: string) {
   return prisma.carbonInventory.findMany({
     where: { projectId, deletedAt: null },
@@ -132,7 +132,7 @@ export function restoreInventory(id: string) {
   });
 }
 
-// ── 活動數據記錄 (CarbonEntry) ──────────────────────────────
+// Info: (20260721 - Luphia) 活動數據記錄 (CarbonEntry)
 export type CreateEntryData = {
   inventoryId: string;
   scope: CarbonScope;
@@ -185,7 +185,7 @@ export function restoreEntry(id: string) {
   });
 }
 
-// ── 稽核軌跡 (CarbonAuditLog) ───────────────────────────────
+// Info: (20260721 - Luphia) 稽核軌跡 (CarbonAuditLog)
 export type CreateAuditData = {
   inventoryId: string;
   entryId?: string | null;

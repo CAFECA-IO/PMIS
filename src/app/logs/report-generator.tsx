@@ -52,7 +52,7 @@ export function ReportGenerator({
     }
   }, [projectId, type, refDate]);
 
-  // 掛載與參數變更時自動生成（以 timeout 延遲，避免在 effect 內同步 setState）
+  // Info: (20260721 - Luphia) 掛載與參數變更時自動生成（以 timeout 延遲，避免在 effect 內同步 setState）
   useEffect(() => {
     const id = setTimeout(() => {
       void run();

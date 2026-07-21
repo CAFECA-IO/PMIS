@@ -25,7 +25,7 @@ type NotifyOptions = {
 
 type Toast = NotifyOptions & { id: number; exiting?: boolean };
 
-const EXIT_MS = 220; // keep in sync with .animate-bubble-out duration
+const EXIT_MS = 220; // Info: (20260721 - Luphia) 需與 .animate-bubble-out 時長一致
 
 const NotificationContext = createContext<{
   notify: (options: NotifyOptions) => void;
@@ -61,7 +61,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     setToasts((list) => list.filter((t) => t.id !== id));
   }, []);
 
-  // Mark the toast as exiting to play the fade-out, then remove it from the DOM.
+  // Info: (20260721 - Luphia) Mark the toast as exiting to play the fade-out, then remove it from the DOM.
   const dismiss = useCallback(
     (id: number) => {
       setToasts((list) =>
@@ -85,8 +85,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   return (
     <NotificationContext.Provider value={{ notify }}>
       {children}
-      {/* Chat-bubble style notifications, anchored bottom-right near the AI 助理.
-          When the assistant card is expanded they auto-shift up above it. */}
+      {/* Info: (20260721 - Luphia) 對話氣泡通知，錨定於右下角 AI 助理旁；助理卡展開時自動上移避開 */}
       <div
         className="pointer-events-none fixed right-6 z-[60] flex w-80 max-w-[calc(100vw-3rem)] flex-col items-end gap-2.5 transition-[bottom] duration-300 ease-out"
         style={{ bottom: expanded ? "calc(600px + 2.25rem)" : "6rem" }}
@@ -136,7 +135,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
                   <X className="size-4" />
                 </button>
               </div>
-              {/* bubble tail pointing toward the assistant below */}
+              {/* Info: (20260721 - Luphia) bubble tail pointing toward the assistant below */}
               <span className="absolute -bottom-1 right-6 size-2.5 rotate-45 border-b border-r bg-card" />
             </div>
           );

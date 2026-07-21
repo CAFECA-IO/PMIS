@@ -17,7 +17,7 @@ function fileToBase64(file: File): Promise<string> {
     const reader = new FileReader();
     reader.onload = () => {
       const s = String(reader.result);
-      resolve(s.slice(s.indexOf(",") + 1)); // strip "data:...;base64,"
+      resolve(s.slice(s.indexOf(",") + 1)); // Info: (20260721 - Luphia) strip "data:...;base64,"
     };
     reader.onerror = reject;
     reader.readAsDataURL(file);
@@ -33,8 +33,8 @@ const SUGGESTIONS = [
   "材料送審流程怎麼跑？",
 ];
 
-const TYPE_SPEED_MS = 18; // interval per tick
-const TYPE_STEP = 2; // characters revealed per tick
+const TYPE_SPEED_MS = 18; // Info: (20260721 - Luphia) interval per tick
+const TYPE_STEP = 2; // Info: (20260721 - Luphia) characters revealed per tick
 
 export function AiPanel() {
   const { expanded: open, setExpanded: setOpen } = useAiAssistant();
@@ -66,9 +66,7 @@ export function AiPanel() {
     requestAnimationFrame(() => {
       listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
     });
-  }
-
-  // Typewriter effect: reveal the assistant reply gradually.
+  } // Info: (20260721 - Luphia) Typewriter effect: reveal the assistant reply gradually.
   useEffect(() => {
     if (!typing) return;
     if (typing.shown >= typing.full.length) {
@@ -127,7 +125,7 @@ export function AiPanel() {
       if (!res.ok) throw new Error(data.error ?? "AI 服務錯誤");
 
       const full = data.text ?? "（無回應）";
-      const index = history.length; // new assistant message position
+      const index = history.length; // Info: (20260721 - Luphia) new assistant message position
       setLoading(false);
       setMessages([...history, { role: "assistant", text: "" }]);
       setTyping({ index, full, shown: 0 });
@@ -292,7 +290,7 @@ export function AiPanel() {
           className="hidden"
           onChange={(e) => {
             acceptFile(e.target.files?.[0]);
-            e.target.value = ""; // allow re-selecting the same file
+            e.target.value = ""; // Info: (20260721 - Luphia) allow re-selecting the same file
           }}
         />
         <button

@@ -18,7 +18,7 @@ export async function canAccess(projectId: string, actor: Actor) {
   return Boolean(await memberRepo.exists(projectId, actor.id));
 }
 
-/** 單一專案財務：傳票清單 + 損益/收支/現金摘要。 */
+// Info: (20260721 - Luphia) 單一專案財務：傳票清單 + 損益/收支/現金摘要
 export async function getProjectFinance(projectId: string, actor: Actor) {
   if (!(await canAccess(projectId, actor))) return null;
   const vouchers = await financeRepo.listByProject(projectId);
@@ -33,7 +33,7 @@ export async function getProjectFinance(projectId: string, actor: Actor) {
   return { vouchers, summary };
 }
 
-/** 跨專案財務彙總（供「全部專案」檢視）。 */
+// Info: (20260721 - Luphia) 跨專案財務彙總（供「全部專案」檢視）
 export async function crossProjectSummary(actor: Actor, projectId?: string) {
   let ids = await carbonRepo.accessibleProjectIds(
     canSeeAllProjects(actor.role),
@@ -75,7 +75,7 @@ export async function crossProjectSummary(actor: Actor, projectId?: string) {
   };
 }
 
-// ── CRUD ────────────────────────────────────────────────────
+// Info: (20260721 - Luphia) CRUD
 const VALID_DIRECTION: FinancialDirection[] = ["INCOME", "EXPENSE"];
 
 export type VoucherInput = {
@@ -85,7 +85,7 @@ export type VoucherInput = {
   direction?: string;
   category?: string;
   amount?: string;
-  cashFlow?: string; // "on"/"true"/"false"
+  cashFlow?: string; // Info: (20260721 - Luphia) "on"/"true"/"false"
   counterparty?: string;
   summary?: string;
   evidenceUrl?: string;

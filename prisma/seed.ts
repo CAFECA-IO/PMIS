@@ -5,6 +5,8 @@ import type {
   ReminderCategory,
   ReminderStatus,
   CarbonScope,
+  ApprovalStatus,
+  StepDecision,
 } from "../src/generated/prisma/enums";
 
 const adapter = new PrismaBetterSqlite3({
@@ -35,6 +37,8 @@ async function main() {
   await prisma.supervisionReport.deleteMany();
   await prisma.mediaAsset.deleteMany();
   await prisma.submittal.deleteMany();
+  await prisma.ehsNote.deleteMany();
+  await prisma.ehsAttachment.deleteMany();
   await prisma.ehsAudit.deleteMany();
   await prisma.todoItem.deleteMany();
   await prisma.reminderEvent.deleteMany();
@@ -551,7 +555,7 @@ async function main() {
   });
 
   // 簽核流程範本
-  await prisma.approvalWorkflow.create({
+  const wf1 = await prisma.approvalWorkflow.create({
     data: {
       name: "施工計畫審核流程",
       description: "施工廠商提送施工計畫，經組長、部經理、總經理三級簽核。",
@@ -563,8 +567,9 @@ async function main() {
         ],
       },
     },
+    include: { steps: { orderBy: { order: "asc" } } },
   });
-  await prisma.approvalWorkflow.create({
+  const wf2 = await prisma.approvalWorkflow.create({
     data: {
       name: "材料送審流程",
       description: "材料設備送審，經主任工程師與組長簽核。",
@@ -573,6 +578,64 @@ async function main() {
           { order: 0, positionId: posChief.id },
           { order: 1, positionId: posLead.id },
         ],
+      },
+    },
+    include: { steps: { orderBy: { order: "asc" } } },
+  });
+
+  // 簽核文件範例（供展示）
+  const allAccounts = await prisma.account.findMany({
+    select: { id: true, email: true },
+  });
+  const aid = (email: string) =>
+    allAccounts.find((a) => a.email === email)?.id ?? allAccounts[0].id;
+
+  const mkDoc = (opts: {
+    title: string;
+    applicant: string;
+    status: ApprovalStatus;
+    currentStep: number;
+    decisions: StepDecision[];
+    signer?: string;
+  }) =>
+    prisma.approvalDocument.create({
+      data: {
+        title: opts.title,
+        applicantId: aid(opts.applicant),
+        workflowId: wf1.id,
+        status: opts.status,
+        currentStep: opts.currentStep,
+        steps: {
+          create: wf1.steps.map((s, i) => {
+            const decision = opts.decisions[i] ?? "PENDING";
+            const done = decision !== "PENDING";
+            return {
+              order: s.order,
+              positionId: s.positionId,
+              decision,
+              signedById: done ? aid(opts.signer ?? "wb.li@cafeca.com.tw") : null,
+              signedAt: done ? new Date() : null,
+            };
+          }),
+        },
+      },
+    });
+
+  await mkDoc({ title: "CJ302 連續壁施工計畫", applicant: "jh.wu@cafeca.com.tw", status: "PENDING", currentStep: 1, decisions: ["APPROVED", "PENDING", "PENDING"] });
+  await mkDoc({ title: "潛盾隧道施工計畫", applicant: "jh.wu@cafeca.com.tw", status: "APPROVED", currentStep: 3, decisions: ["APPROVED", "APPROVED", "APPROVED"] });
+  await mkDoc({ title: "車站主體施工計畫（退回修正）", applicant: "yt.tsai@cafeca.com.tw", status: "REJECTED", currentStep: 1, decisions: ["APPROVED", "REJECTED", "PENDING"] });
+  await mkDoc({ title: "假設工程施工計畫", applicant: "yt.tsai@cafeca.com.tw", status: "PENDING", currentStep: 0, decisions: ["PENDING", "PENDING", "PENDING"] });
+  await mkDoc({ title: "交通維持計畫書", applicant: "jh.wu@cafeca.com.tw", status: "PENDING", currentStep: 2, decisions: ["APPROVED", "APPROVED", "PENDING"] });
+
+  await prisma.approvalDocument.create({
+    data: {
+      title: "鋼筋材料送審",
+      applicantId: aid("yt.tsai@cafeca.com.tw"),
+      workflowId: wf2.id,
+      status: "PENDING",
+      currentStep: 0,
+      steps: {
+        create: wf2.steps.map((s) => ({ order: s.order, positionId: s.positionId })),
       },
     },
   });
@@ -599,6 +662,7 @@ async function main() {
     碳盤查: await prisma.carbonInventory.count(),
     碳排記錄: await prisma.carbonEntry.count(),
     會計傳票: await prisma.financialVoucher.count(),
+    簽核文件: await prisma.approvalDocument.count(),
     簽核流程: await prisma.approvalWorkflow.count(),
   };
   console.log("✅ Seed complete:", counts);

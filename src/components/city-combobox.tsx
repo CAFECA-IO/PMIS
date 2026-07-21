@@ -8,8 +8,8 @@ import { Input } from "@/components/ui/input";
 import { searchCities } from "@/constant/cities";
 
 /**
- * Searchable city picker — offers Taiwan's 縣市 as a dropdown, filterable by
- * name or ISO code, while still allowing free text (e.g. adding a district).
+ * Info: (20260721 - Luphia)
+ * 可搜尋的縣市選擇器 — 以下拉提供台灣縣市，可依名稱或 ISO 代碼過濾，並仍允許自由輸入（如追加行政區）。
  */
 export function CityCombobox({
   id,

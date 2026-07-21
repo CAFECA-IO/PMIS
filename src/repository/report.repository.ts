@@ -1,6 +1,6 @@
 import { prisma } from "./client";
 
-/** Period-scoped reads for AI 報告生成（工程日誌）。 */
+// Info: (20260721 - Luphia) 期間範圍查詢，供 AI 報告生成（工程日誌）
 
 export function getProject(id: string) {
   return prisma.project.findFirst({

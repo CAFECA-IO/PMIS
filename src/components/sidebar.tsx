@@ -29,6 +29,7 @@ import type { AccountRole } from "@/generated/prisma/enums";
 import { accountRoleMeta } from "@/constant/people";
 import { logoutAction } from "@/app/login/actions";
 import { cn } from "@/lib/utils";
+import { Logo } from "@/components/logo";
 import pkg from "../../package.json";
 
 type NavItem = { href: string; label: string; code?: string; icon: LucideIcon };
@@ -62,7 +63,7 @@ export function Sidebar({ user }: { user: SidebarUser }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
-  // 導航後自動關閉手機抽屜（以 timeout 延遲，避免在 effect 內同步 setState）
+  // Info: (20260721 - Luphia) 導航後自動關閉手機抽屜（以 timeout 延遲，避免在 effect 內同步 setState）
   useEffect(() => {
     const id = setTimeout(() => setOpen(false), 0);
     return () => clearTimeout(id);
@@ -70,7 +71,7 @@ export function Sidebar({ user }: { user: SidebarUser }) {
 
   return (
     <>
-      {/* 手機頂列 */}
+      {/* Info: (20260721 - Luphia) 手機頂列 */}
       <div className="fixed inset-x-0 top-0 z-30 flex h-14 items-center gap-3 border-b bg-card px-4 lg:hidden">
         <button
           type="button"
@@ -81,17 +82,12 @@ export function Sidebar({ user }: { user: SidebarUser }) {
           <Menu className="size-5" />
         </button>
         <div className="flex items-center gap-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/logo.svg"
-            alt="PMIS"
-            className="h-7 w-auto"
-          />
+          <Logo className="h-7 w-auto" />
           <span className="text-sm font-semibold">PMIS</span>
         </div>
       </div>
 
-      {/* 手機遮罩 */}
+      {/* Info: (20260721 - Luphia) 手機遮罩 */}
       {open ? (
         <div
           className="fixed inset-0 z-40 bg-black/40 lg:hidden"
@@ -99,7 +95,7 @@ export function Sidebar({ user }: { user: SidebarUser }) {
         />
       ) : null}
 
-      {/* 側邊欄（桌機常駐、手機抽屜） */}
+      {/* Info: (20260721 - Luphia) 側邊欄（桌機常駐、手機抽屜） */}
       <aside
         className={cn(
           "fixed inset-y-0 left-0 z-50 flex h-screen w-60 shrink-0 flex-col border-r bg-card transition-transform duration-200 ease-out",
@@ -108,12 +104,7 @@ export function Sidebar({ user }: { user: SidebarUser }) {
         )}
       >
         <div className="flex items-center gap-2 border-b px-5 py-4">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/logo.svg"
-            alt="PMIS"
-            className="h-8 w-auto shrink-0"
-          />
+          <Logo className="h-8 w-auto shrink-0" />
           <div className="leading-tight">
             <div className="text-sm font-semibold">PMIS</div>
             <div className="text-xs text-muted-foreground">智慧監造管理系統</div>

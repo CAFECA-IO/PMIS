@@ -451,6 +451,7 @@ model TodoItem {
   source    String? // 來源 (缺失 / 退件 / 待簽核…)
   dueDate   DateTime?
   status    TodoStatus @default(PENDING)
+  readAt    DateTime? // 已讀時間
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
@@ -478,10 +479,41 @@ model EhsAudit {
   resolvedAt DateTime?
   createdAt  DateTime  @default(now())
 
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  attachments EhsAttachment[]
+  notes       EhsNote[]
 
   @@index([projectId])
   @@index([type])
+}
+
+/// 環安衛稽核之上傳／拍攝文件。
+model EhsAttachment {
+  id         String   @id @default(cuid())
+  auditId    String
+  fileName   String
+  storedName String
+  mimeType   String
+  size       Int
+  createdAt  DateTime @default(now())
+
+  audit EhsAudit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  @@index([auditId])
+}
+
+/// 環安衛稽核之追蹤紀錄（改善進度、備註）。
+model EhsNote {
+  id         String   @id @default(cuid())
+  auditId    String
+  body       String
+  authorId   String?
+  authorName String?
+  createdAt  DateTime @default(now())
+
+  audit EhsAudit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  @@index([auditId])
 }
 
 // ─────────────────────────────────────────────────────────────

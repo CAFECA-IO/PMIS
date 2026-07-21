@@ -110,7 +110,7 @@ export async function CarbonTab({
 
   return (
     <div className="space-y-6">
-      {/* 盤查切換 */}
+      {/* Info: (20260721 - Luphia) 盤查切換 */}
       {inventories.length > 1 ? (
         <div className="flex flex-wrap gap-2">
           {inventories.map((inv) => (
@@ -130,7 +130,7 @@ export async function CarbonTab({
         </div>
       ) : null}
 
-      {/* 總覽 */}
+      {/* Info: (20260721 - Luphia) 總覽 */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
@@ -203,7 +203,7 @@ export async function CarbonTab({
         </Card>
       </div>
 
-      {/* 活動數據明細 */}
+      {/* Info: (20260721 - Luphia) 活動數據明細 */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
@@ -300,7 +300,7 @@ export async function CarbonTab({
         </CardContent>
       </Card>
 
-      {/* 稽核軌跡 */}
+      {/* Info: (20260721 - Luphia) 稽核軌跡 */}
       {inventory.auditLogs.length > 0 ? (
         <Card>
           <CardHeader>

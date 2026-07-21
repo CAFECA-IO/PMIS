@@ -6,8 +6,8 @@ import { usePathname } from "next/navigation";
 import { useNotification } from "@/components/ui/notification";
 
 /**
- * On every screen change, fetches the current screen's key points from the API
- * and surfaces them as a chat-bubble notification. Renders nothing itself.
+ * Info: (20260721 - Luphia)
+ * 每次切換畫面時向 API 取得當前畫面重點，並以對話氣泡通知呈現；本身不渲染內容。
  */
 export function ScreenFocusNotifier() {
   const pathname = usePathname();
@@ -37,7 +37,7 @@ export function ScreenFocusNotifier() {
           });
         }
       } catch {
-        // navigation should never be blocked by this; ignore fetch/abort errors
+        // Info: (20260721 - Luphia) 不應因此阻擋導航；忽略 fetch/abort 錯誤
       }
     })();
 

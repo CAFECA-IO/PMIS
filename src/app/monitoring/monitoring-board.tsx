@@ -109,7 +109,7 @@ export function MonitoringBoard({ projectName }: { projectName?: string }) {
 
   const reviewing = selectedId !== null;
 
-  // 模擬迴圈：每 2 秒更新感測值並可能產生事件（僅在啟動且非回溯時）
+  // Info: (20260721 - Luphia) 模擬迴圈：每 2 秒更新感測值並可能產生事件（僅在啟動且非回溯時）
   useEffect(() => {
     startRef.current = Date.now();
     const id = requestAnimationFrame(() => setNow(Date.now()));
@@ -126,7 +126,7 @@ export function MonitoringBoard({ projectName }: { projectName?: string }) {
       setSensors((prev) =>
         prev.map((s) => {
           let v = s.value + rand(-1, 1) * (s.max - s.min) * 0.04;
-          if (Math.random() < 0.08) v += (s.max - s.min) * 0.25; // 偶發尖峰
+          if (Math.random() < 0.08) v += (s.max - s.min) * 0.25; // Info: (20260721 - Luphia) 偶發尖峰
           v = clamp(Math.round(v * 10) / 10, s.min, s.max);
           if (v > s.warnAbove && Math.random() < 0.5) {
             newEvents.push({
@@ -144,7 +144,7 @@ export function MonitoringBoard({ projectName }: { projectName?: string }) {
         }),
       );
 
-      // 攝影機偵測事件
+      // Info: (20260721 - Luphia) 攝影機偵測事件
       if (Math.random() < 0.55) {
         const cam = CAMERAS[Math.floor(Math.random() * CAMERAS.length)];
         const ev = CAMERA_EVENTS[Math.floor(Math.random() * CAMERA_EVENTS.length)];
@@ -179,7 +179,7 @@ export function MonitoringBoard({ projectName }: { projectName?: string }) {
     [events, selectedId],
   );
 
-  // 各攝影機當前標注（回溯時顯示選定事件；即時時顯示近 6 秒事件）
+  // Info: (20260721 - Luphia) 各攝影機當前標注（回溯時顯示選定事件；即時時顯示近 6 秒事件）
   const cameraBox = useMemo(() => {
     const map: Record<string, MonEvent | undefined> = {};
     if (reviewing && selectedEvent?.cameraId) {
@@ -212,7 +212,7 @@ export function MonitoringBoard({ projectName }: { projectName?: string }) {
 
   return (
     <div className="space-y-5">
-      {/* 控制列 */}
+      {/* Info: (20260721 - Luphia) 控制列 */}
       <div className="flex flex-wrap items-center gap-3">
         <span
           className={cn(
@@ -272,7 +272,7 @@ export function MonitoringBoard({ projectName }: { projectName?: string }) {
       </div>
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-        {/* 攝影機牆 */}
+        {/* Info: (20260721 - Luphia) 攝影機牆 */}
         <div className="xl:col-span-2">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {CAMERAS.map((cam) => {
@@ -290,9 +290,9 @@ export function MonitoringBoard({ projectName }: { projectName?: string }) {
                       "radial-gradient(circle at 30% 20%, rgba(120,140,170,0.25), transparent 60%), radial-gradient(circle at 75% 80%, rgba(80,90,110,0.3), transparent 55%)",
                   }}
                 >
-                  {/* 掃描線 */}
+                  {/* Info: (20260721 - Luphia) 掃描線 */}
                   <div className="pointer-events-none absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-white/10 to-transparent cam-scan" />
-                  {/* 頂列資訊 */}
+                  {/* Info: (20260721 - Luphia) 頂列資訊 */}
                   <div className="absolute inset-x-0 top-0 flex items-center justify-between px-2 py-1 text-[10px]">
                     <span className="font-mono">{cam.id}</span>
                     <span className="inline-flex items-center gap-1">
@@ -305,7 +305,7 @@ export function MonitoringBoard({ projectName }: { projectName?: string }) {
                       {reviewing ? "回溯" : "LIVE"}
                     </span>
                   </div>
-                  {/* 標注框 */}
+                  {/* Info: (20260721 - Luphia) 標注框 */}
                   {box?.box ? (
                     <div
                       className={cn(
@@ -329,7 +329,7 @@ export function MonitoringBoard({ projectName }: { projectName?: string }) {
                       </span>
                     </div>
                   ) : null}
-                  {/* 底列 */}
+                  {/* Info: (20260721 - Luphia) 底列 */}
                   <div className="absolute inset-x-0 bottom-0 flex items-center justify-between px-2 py-1 text-[10px] text-white/80">
                     <span className="inline-flex items-center gap-1">
                       <Cctv className="size-3" />
@@ -344,7 +344,7 @@ export function MonitoringBoard({ projectName }: { projectName?: string }) {
             })}
           </div>
 
-          {/* 時間軸 */}
+          {/* Info: (20260721 - Luphia) 時間軸 */}
           <div className="mt-4 rounded-lg border p-3">
             <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
               <span className="inline-flex items-center gap-1">
@@ -376,9 +376,9 @@ export function MonitoringBoard({ projectName }: { projectName?: string }) {
           </div>
         </div>
 
-        {/* 右側：感測器 + 事件流 / 回溯詳情 */}
+        {/* Info: (20260721 - Luphia) 右側：感測器 + 事件流 / 回溯詳情 */}
         <div className="space-y-4">
-          {/* AIoT 感測器 */}
+          {/* Info: (20260721 - Luphia) AIoT 感測器 */}
           <div className="rounded-lg border p-3">
             <div className="mb-2 text-sm font-medium">AIoT 感測器</div>
             <div className="grid grid-cols-2 gap-2">
@@ -418,7 +418,7 @@ export function MonitoringBoard({ projectName }: { projectName?: string }) {
             </div>
           </div>
 
-          {/* 回溯詳情 或 事件流 */}
+          {/* Info: (20260721 - Luphia) 回溯詳情 或 事件流 */}
           {reviewing && selectedEvent ? (
             <div className="rounded-lg border p-3">
               <div className="mb-2 flex items-center justify-between">

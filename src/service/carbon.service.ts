@@ -9,7 +9,7 @@ import type {
   CarbonIntensityBasis,
 } from "@/generated/prisma/enums";
 
-/** 具身分與角色的操作者（用於權限判斷與稽核軌跡署名）。 */
+// Info: (20260721 - Luphia) 具身分與角色的操作者（用於權限判斷與稽核軌跡署名）
 export type Actor = { id: string; name: string; role: AccountRole };
 
 const num = (v: unknown): number => (v == null ? 0 : Number(v));
@@ -27,7 +27,7 @@ function monthsBetween(
   return Math.round((diff / (DAY * 30.44)) * 10) / 10;
 }
 
-// ── 權限 ────────────────────────────────────────────────────
+// Info: (20260721 - Luphia) 權限
 export async function canAccessProject(
   projectId: string,
   actor: Actor,
@@ -36,7 +36,7 @@ export async function canAccessProject(
   return Boolean(await memberRepo.exists(projectId, actor.id));
 }
 
-// ── 係數庫 ──────────────────────────────────────────────────
+// Info: (20260721 - Luphia) 係數庫
 export function listFactorSets() {
   return carbonRepo.listFactorSets();
 }
@@ -52,7 +52,7 @@ export type FactorOption = {
   factorValue: number;
 };
 
-/** 某係數版本下的類別+係數，供新增表單即時試算。 */
+// Info: (20260721 - Luphia) 某係數版本下的類別+係數，供新增表單即時試算
 export async function listFactorOptions(
   factorSetId: string | null | undefined,
 ): Promise<FactorOption[]> {
@@ -76,7 +76,7 @@ export async function listFactorOptions(
   }));
 }
 
-// ── 查詢 ────────────────────────────────────────────────────
+// Info: (20260721 - Luphia) 查詢
 type EntrySlim = { scope: CarbonScope; co2e: unknown; status: CarbonEntryStatus };
 
 function summarize(entries: EntrySlim[]) {
@@ -89,7 +89,7 @@ function summarize(entries: EntrySlim[]) {
   );
 }
 
-/** 專案的所有盤查（含各自彙總）。 */
+// Info: (20260721 - Luphia) 專案的所有盤查（含各自彙總）
 export async function getProjectInventories(projectId: string, actor: Actor) {
   if (!(await canAccessProject(projectId, actor))) return null;
   const inventories = await carbonRepo.listInventoriesByProject(projectId);
@@ -99,7 +99,7 @@ export async function getProjectInventories(projectId: string, actor: Actor) {
   }));
 }
 
-/** 單一盤查明細 + 彙總 + 強度 + 對比目標。 */
+// Info: (20260721 - Luphia) 單一盤查明細 + 彙總 + 強度 + 對比目標
 export async function getInventory(id: string, actor: Actor) {
   const inv = await carbonRepo.findInventory(id);
   if (!inv) return null;
@@ -122,7 +122,7 @@ export async function getInventory(id: string, actor: Actor) {
   return { inventory: inv, summary, intensity, target };
 }
 
-/** 跨專案彙總（供 /carbon 模組）。可選 projectId 只統計單一專案。 */
+// Info: (20260721 - Luphia) 跨專案彙總（供 /carbon 模組）；可選 projectId 只統計單一專案
 export async function crossProjectSummary(actor: Actor, projectId?: string) {
   let ids = await carbonRepo.accessibleProjectIds(
     canSeeAllProjects(actor.role),
@@ -167,7 +167,7 @@ export async function crossProjectSummary(actor: Actor, projectId?: string) {
   };
 }
 
-// ── 盤查 CRUD ───────────────────────────────────────────────
+// Info: (20260721 - Luphia) 盤查 CRUD
 export type CreateInventoryInput = {
   projectId: string;
   name?: string;
@@ -233,7 +233,7 @@ export async function createInventory(input: CreateInventoryInput, actor: Actor)
   return inv;
 }
 
-// ── 活動數據記錄 ────────────────────────────────────────────
+// Info: (20260721 - Luphia) 活動數據記錄
 export type AddEntryInput = {
   inventoryId: string;
   scope?: string;
@@ -258,7 +258,7 @@ export async function addEntry(input: AddEntryInput, actor: Actor) {
   const qty = toNum(input.activityQty);
   if (!categoryId || qty == null) return null;
 
-  // 解析係數：以本盤查採用之版本集 + 類別查得
+  // Info: (20260721 - Luphia) 解析係數：以本盤查採用之版本集 + 類別查得
   let factorId: string | null = null;
   let factorValue = 0;
   let unit = input.activityUnit?.trim() || "";
@@ -305,7 +305,7 @@ export async function addEntry(input: AddEntryInput, actor: Actor) {
   return entry;
 }
 
-/** 狀態流：DRAFT → CONFIRMED → VERIFIED（含稽核軌跡）。 */
+// Info: (20260721 - Luphia) 狀態流：DRAFT → CONFIRMED → VERIFIED（含稽核軌跡）
 export async function setEntryStatus(
   entryId: string,
   toStatus: CarbonEntryStatus,

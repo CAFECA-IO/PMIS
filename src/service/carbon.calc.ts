@@ -5,8 +5,8 @@ import type {
 } from "@/generated/prisma/enums";
 
 /**
- * Pure carbon calculation helpers — no Prisma / DB imports, so they can be
- * unit-tested in isolation and reused on the client for live previews.
+ * Info: (20260721 - Luphia)
+ * 純碳排計算工具，無 Prisma／DB 依賴，可獨立單元測試並於前端即時試算重用。
  */
 
 export const CARBON_SCOPES: CarbonScope[] = ["SCOPE_1", "SCOPE_2", "SCOPE_3"];
@@ -16,7 +16,7 @@ function round(n: number, digits = 3): number {
   return Math.round(n * f) / f;
 }
 
-/** 排放量 (kgCO₂e) = 活動數據 × 排放係數。 */
+// Info: (20260721 - Luphia) 排放量 (kgCO₂e) = 活動數據 × 排放係數
 export function computeCo2e(activityQty: number, factorValue: number): number {
   if (!Number.isFinite(activityQty) || !Number.isFinite(factorValue)) return 0;
   return round(activityQty * factorValue, 3);
@@ -39,7 +39,7 @@ export type InventorySummary = {
   verifiedCount: number;
 };
 
-/** 分範疇彙總、狀態統計。 */
+// Info: (20260721 - Luphia) 分範疇彙總、狀態統計
 export function summarizeEntries(entries: EntryLike[]): InventorySummary {
   const byScopeKg: Record<CarbonScope, number> = {
     SCOPE_1: 0,
@@ -97,7 +97,7 @@ export type Intensity = {
   denominator: number | null;
 };
 
-/** 碳排強度 = 總排放 (tCO₂e) / 分母（依基準切換，預設契約金額）。 */
+// Info: (20260721 - Luphia) 碳排強度 = 總排放 (tCO₂e) / 分母（依基準切換，預設契約金額）
 export function computeIntensity(input: IntensityInput): Intensity {
   const t = input.totalTonnes;
   switch (input.basis) {
@@ -132,7 +132,7 @@ export function computeIntensity(input: IntensityInput): Intensity {
   }
 }
 
-/** 對比基準/目標的達成狀態（用於總覽燈號）。 */
+// Info: (20260721 - Luphia) 對比基準/目標的達成狀態（用於總覽燈號）
 export function assessTarget(
   totalTonnes: number,
   targetCo2e: number | null | undefined,
