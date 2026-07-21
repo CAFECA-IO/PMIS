@@ -2,9 +2,9 @@ import { prisma } from "./client";
 
 const activeProject = { project: { deletedAt: null } };
 
-export function listWithProject() {
+export function listWithProject(projectId?: string) {
   return prisma.ehsAudit.findMany({
-    where: activeProject,
+    where: { ...activeProject, ...(projectId ? { projectId } : {}) },
     orderBy: { auditedAt: "desc" },
     include: { project: true },
   });

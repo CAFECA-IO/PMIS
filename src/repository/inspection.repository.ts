@@ -3,9 +3,9 @@ import type { InspectionResult } from "@/generated/prisma/enums";
 
 const activeProject = { project: { deletedAt: null } };
 
-export function listWithRelations() {
+export function listWithRelations(projectId?: string) {
   return prisma.inspection.findMany({
-    where: activeProject,
+    where: { ...activeProject, ...(projectId ? { projectId } : {}) },
     orderBy: { scheduledAt: "desc" },
     include: { project: true, workItem: true },
   });

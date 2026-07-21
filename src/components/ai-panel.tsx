@@ -1,16 +1,31 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bot, Send, PanelRightClose } from "lucide-react";
+import { Bot, Send, Minus, Paperclip, X, Upload } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Markdown } from "@/components/markdown";
+import { useAiAssistant } from "@/components/ai-assistant-context";
 
 type Message = { role: "user" | "assistant"; text: string };
 type Typing = { index: number; full: string; shown: number };
 
+const MAX_FILE_MB = 25;
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const s = String(reader.result);
+      resolve(s.slice(s.indexOf(",") + 1)); // strip "data:...;base64,"
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 const GREETING =
-  "您好，我是 **PMIS AI 助理**，可協助查詢預警、缺失、送審與進度等監造相關問題。";
+  "您好，我是 **費思**，PMIS 智慧監造 AI 助理，可協助查詢預警、缺失、送審與進度等監造相關問題。";
 
 const SUGGESTIONS = [
   "本週有哪些到期事項？",
@@ -22,16 +37,30 @@ const TYPE_SPEED_MS = 18; // interval per tick
 const TYPE_STEP = 2; // characters revealed per tick
 
 export function AiPanel() {
-  const [open, setOpen] = useState(true);
+  const { expanded: open, setExpanded: setOpen } = useAiAssistant();
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [typing, setTyping] = useState<Typing | null>(null);
   const [messages, setMessages] = useState<Message[]>([
     { role: "assistant", text: GREETING },
   ]);
+  const [file, setFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const busy = loading || typing !== null;
+
+  function acceptFile(f: File | null | undefined) {
+    if (!f) return;
+    if (f.size > MAX_FILE_MB * 1024 * 1024) {
+      setFileError(`檔案不可超過 ${MAX_FILE_MB} MB。`);
+      return;
+    }
+    setFileError(null);
+    setFile(f);
+  }
 
   function scrollToEnd() {
     requestAnimationFrame(() => {
@@ -66,19 +95,33 @@ export function AiPanel() {
 
   async function send(text: string) {
     const content = text.trim();
-    if (!content || busy) return;
+    const attached = file;
+    if ((!content && !attached) || busy) return;
 
-    const history: Message[] = [...messages, { role: "user", text: content }];
+    const shownText = attached
+      ? `${content ? `${content}\n\n` : ""}📎 ${attached.name}`
+      : content;
+    const history: Message[] = [...messages, { role: "user", text: shownText }];
     setMessages(history);
     setInput("");
+    setFile(null);
+    setFileError(null);
     setLoading(true);
     scrollToEnd();
 
     try {
+      let attachment: { mimeType: string; data: string; name: string } | undefined;
+      if (attached) {
+        attachment = {
+          mimeType: attached.type,
+          data: await fileToBase64(attached),
+          name: attached.name,
+        };
+      }
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history }),
+        body: JSON.stringify({ messages: history, attachment }),
       });
       const data = (await res.json()) as { text?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? "AI 服務錯誤");
@@ -107,7 +150,7 @@ export function AiPanel() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        aria-label="開啟 AI 助理"
+        aria-label="開啟費思 AI 助理"
         className="fixed bottom-6 right-6 z-40 flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
       >
         <Bot className="size-5" />
@@ -116,22 +159,46 @@ export function AiPanel() {
   }
 
   return (
-    <aside className="flex h-screen w-80 shrink-0 flex-col border-l bg-card xl:w-96">
+    <aside
+      className="fixed bottom-6 right-6 z-40 flex h-[600px] max-h-[calc(100vh-3rem)] w-[22rem] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border bg-card shadow-2xl xl:w-96"
+      onDragOver={(e) => {
+        e.preventDefault();
+        if (!busy) setDragOver(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+          setDragOver(false);
+        }
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        if (!busy) acceptFile(e.dataTransfer.files?.[0]);
+      }}
+    >
+      {dragOver ? (
+        <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary bg-card/90 text-primary">
+          <Upload className="size-7" />
+          <span className="text-sm font-medium">放開以上傳檔案</span>
+          <span className="text-xs text-muted-foreground">不限格式</span>
+        </div>
+      ) : null}
+
       <div className="flex items-center justify-between border-b px-4 py-3">
         <div className="flex items-center gap-2">
           <div className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
             <Bot className="size-4" />
           </div>
-          <span className="text-sm font-semibold">AI 助理</span>
-          <span className="text-[10px] text-muted-foreground">Gemini</span>
+          <span className="text-sm font-semibold">費思</span>
+          <span className="text-[10px] text-muted-foreground">AI 助理</span>
         </div>
         <button
           type="button"
           onClick={() => setOpen(false)}
-          aria-label="隱藏 AI 助理"
+          aria-label="縮小費思 AI 助理"
           className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
         >
-          <PanelRightClose className="size-4" />
+          <Minus className="size-4" />
         </button>
       </div>
 
@@ -187,6 +254,31 @@ export function AiPanel() {
         </div>
       ) : null}
 
+      {file || fileError ? (
+        <div className="px-3 pt-2">
+          {file ? (
+            <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-2.5 py-1.5 text-xs">
+              <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate">{file.name}</span>
+              <span className="shrink-0 text-muted-foreground">
+                {(file.size / 1024 / 1024).toFixed(1)} MB
+              </span>
+              <button
+                type="button"
+                aria-label="移除附件"
+                onClick={() => setFile(null)}
+                className="shrink-0 text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+          ) : null}
+          {fileError ? (
+            <p className="mt-1 text-xs text-destructive">{fileError}</p>
+          ) : null}
+        </div>
+      ) : null}
+
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -194,6 +286,25 @@ export function AiPanel() {
         }}
         className="flex items-center gap-2 border-t p-3"
       >
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          onChange={(e) => {
+            acceptFile(e.target.files?.[0]);
+            e.target.value = ""; // allow re-selecting the same file
+          }}
+        />
+        <button
+          type="button"
+          aria-label="上傳檔案"
+          title="上傳檔案（不限格式，可拖曳）"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={busy}
+          className="flex size-9 shrink-0 items-center justify-center rounded-md border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+        >
+          <Paperclip className="size-4" />
+        </button>
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -205,7 +316,7 @@ export function AiPanel() {
           type="submit"
           aria-label="送出"
           className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
-          disabled={busy || !input.trim()}
+          disabled={busy || (!input.trim() && !file)}
         >
           <Send className="size-4" />
         </button>

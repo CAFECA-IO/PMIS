@@ -10,6 +10,7 @@ import {
 import { CheckCircle2, AlertCircle, Info, Undo2, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { useAiAssistant } from "@/components/ai-assistant-context";
 
 type Variant = "success" | "error" | "info";
 
@@ -22,7 +23,9 @@ type NotifyOptions = {
   duration?: number;
 };
 
-type Toast = NotifyOptions & { id: number };
+type Toast = NotifyOptions & { id: number; exiting?: boolean };
+
+const EXIT_MS = 220; // keep in sync with .animate-bubble-out duration
 
 const NotificationContext = createContext<{
   notify: (options: NotifyOptions) => void;
@@ -52,10 +55,22 @@ const ICON_COLOR: Record<Variant, string> = {
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const { expanded } = useAiAssistant();
 
-  const dismiss = useCallback((id: number) => {
+  const remove = useCallback((id: number) => {
     setToasts((list) => list.filter((t) => t.id !== id));
   }, []);
+
+  // Mark the toast as exiting to play the fade-out, then remove it from the DOM.
+  const dismiss = useCallback(
+    (id: number) => {
+      setToasts((list) =>
+        list.map((t) => (t.id === id ? { ...t, exiting: true } : t)),
+      );
+      setTimeout(() => remove(id), EXIT_MS);
+    },
+    [remove],
+  );
 
   const notify = useCallback(
     (options: NotifyOptions) => {
@@ -70,45 +85,59 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   return (
     <NotificationContext.Provider value={{ notify }}>
       {children}
-      <div className="pointer-events-none fixed bottom-4 left-4 z-[60] flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2">
+      {/* Chat-bubble style notifications, anchored bottom-right near the AI 助理.
+          When the assistant card is expanded they auto-shift up above it. */}
+      <div
+        className="pointer-events-none fixed right-6 z-[60] flex w-80 max-w-[calc(100vw-3rem)] flex-col items-end gap-2.5 transition-[bottom] duration-300 ease-out"
+        style={{ bottom: expanded ? "calc(600px + 2.25rem)" : "6rem" }}
+      >
         {toasts.map((t) => {
           const variant = t.variant ?? "success";
           const Icon = ICONS[variant];
           return (
             <div
               key={t.id}
-              className="pointer-events-auto flex items-start gap-3 rounded-lg border bg-card p-3 shadow-lg"
+              className={cn(
+                "pointer-events-auto relative w-full rounded-2xl rounded-br-md border bg-card px-3.5 py-2.5 shadow-lg",
+                t.exiting ? "animate-bubble-out" : "animate-bubble-in",
+              )}
             >
-              <Icon className={cn("mt-0.5 size-5 shrink-0", ICON_COLOR[variant])} />
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium">{t.title}</div>
-                {t.description ? (
-                  <div className="mt-0.5 text-xs text-muted-foreground">
-                    {t.description}
-                  </div>
-                ) : null}
-                {t.actionLabel && t.onAction ? (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      await t.onAction?.();
-                      dismiss(t.id);
-                    }}
-                    className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
-                  >
-                    <Undo2 className="size-3.5" />
-                    {t.actionLabel}
-                  </button>
-                ) : null}
+              <div className="flex items-start gap-2.5">
+                <Icon
+                  className={cn("mt-0.5 size-4 shrink-0", ICON_COLOR[variant])}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium">{t.title}</div>
+                  {t.description ? (
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      {t.description}
+                    </div>
+                  ) : null}
+                  {t.actionLabel && t.onAction ? (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await t.onAction?.();
+                        dismiss(t.id);
+                      }}
+                      className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+                    >
+                      <Undo2 className="size-3.5" />
+                      {t.actionLabel}
+                    </button>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => dismiss(t.id)}
+                  aria-label="關閉"
+                  className="-mr-1 -mt-0.5 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="size-4" />
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => dismiss(t.id)}
-                aria-label="關閉"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <X className="size-4" />
-              </button>
+              {/* bubble tail pointing toward the assistant below */}
+              <span className="absolute -bottom-1 right-6 size-2.5 rotate-45 border-b border-r bg-card" />
             </div>
           );
         })}

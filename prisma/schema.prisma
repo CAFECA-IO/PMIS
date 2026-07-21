@@ -27,6 +27,7 @@ model Project {
   contractor  String?
   supervisor  String?
   budget      Decimal?
+  floorArea   Decimal? // 樓地板面積 (m²)，供碳排強度基準使用
   startDate   DateTime?
   endDate     DateTime?
   status      ProjectStatus @default(PLANNING)
@@ -47,6 +48,217 @@ model Project {
   submittals        Submittal[]
   mediaAssets       MediaAsset[]
   supervisionReports SupervisionReport[]
+  members           ProjectMember[]
+  carbonInventories CarbonInventory[]
+  vouchers          FinancialVoucher[]
+}
+
+/// Staffing — links an account to a project with a project-scoped role (配置人力).
+model ProjectMember {
+  id        String            @id @default(cuid())
+  projectId String
+  accountId String
+  role      ProjectMemberRole @default(MEMBER)
+  createdAt DateTime          @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, accountId])
+  @@index([projectId])
+  @@index([accountId])
+}
+
+enum ProjectMemberRole {
+  MANAGER
+  SUPERVISOR
+  INSPECTOR
+  MEMBER
+}
+
+// ─────────────────────────────────────────────────────────────
+// PMIS-10 溫室氣體碳盤查 (GHG Protocol / ISO 14064-1)
+// ─────────────────────────────────────────────────────────────
+
+/// 排放係數版本集（如「環境部排放係數管理表 6.0.4」），支援多版本並存與切換。
+model EmissionFactorSet {
+  id        String   @id @default(cuid())
+  name      String
+  version   String // 版本號，如 6.0.4
+  year      Int // 適用年度
+  gwpSet    String // AR5 / AR6
+  source    String // 如：環境部
+  isDefault Boolean  @default(false)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  factors     EmissionFactor[]
+  inventories CarbonInventory[]
+}
+
+/// 排放源類別（版本無關，如：柴油、外購電力、卜特蘭水泥）。
+model EmissionCategory {
+  id     String      @id @default(cuid())
+  scope  CarbonScope
+  name   String
+  unit   String // 基準單位
+  active Boolean     @default(true)
+
+  factors EmissionFactor[]
+  entries CarbonEntry[]
+}
+
+/// 排放係數（隸屬某版本集之下的某類別）。
+model EmissionFactor {
+  id         String   @id @default(cuid())
+  setId      String
+  categoryId String
+  value      Decimal // kgCO₂e / unit
+  unit       String
+  createdAt  DateTime @default(now())
+
+  set      EmissionFactorSet @relation(fields: [setId], references: [id], onDelete: Cascade)
+  category EmissionCategory  @relation(fields: [categoryId], references: [id])
+  entries  CarbonEntry[]
+
+  @@unique([setId, categoryId])
+  @@index([categoryId])
+}
+
+/// 單一專案的一次盤查（可依年度/期別分次）。
+model CarbonInventory {
+  id            String               @id @default(cuid())
+  projectId     String
+  factorSetId   String? // 本次盤查採用的係數版本
+  name          String
+  periodStart   DateTime?
+  periodEnd     DateTime?
+  baselineCo2e  Decimal? // 基準值 (tCO₂e)
+  targetCo2e    Decimal? // 減量目標 (tCO₂e)
+  intensityBasis CarbonIntensityBasis @default(CONTRACT_AMOUNT)
+  verifier      String? // 第三方查證機構
+  verifiedAt    DateTime?
+  note          String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  deletedAt     DateTime?
+
+  project   Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  factorSet EmissionFactorSet? @relation(fields: [factorSetId], references: [id])
+  entries   CarbonEntry[]
+  auditLogs CarbonAuditLog[]
+
+  @@index([projectId])
+}
+
+/// 單筆活動數據記錄（活動量 × 排放係數 = 排放量）。
+model CarbonEntry {
+  id           String            @id @default(cuid())
+  inventoryId  String
+  scope        CarbonScope
+  categoryId   String
+  factorId     String?
+  workItemId   String?
+  activityQty  Decimal // 活動數據數量
+  activityUnit String // 輸入單位
+  factorValue  Decimal // 計算當下的係數快照 (kgCO₂e/unit)
+  co2e         Decimal // 計算結果 (kgCO₂e)
+  status       CarbonEntryStatus @default(DRAFT)
+  aiExtracted  Boolean           @default(false) // 是否由費思自憑證自動擷取
+  occurredAt   DateTime?
+  evidenceUrl  String? // 憑證/發票連結
+  verifiedById String? // 查證人 (Account)
+  verifiedAt   DateTime?
+  note         String?
+  createdBy    String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  deletedAt    DateTime?
+
+  inventory CarbonInventory  @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  category  EmissionCategory @relation(fields: [categoryId], references: [id])
+  factor    EmissionFactor?  @relation(fields: [factorId], references: [id])
+  workItem  WorkItem?        @relation(fields: [workItemId], references: [id], onDelete: SetNull)
+
+  @@index([inventoryId])
+  @@index([scope])
+}
+
+/// 稽核軌跡：記錄盤查/記錄的建立、確認、查證、刪除等動作。
+model CarbonAuditLog {
+  id          String             @id @default(cuid())
+  inventoryId String
+  entryId     String? // 針對哪一筆記錄（可空 = 針對整份盤查）
+  action      String // CREATE / UPDATE / CONFIRM / VERIFY / DELETE / RESTORE
+  actorId     String? // Account id
+  actorName   String?
+  fromStatus  CarbonEntryStatus?
+  toStatus    CarbonEntryStatus?
+  detail      String?
+  createdAt   DateTime           @default(now())
+
+  inventory CarbonInventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+
+  @@index([inventoryId])
+  @@index([entryId])
+}
+
+enum CarbonScope {
+  SCOPE_1 // 直接排放
+  SCOPE_2 // 外購電力
+  SCOPE_3 // 上下游
+}
+
+enum CarbonEntryStatus {
+  DRAFT // 草稿
+  CONFIRMED // 已確認
+  VERIFIED // 已查證
+}
+
+enum CarbonIntensityBasis {
+  CONTRACT_AMOUNT // 契約金額（預設）
+  FLOOR_AREA // 樓地板面積
+  DURATION // 工期
+}
+
+// ─────────────────────────────────────────────────────────────
+// PMIS-08 財務管理（會計傳票／專案損益／現金水位）
+// ─────────────────────────────────────────────────────────────
+
+/// 會計傳票（可由憑證經費思自動轉換產生）。
+model FinancialVoucher {
+  id           String            @id @default(cuid())
+  projectId    String
+  voucherNo    String? // 傳票號
+  date         DateTime
+  direction    FinancialDirection
+  category     String // 科目／類別，如 工程款、材料、人工、機具、管理費、稅費
+  amount       Decimal
+  cashFlow     Boolean           @default(true) // 是否影響現金水位
+  counterparty String? // 對象（廠商／機關）
+  summary      String?
+  evidenceUrl  String? // 憑證連結
+  aiExtracted  Boolean           @default(false) // 是否由費思自憑證擷取
+  status       VoucherStatus     @default(DRAFT)
+  createdBy    String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  deletedAt    DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([direction])
+}
+
+enum FinancialDirection {
+  INCOME // 收入
+  EXPENSE // 支出
+}
+
+enum VoucherStatus {
+  DRAFT // 草稿
+  CONFIRMED // 已確認
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -69,9 +281,10 @@ model WorkItem {
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
-  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  inspections Inspection[]
-  defects     Defect[]
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  inspections  Inspection[]
+  defects      Defect[]
+  carbonEntries CarbonEntry[]
 
   @@index([projectId])
 }
@@ -532,6 +745,7 @@ model Account {
 
   appliedDocuments ApprovalDocument[]     @relation("AppliedDocuments")
   signedSteps      ApprovalDocumentStep[] @relation("SignedSteps")
+  projectMembers   ProjectMember[]
 
   @@index([orgUnitId])
   @@index([positionId])

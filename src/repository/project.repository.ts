@@ -45,9 +45,27 @@ export function listWithCounts() {
   });
 }
 
-export function listWithWorkItems() {
+export function listWithCountsForAccount(accountId: string) {
   return prisma.project.findMany({
-    where: { deletedAt: null, workItems: { some: {} } },
+    where: { deletedAt: null, members: { some: { accountId } } },
+    orderBy: { createdAt: "desc" },
+    include: {
+      _count: { select: { workItems: true, inspections: true, defects: true } },
+      milestones: {
+        where: { deletedAt: null, type: "MILESTONE" },
+        select: { weight: true, plannedDate: true, actualDate: true },
+      },
+    },
+  });
+}
+
+export function listWithWorkItems(projectId?: string) {
+  return prisma.project.findMany({
+    where: {
+      deletedAt: null,
+      workItems: { some: {} },
+      ...(projectId ? { id: projectId } : {}),
+    },
     orderBy: { createdAt: "desc" },
     include: { workItems: { orderBy: { createdAt: "asc" } } },
   });
@@ -70,6 +88,10 @@ export function findByIdWithRelations(id: string) {
       milestones: { where: { deletedAt: null }, orderBy: { plannedDate: "asc" } },
       paymentNodes: { orderBy: { plannedDate: "asc" } },
       documents: { where: { deletedAt: null }, orderBy: { createdAt: "desc" } },
+      members: {
+        orderBy: { createdAt: "asc" },
+        include: { account: { include: { orgUnit: true, position: true } } },
+      },
     },
   });
 }

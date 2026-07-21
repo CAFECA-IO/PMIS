@@ -1,5 +1,8 @@
 import * as scheduleService from "@/service/schedule.service";
+import * as projectService from "@/service/project.service";
+import { requireUser } from "@/service/auth.service";
 import { PageHeader } from "@/components/page-header";
+import { ProjectSwitcher } from "@/components/project-switcher";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -16,14 +19,29 @@ import { formatDate } from "@/lib/utils";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "時程進度 — PMIS" };
 
-export default async function SchedulePage() {
-  const projects = await scheduleService.listSchedule();
+export default async function SchedulePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ project?: string }>;
+}) {
+  const user = await requireUser();
+  const { project } = await searchParams;
+  const projectList = await projectService.listProjects(user);
+  const selectedProjectId =
+    project && projectList.some((p) => p.id === project) ? project : undefined;
+  const projects = await scheduleService.listSchedule(selectedProjectId);
 
   return (
     <>
       <PageHeader
         title="時程進度管理"
         description="PMIS-04 · 工程進度、預定/實際與落後預警"
+        action={
+          <ProjectSwitcher
+            projects={projectList.map((p) => ({ id: p.id, name: p.name }))}
+            selected={selectedProjectId}
+          />
+        }
       />
       <div className="space-y-6 p-8">
         {projects.length === 0 ? (

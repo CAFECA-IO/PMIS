@@ -94,6 +94,22 @@ export async function addContractChangeAction(formData: FormData) {
   refreshProject(projectId);
 }
 
+export async function addProjectMemberAction(formData: FormData) {
+  const projectId = field(formData, "projectId");
+  if (!projectId) return;
+  await projectService.addProjectMember({
+    projectId,
+    accountId: field(formData, "accountId"),
+    role: field(formData, "role"),
+  });
+  refreshProject(projectId);
+}
+
+export async function removeProjectMemberAction(id: string, projectId: string) {
+  await projectService.removeProjectMember(id);
+  refreshProject(projectId);
+}
+
 export async function addDocumentAction(formData: FormData) {
   const projectId = field(formData, "projectId");
   if (!projectId) return;

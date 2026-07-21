@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
+import { CityCombobox } from "@/components/city-combobox";
 
 function SubmitButton() {
   const { pending } = useFormStatus();
@@ -68,7 +69,14 @@ export function ProjectForm() {
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         <Field label="專案編號" name="code" required placeholder="PMIS-2026-004" />
         <Field label="專案名稱" name="name" required placeholder="○○新建工程" />
-        <Field label="地點" name="location" placeholder="縣市 / 行政區" />
+        <div className="space-y-2">
+          <Label htmlFor="location">地點</Label>
+          <CityCombobox
+            id="location"
+            name="location"
+            placeholder="輸入城市名稱或代碼搜尋"
+          />
+        </div>
         <div className="space-y-2">
           <Label htmlFor="status">狀態</Label>
           <Select id="status" name="status" defaultValue="PLANNING">

@@ -4,6 +4,7 @@ import { PrismaClient } from "../src/generated/prisma/client";
 import type {
   ReminderCategory,
   ReminderStatus,
+  CarbonScope,
 } from "../src/generated/prisma/enums";
 
 const adapter = new PrismaBetterSqlite3({
@@ -20,6 +21,12 @@ async function main() {
   await prisma.approvalDocument.deleteMany();
   await prisma.approvalWorkflowStep.deleteMany();
   await prisma.approvalWorkflow.deleteMany();
+  await prisma.financialVoucher.deleteMany();
+  await prisma.carbonEntry.deleteMany();
+  await prisma.carbonInventory.deleteMany();
+  await prisma.emissionFactor.deleteMany();
+  await prisma.emissionCategory.deleteMany();
+  await prisma.projectMember.deleteMany();
   await prisma.account.deleteMany();
   await prisma.position.deleteMany();
   await prisma.orgUnit.updateMany({ data: { parentId: null } });
@@ -382,6 +389,167 @@ async function main() {
     ],
   });
 
+  // 專案人力配置（決定各帳號可見的專案）
+  const seededAccounts = await prisma.account.findMany({
+    select: { id: true, email: true },
+  });
+  const accountId = (email: string) => {
+    const a = seededAccounts.find((x) => x.email === email);
+    if (!a) throw new Error(`Seed: account not found for ${email}`);
+    return a.id;
+  };
+  await prisma.projectMember.createMany({
+    data: [
+      // 捷運藍線 CJ302
+      { projectId: metro.id, accountId: accountId("wb.li@cafeca.com.tw"), role: "SUPERVISOR" },
+      { projectId: metro.id, accountId: accountId("jh.wu@cafeca.com.tw"), role: "MEMBER" },
+      { projectId: metro.id, accountId: accountId("yt.tsai@cafeca.com.tw"), role: "MEMBER" },
+      { projectId: metro.id, accountId: accountId("gf.zeng@cafeca.com.tw"), role: "INSPECTOR" },
+      // 淡江大橋主橋段
+      { projectId: bridge.id, accountId: accountId("kw.zheng@cafeca.com.tw"), role: "MANAGER" },
+      { projectId: bridge.id, accountId: accountId("yt.hsu@cafeca.com.tw"), role: "MEMBER" },
+      { projectId: bridge.id, accountId: accountId("sz.qiu@cafeca.com.tw"), role: "INSPECTOR" },
+    ],
+  });
+
+  // ── PMIS-10 碳盤查：係數版本 + 係數庫 + 範例盤查 ────────────
+  // 兩個並存版本，示範多版本切換（示意值，實作前需以環境部完整版校正）
+  const set2026 = await prisma.emissionFactorSet.create({
+    data: {
+      name: "環境部排放係數管理表 6.0.4",
+      version: "6.0.4",
+      year: 2026,
+      gwpSet: "AR5",
+      source: "環境部",
+      isDefault: true,
+    },
+  });
+  const set2024 = await prisma.emissionFactorSet.create({
+    data: {
+      name: "環境部排放係數管理表 6.0.3",
+      version: "6.0.3",
+      year: 2024,
+      gwpSet: "AR5",
+      source: "環境部",
+    },
+  });
+
+  const catDefs: {
+    key: string;
+    scope: CarbonScope;
+    name: string;
+    unit: string;
+    v2026: number;
+    v2024: number;
+  }[] = [
+    { key: "diesel", scope: "SCOPE_1", name: "柴油", unit: "L", v2026: 2.606, v2024: 2.615 },
+    { key: "gasoline", scope: "SCOPE_1", name: "汽油", unit: "L", v2026: 2.263, v2024: 2.271 },
+    { key: "lpg", scope: "SCOPE_1", name: "液化石油氣", unit: "kg", v2026: 3.0, v2024: 3.02 },
+    { key: "natgas", scope: "SCOPE_1", name: "天然氣", unit: "m³", v2026: 1.879, v2024: 1.883 },
+    { key: "acetylene", scope: "SCOPE_1", name: "乙炔（動火）", unit: "kg", v2026: 3.38, v2024: 3.38 },
+    { key: "elec", scope: "SCOPE_2", name: "外購電力", unit: "kWh", v2026: 0.474, v2024: 0.494 },
+    { key: "concrete", scope: "SCOPE_3", name: "常態混凝土", unit: "m³", v2026: 265, v2024: 270 },
+    { key: "rebar", scope: "SCOPE_3", name: "鋼筋", unit: "t", v2026: 1900, v2024: 1950 },
+    { key: "cement", scope: "SCOPE_3", name: "水泥", unit: "t", v2026: 830, v2024: 850 },
+    { key: "asphalt", scope: "SCOPE_3", name: "瀝青混凝土", unit: "t", v2026: 55, v2024: 57 },
+    { key: "transport", scope: "SCOPE_3", name: "材料運輸", unit: "t-km", v2026: 0.11, v2024: 0.12 },
+    { key: "waste", scope: "SCOPE_3", name: "營建廢棄物", unit: "t", v2026: 20, v2024: 21 },
+  ];
+
+  const category: Record<string, { id: string }> = {};
+  const factor2026: Record<string, { id: string; value: number }> = {};
+  for (const d of catDefs) {
+    const c = await prisma.emissionCategory.create({
+      data: { scope: d.scope, name: d.name, unit: d.unit },
+    });
+    const f = await prisma.emissionFactor.create({
+      data: { setId: set2026.id, categoryId: c.id, value: d.v2026, unit: d.unit },
+    });
+    await prisma.emissionFactor.create({
+      data: { setId: set2024.id, categoryId: c.id, value: d.v2024, unit: d.unit },
+    });
+    category[d.key] = c;
+    factor2026[d.key] = { id: f.id, value: d.v2026 };
+  }
+
+  const mkEntry = (
+    scope: CarbonScope,
+    key: string,
+    qty: number,
+    unit: string,
+    opts: {
+      aiExtracted?: boolean;
+      status?: "DRAFT" | "CONFIRMED" | "VERIFIED";
+    } = {},
+  ) => {
+    const f = factor2026[key];
+    return {
+      scope,
+      categoryId: category[key].id,
+      factorId: f.id,
+      activityQty: qty,
+      activityUnit: unit,
+      factorValue: f.value,
+      co2e: f.value * qty, // kgCO₂e
+      status: opts.status ?? "CONFIRMED",
+      aiExtracted: opts.aiExtracted ?? false,
+      occurredAt: new Date("2026-06-30"),
+    };
+  };
+
+  const carbonInv = await prisma.carbonInventory.create({
+    data: {
+      projectId: metro.id,
+      factorSetId: set2026.id,
+      name: "2026 年度盤查",
+      periodStart: new Date("2026-01-01"),
+      periodEnd: new Date("2026-12-31"),
+      baselineCo2e: 1200,
+      targetCo2e: 1000,
+      intensityBasis: "CONTRACT_AMOUNT",
+      entries: {
+        create: [
+          mkEntry("SCOPE_1", "diesel", 42000, "L"),
+          mkEntry("SCOPE_2", "elec", 380000, "kWh", { aiExtracted: true }),
+          mkEntry("SCOPE_3", "concrete", 5200, "m³", { status: "VERIFIED" }),
+          mkEntry("SCOPE_3", "rebar", 860, "t"),
+        ],
+      },
+    },
+  });
+
+  // 稽核軌跡範例
+  await prisma.carbonAuditLog.createMany({
+    data: [
+      {
+        inventoryId: carbonInv.id,
+        action: "CREATE",
+        actorName: "系統種子",
+        detail: "建立 2026 年度盤查",
+      },
+      {
+        inventoryId: carbonInv.id,
+        action: "VERIFY",
+        actorName: "第三方查證機構",
+        toStatus: "VERIFIED",
+        detail: "混凝土用量經查證",
+      },
+    ],
+  });
+
+  // ── PMIS-08 財務管理：範例會計傳票 ──────────────────────────
+  await prisma.financialVoucher.createMany({
+    data: [
+      { projectId: metro.id, voucherNo: "R-2026-001", date: new Date("2026-02-15"), direction: "INCOME", category: "工程估驗款", amount: 320_000_000, counterparty: "交通部捷運工程局", summary: "第一期估驗計價", status: "CONFIRMED" },
+      { projectId: metro.id, voucherNo: "R-2026-002", date: new Date("2026-05-20"), direction: "INCOME", category: "工程估驗款", amount: 285_000_000, counterparty: "交通部捷運工程局", summary: "第二期估驗計價", status: "CONFIRMED" },
+      { projectId: metro.id, voucherNo: "P-2026-014", date: new Date("2026-03-05"), direction: "EXPENSE", category: "材料", amount: 96_000_000, counterparty: "台灣鋼鐵", summary: "鋼筋進料", status: "CONFIRMED", aiExtracted: true },
+      { projectId: metro.id, voucherNo: "P-2026-021", date: new Date("2026-04-10"), direction: "EXPENSE", category: "材料", amount: 58_000_000, counterparty: "國產建材", summary: "預拌混凝土", status: "CONFIRMED" },
+      { projectId: metro.id, voucherNo: "P-2026-030", date: new Date("2026-04-28"), direction: "EXPENSE", category: "人工", amount: 42_000_000, counterparty: "勞務承攬", summary: "四月工資", status: "CONFIRMED" },
+      { projectId: metro.id, voucherNo: "P-2026-038", date: new Date("2026-05-12"), direction: "EXPENSE", category: "機具", amount: 24_500_000, counterparty: "營建機械租賃", summary: "潛盾機租金", status: "CONFIRMED" },
+      { projectId: metro.id, voucherNo: "P-2026-045", date: new Date("2026-06-18"), direction: "EXPENSE", category: "管理費", amount: 8_600_000, counterparty: "—", summary: "現場管理費", status: "DRAFT" },
+    ],
+  });
+
   // 簽核流程範本
   await prisma.approvalWorkflow.create({
     data: {
@@ -427,6 +595,10 @@ async function main() {
     組織: await prisma.orgUnit.count(),
     職位: await prisma.position.count(),
     帳號: await prisma.account.count(),
+    專案成員: await prisma.projectMember.count(),
+    碳盤查: await prisma.carbonInventory.count(),
+    碳排記錄: await prisma.carbonEntry.count(),
+    會計傳票: await prisma.financialVoucher.count(),
     簽核流程: await prisma.approvalWorkflow.count(),
   };
   console.log("✅ Seed complete:", counts);

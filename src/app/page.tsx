@@ -21,6 +21,7 @@ import {
 
 import * as dashboardService from "@/service/dashboard.service";
 import * as projectService from "@/service/project.service";
+import { requireUser } from "@/service/auth.service";
 import { PageHeader } from "@/components/page-header";
 import { SCurveChart } from "@/components/s-curve-chart";
 import { RadialGauge, StatRows, ProgressWithTarget } from "@/components/charts";
@@ -60,6 +61,8 @@ export default async function DashboardPage({
   const activeRange = RANGES.find((r) => r.key === range) ?? RANGES[2];
   const rangeLabel = activeRange.label;
 
+  const user = await requireUser();
+
   const [
     { stats, upcomingReminders, latestDefects, moduleCounts },
     metrics,
@@ -69,7 +72,7 @@ export default async function DashboardPage({
     dashboardService.getDashboard(),
     dashboardService.getMetrics(activeRange.days),
     dashboardService.getSCurve(),
-    projectService.listProjects(),
+    projectService.listProjects(user),
   ]);
 
   const behind = metrics.gap < 0;

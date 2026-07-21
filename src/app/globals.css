@@ -10,8 +10,8 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.45 0.16 250);
-  --primary-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.72 0.16 58); /* iSunFA 橘 */
+  --primary-foreground: oklch(0.99 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
@@ -21,7 +21,7 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.45 0.16 250);
+  --ring: oklch(0.72 0.16 58);
 }
 
 .dark {
@@ -186,4 +186,47 @@ body {
   background: var(--muted);
   font-weight: 600;
   white-space: nowrap;
+}
+
+/* Chat-bubble notification: pop in, fade out */
+@keyframes bubble-in {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.85);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.03);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.animate-bubble-in {
+  animation: bubble-in 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes bubble-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.94);
+  }
+}
+.animate-bubble-out {
+  animation: bubble-out 0.22s ease-in forwards;
+}
+
+/* 智能監測攝影機掃描線 */
+@keyframes cam-scan {
+  0% { transform: translateY(-20%); opacity: 0; }
+  20% { opacity: 0.5; }
+  100% { transform: translateY(420%); opacity: 0; }
+}
+.cam-scan {
+  animation: cam-scan 3.2s linear infinite;
 }

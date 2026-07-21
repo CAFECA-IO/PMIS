@@ -2,6 +2,8 @@ import * as projectRepo from "@/repository/project.repository";
 import * as milestoneRepo from "@/repository/milestone.repository";
 import * as contractChangeRepo from "@/repository/contractChange.repository";
 import * as documentRepo from "@/repository/projectDocument.repository";
+import * as projectMemberRepo from "@/repository/projectMember.repository";
+import * as accountRepo from "@/repository/account.repository";
 import {
   projectStatusMeta,
   milestoneTypeMeta,
@@ -11,8 +13,11 @@ import type {
   ProjectStatus,
   MilestoneType,
   ProjectDocumentCategory,
+  AccountRole,
+  ProjectMemberRole,
 } from "@/generated/prisma/enums";
 import type { UpdateProjectData } from "@/repository/project.repository";
+import { canSeeAllProjects } from "@/lib/auth";
 
 const VALID_STATUSES = Object.keys(projectStatusMeta) as ProjectStatus[];
 const VALID_MILESTONE_TYPES = Object.keys(milestoneTypeMeta) as MilestoneType[];
@@ -61,16 +66,134 @@ export function computeMilestoneProgress(
   return { overall, planned: plannedPct, gap: round(overall - plannedPct) };
 }
 
-export async function listProjects() {
-  const projects = await projectRepo.listWithCounts();
+type OverviewProject = {
+  status: string;
+  budget: unknown;
+  endDate: Date | null;
+  milestones: { type: string; weight: number; plannedDate: Date | null; actualDate: Date | null }[];
+  defects: { status: string; dueDate: Date | null }[];
+  inspections: { result: string }[];
+  contractChanges: { amountAfter: unknown }[];
+  paymentNodes: { status: string; amount: unknown }[];
+};
+
+/** 彙整單一專案總覽所需的關鍵指標（警示、進度、財務、工期）。 */
+export function computeProjectOverview(project: OverviewProject) {
+  const now = Date.now();
+  const day = 86_400_000;
+  const num = (v: unknown): number | null =>
+    v == null ? null : Number(v as number);
+
+  const progress = computeMilestoneProgress(
+    project.milestones.filter((m) => m.type === "MILESTONE"),
+  );
+
+  const openDefects = project.defects.filter(
+    (d) => d.status === "OPEN" || d.status === "IN_PROGRESS",
+  );
+  const overdueDefects = openDefects.filter(
+    (d) => d.dueDate && new Date(d.dueDate).getTime() < now,
+  );
+  const pendingInspections = project.inspections.filter(
+    (i) => i.result === "PENDING",
+  );
+
+  const changes = project.contractChanges;
+  const latestChange = changes.length ? changes[changes.length - 1] : null;
+  const originalAmount = num(project.budget);
+  const currentAmount =
+    latestChange && latestChange.amountAfter != null
+      ? num(latestChange.amountAfter)
+      : originalAmount;
+
+  const paidTotal = project.paymentNodes
+    .filter((p) => p.status === "PAID")
+    .reduce((s, p) => s + (num(p.amount) ?? 0), 0);
+  const paymentBase = currentAmount ?? 0;
+  const paidPct = paymentBase > 0 ? Math.round((paidTotal / paymentBase) * 100) : 0;
+  const pendingPayments = project.paymentNodes.filter((p) => p.status !== "PAID");
+
+  const endTs = project.endDate ? new Date(project.endDate).getTime() : null;
+  const daysLeft = endTs != null ? Math.ceil((endTs - now) / day) : null;
+  const overdueSchedule =
+    daysLeft != null && daysLeft < 0 && project.status !== "COMPLETED";
+
+  return {
+    now,
+    progress,
+    openCount: openDefects.length,
+    overdueCount: overdueDefects.length,
+    pendingInspectionCount: pendingInspections.length,
+    changeCount: changes.length,
+    hasChanges: latestChange != null,
+    originalAmount,
+    currentAmount,
+    paidTotal,
+    paidPct,
+    pendingPaymentCount: pendingPayments.length,
+    daysLeft,
+    overdueSchedule,
+  };
+}
+
+export type Viewer = { id: string; role: AccountRole };
+
+/** Projects visible to the viewer — ADMIN/MANAGER see all, others see assigned only. */
+export async function listProjects(viewer: Viewer) {
+  const projects = canSeeAllProjects(viewer.role)
+    ? await projectRepo.listWithCounts()
+    : await projectRepo.listWithCountsForAccount(viewer.id);
   return projects.map((p) => ({
     ...p,
     progress: computeMilestoneProgress(p.milestones),
   }));
 }
 
-export function getProject(id: string) {
-  return projectRepo.findByIdWithRelations(id);
+/** Returns the project only if the viewer may access it, otherwise null. */
+export async function getProject(id: string, viewer: Viewer) {
+  const project = await projectRepo.findByIdWithRelations(id);
+  if (!project) return null;
+  if (
+    !canSeeAllProjects(viewer.role) &&
+    !project.members.some((m) => m.accountId === viewer.id)
+  ) {
+    return null;
+  }
+  return project;
+}
+
+// ── staffing / members (配置人力) ──────────────────────────
+const VALID_MEMBER_ROLES: ProjectMemberRole[] = [
+  "MANAGER",
+  "SUPERVISOR",
+  "INSPECTOR",
+  "MEMBER",
+];
+
+/** Active accounts that can be assigned to a project. */
+export function listAssignableAccounts() {
+  return accountRepo.listActive();
+}
+
+export type ProjectMemberInput = {
+  projectId: string;
+  accountId?: string;
+  role?: string;
+};
+
+export async function addProjectMember(input: ProjectMemberInput) {
+  const accountId = input.accountId?.trim();
+  if (!input.projectId || !accountId) return;
+  const role: ProjectMemberRole = VALID_MEMBER_ROLES.includes(
+    input.role as ProjectMemberRole,
+  )
+    ? (input.role as ProjectMemberRole)
+    : "MEMBER";
+  await projectMemberRepo.upsert({ projectId: input.projectId, accountId, role });
+}
+
+export async function removeProjectMember(id: string) {
+  await projectMemberRepo.remove(id);
 }
 
 // ── project create / update / delete ───────────────────────

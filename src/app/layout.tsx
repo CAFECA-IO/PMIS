@@ -4,6 +4,8 @@ import "./globals.css";
 import { Sidebar } from "@/components/sidebar";
 import { AiPanel } from "@/components/ai-panel";
 import { NotificationProvider } from "@/components/ui/notification";
+import { AiAssistantProvider } from "@/components/ai-assistant-context";
+import { getCurrentUser } from "@/service/auth.service";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -20,26 +22,36 @@ export const metadata: Metadata = {
   description: "AI-Powered Construction Supervision PMIS",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const user = await getCurrentUser();
+
   return (
     <html
       lang="zh-Hant"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="h-full overflow-hidden">
-        <NotificationProvider>
-          <div className="flex h-screen">
-            <Sidebar />
-            <main className="min-w-0 flex-1 overflow-y-auto bg-background">
-              {children}
-            </main>
-            <AiPanel />
-          </div>
-        </NotificationProvider>
+        <AiAssistantProvider>
+          <NotificationProvider>
+            {user ? (
+              <div className="flex h-screen">
+                <Sidebar
+                  user={{ name: user.name, email: user.email, role: user.role }}
+                />
+                <main className="min-w-0 flex-1 overflow-y-auto bg-background pt-14 lg:pt-0">
+                  {children}
+                </main>
+                <AiPanel />
+              </div>
+            ) : (
+              children
+            )}
+          </NotificationProvider>
+        </AiAssistantProvider>
       </body>
     </html>
   );

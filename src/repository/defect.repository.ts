@@ -4,9 +4,9 @@ import type { DefectStatus } from "@/generated/prisma/enums";
 const activeProject = { project: { deletedAt: null } };
 const OPEN_STATUSES: DefectStatus[] = ["OPEN", "IN_PROGRESS"];
 
-export function listWithProject() {
+export function listWithProject(projectId?: string) {
   return prisma.defect.findMany({
-    where: activeProject,
+    where: { ...activeProject, ...(projectId ? { projectId } : {}) },
     orderBy: { createdAt: "desc" },
     include: { project: true },
   });

@@ -18,6 +18,12 @@ import type {
   ReviewResult,
   MediaType,
   ReportStatus,
+  ProjectMemberRole,
+  CarbonScope,
+  CarbonEntryStatus,
+  CarbonIntensityBasis,
+  FinancialDirection,
+  VoucherStatus,
 } from "@/generated/prisma/enums";
 
 type BadgeVariant =
@@ -38,6 +44,75 @@ export const projectStatusMeta: Record<ProjectStatus, Meta> = {
   COMPLETED: { label: "已完工", variant: "success" },
   CANCELLED: { label: "已取消", variant: "destructive" },
 };
+
+export const projectMemberRoleMeta: Record<ProjectMemberRole, Meta> = {
+  MANAGER: { label: "專案經理", variant: "default" },
+  SUPERVISOR: { label: "監造", variant: "secondary" },
+  INSPECTOR: { label: "查驗", variant: "warning" },
+  MEMBER: { label: "成員", variant: "muted" },
+};
+
+export const projectMemberRoleOptions = Object.entries(
+  projectMemberRoleMeta,
+).map(([value, meta]) => ({ value, label: meta.label }));
+
+// ── PMIS-10 碳盤查 ──────────────────────────────────────────
+export const carbonScopeMeta: Record<CarbonScope, Meta> = {
+  SCOPE_1: { label: "範疇一 直接排放", variant: "destructive" },
+  SCOPE_2: { label: "範疇二 外購電力", variant: "warning" },
+  SCOPE_3: { label: "範疇三 上下游", variant: "secondary" },
+};
+
+/** 分範疇圖表用色（對應 CSS 色票）。 */
+export const carbonScopeColor: Record<CarbonScope, string> = {
+  SCOPE_1: "var(--destructive)",
+  SCOPE_2: "#f59e0b",
+  SCOPE_3: "var(--primary)",
+};
+
+export const carbonScopeOptions = Object.entries(carbonScopeMeta).map(
+  ([value, meta]) => ({ value, label: meta.label }),
+);
+
+export const carbonEntryStatusMeta: Record<CarbonEntryStatus, Meta> = {
+  DRAFT: { label: "草稿", variant: "muted" },
+  CONFIRMED: { label: "已確認", variant: "default" },
+  VERIFIED: { label: "已查證", variant: "success" },
+};
+
+export const carbonIntensityBasisMeta: Record<CarbonIntensityBasis, Meta> = {
+  CONTRACT_AMOUNT: { label: "契約金額", variant: "secondary" },
+  FLOOR_AREA: { label: "樓地板面積", variant: "secondary" },
+  DURATION: { label: "工期", variant: "secondary" },
+};
+
+export const carbonIntensityBasisOptions = Object.entries(
+  carbonIntensityBasisMeta,
+).map(([value, meta]) => ({ value, label: meta.label }));
+
+// ── PMIS-08 財務管理 ────────────────────────────────────────
+export const financialDirectionMeta: Record<FinancialDirection, Meta> = {
+  INCOME: { label: "收入", variant: "success" },
+  EXPENSE: { label: "支出", variant: "destructive" },
+};
+
+export const voucherStatusMeta: Record<VoucherStatus, Meta> = {
+  DRAFT: { label: "草稿", variant: "muted" },
+  CONFIRMED: { label: "已確認", variant: "default" },
+};
+
+export const financeCategoryOptions = [
+  "工程估驗款",
+  "追加減帳",
+  "材料",
+  "人工",
+  "機具",
+  "分包工程",
+  "管理費",
+  "稅費",
+  "保險",
+  "其他",
+];
 
 export const workItemStatusMeta: Record<WorkItemStatus, Meta> = {
   NOT_STARTED: { label: "未開始", variant: "muted" },

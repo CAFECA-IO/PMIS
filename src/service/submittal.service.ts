@@ -1,5 +1,5 @@
 import * as submittalRepo from "@/repository/submittal.repository";
 
-export function listSubmittals() {
-  return submittalRepo.listWithProject();
+export function listSubmittals(projectId?: string) {
+  return submittalRepo.listWithProject(projectId);
 }

@@ -1,10 +1,10 @@
 import * as inspectionRepo from "@/repository/inspection.repository";
 import * as defectRepo from "@/repository/defect.repository";
 
-export async function getQuality() {
+export async function getQuality(projectId?: string) {
   const [inspections, defects] = await Promise.all([
-    inspectionRepo.listWithRelations(),
-    defectRepo.listWithProject(),
+    inspectionRepo.listWithRelations(projectId),
+    defectRepo.listWithProject(projectId),
   ]);
   return { inspections, defects };
 }

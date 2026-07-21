@@ -4,7 +4,10 @@ import { Plus } from "lucide-react";
 import * as approval from "@/service/approval.service";
 import * as people from "@/service/people.service";
 import * as submittalService from "@/service/submittal.service";
+import * as projectService from "@/service/project.service";
+import { requireUser } from "@/service/auth.service";
 import { PageHeader } from "@/components/page-header";
+import { ProjectSwitcher } from "@/components/project-switcher";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,10 +51,15 @@ const TABS = [
 export default async function SubmittalsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; project?: string }>;
 }) {
-  const { tab } = await searchParams;
+  const { tab, project } = await searchParams;
   const active = TABS.some((t) => t.key === tab) ? tab! : "documents";
+
+  const user = await requireUser();
+  const projectList = await projectService.listProjects(user);
+  const selectedProjectId =
+    project && projectList.some((p) => p.id === project) ? project : undefined;
 
   const [documents, workflows, accounts, positions, submittals] =
     await Promise.all([
@@ -59,8 +67,9 @@ export default async function SubmittalsPage({
       approval.listWorkflows(),
       people.listAccounts(),
       people.listPositions(),
-      submittalService.listSubmittals(),
+      submittalService.listSubmittals(selectedProjectId),
     ]);
+  const projectQuery = selectedProjectId ? `&project=${selectedProjectId}` : "";
 
   const applicantOptions = accounts.map((a) => ({ id: a.id, name: a.name }));
   const workflowOptions = workflows.map((w) => ({ id: w.id, name: w.name }));
@@ -70,13 +79,19 @@ export default async function SubmittalsPage({
       <PageHeader
         title="簽核管理"
         description="PMIS-06 · 設定簽核流程、建立簽核文件並逐關簽核"
+        action={
+          <ProjectSwitcher
+            projects={projectList.map((p) => ({ id: p.id, name: p.name }))}
+            selected={selectedProjectId}
+          />
+        }
       />
 
-      <div className="flex gap-1 border-b px-8">
+      <div className="flex gap-1 overflow-x-auto border-b px-4 sm:px-8">
         {TABS.map((t) => (
           <Link
             key={t.key}
-            href={`/submittals?tab=${t.key}`}
+            href={`/submittals?tab=${t.key}${projectQuery}`}
             className={cn(
               "-mb-px border-b-2 px-4 py-3 text-sm font-medium transition-colors",
               active === t.key

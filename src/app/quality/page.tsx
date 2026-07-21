@@ -1,5 +1,8 @@
 import * as qualityService from "@/service/quality.service";
+import * as projectService from "@/service/project.service";
+import { requireUser } from "@/service/auth.service";
 import { PageHeader } from "@/components/page-header";
+import { ProjectSwitcher } from "@/components/project-switcher";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -21,14 +24,31 @@ import { formatDate } from "@/lib/utils";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "品質稽核 — PMIS" };
 
-export default async function QualityPage() {
-  const { inspections, defects } = await qualityService.getQuality();
+export default async function QualityPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ project?: string }>;
+}) {
+  const user = await requireUser();
+  const { project } = await searchParams;
+  const projectList = await projectService.listProjects(user);
+  const selectedProjectId =
+    project && projectList.some((p) => p.id === project) ? project : undefined;
+  const { inspections, defects } = await qualityService.getQuality(
+    selectedProjectId,
+  );
 
   return (
     <>
       <PageHeader
         title="品質稽核管理"
         description="PMIS-07 · 施工品質抽查、材料設備抽驗與缺失改善追蹤"
+        action={
+          <ProjectSwitcher
+            projects={projectList.map((p) => ({ id: p.id, name: p.name }))}
+            selected={selectedProjectId}
+          />
+        }
       />
       <div className="space-y-6 p-8">
         <Card>

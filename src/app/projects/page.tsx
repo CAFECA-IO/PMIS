@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 
 import * as projectService from "@/service/project.service";
+import { requireUser } from "@/service/auth.service";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,7 +22,8 @@ import { formatDate } from "@/lib/utils";
 export const dynamic = "force-dynamic";
 
 export default async function ProjectsPage() {
-  const projects = await projectService.listProjects();
+  const user = await requireUser();
+  const projects = await projectService.listProjects(user);
 
   return (
     <>

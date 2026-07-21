@@ -1,5 +1,5 @@
 import * as ehsRepo from "@/repository/ehs.repository";
 
-export function listEhsAudits() {
-  return ehsRepo.listWithProject();
+export function listEhsAudits(projectId?: string) {
+  return ehsRepo.listWithProject(projectId);
 }

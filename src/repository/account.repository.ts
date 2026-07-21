@@ -23,6 +23,22 @@ export function findByEmail(email: string) {
   return prisma.account.findUnique({ where: { email } });
 }
 
+export function findById(id: string) {
+  return prisma.account.findFirst({
+    where: { id, deletedAt: null },
+    include: { orgUnit: true, position: true },
+  });
+}
+
+/** Active accounts only — used for login and project staffing. */
+export function listActive() {
+  return prisma.account.findMany({
+    where: { deletedAt: null, status: "ACTIVE" },
+    orderBy: [{ role: "asc" }, { name: "asc" }],
+    include: { orgUnit: true, position: true },
+  });
+}
+
 export function create(data: CreateAccountData) {
   return prisma.account.create({ data });
 }

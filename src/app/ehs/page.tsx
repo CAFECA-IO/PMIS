@@ -1,7 +1,10 @@
 import { Sparkles } from "lucide-react";
 
 import * as ehsService from "@/service/ehs.service";
+import * as projectService from "@/service/project.service";
+import { requireUser } from "@/service/auth.service";
 import { PageHeader } from "@/components/page-header";
+import { ProjectSwitcher } from "@/components/project-switcher";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ImageAnalyzer } from "./image-analyzer";
@@ -19,14 +22,29 @@ import { formatDate } from "@/lib/utils";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "環安衛管理 — PMIS" };
 
-export default async function EhsPage() {
-  const audits = await ehsService.listEhsAudits();
+export default async function EhsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ project?: string }>;
+}) {
+  const user = await requireUser();
+  const { project } = await searchParams;
+  const projectList = await projectService.listProjects(user);
+  const selectedProjectId =
+    project && projectList.some((p) => p.id === project) ? project : undefined;
+  const audits = await ehsService.listEhsAudits(selectedProjectId);
 
   return (
     <>
       <PageHeader
         title="環安衛管理"
         description="PMIS-05 · 環境、職安衛、交通維持督導與稽核紀錄"
+        action={
+          <ProjectSwitcher
+            projects={projectList.map((p) => ({ id: p.id, name: p.name }))}
+            selected={selectedProjectId}
+          />
+        }
       />
       <div className="space-y-6 p-8">
         <Card>

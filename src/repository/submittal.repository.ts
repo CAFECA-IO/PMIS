@@ -9,9 +9,9 @@ const PENDING_STATUSES: SubmittalStatus[] = [
   "RETURNED",
 ];
 
-export function listWithProject() {
+export function listWithProject(projectId?: string) {
   return prisma.submittal.findMany({
-    where: activeProject,
+    where: { ...activeProject, ...(projectId ? { projectId } : {}) },
     orderBy: { createdAt: "desc" },
     include: { project: true },
   });
