@@ -1,0 +1,646 @@
+// PMIS — AI-Powered Construction Supervision
+// Prisma 7 schema. The datasource URL lives in prisma.config.ts.
+// Models are organised by the 8 functional modules (PMIS-01 ~ PMIS-08).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ─────────────────────────────────────────────────────────────
+// Core hub — Project (PMIS-03 契約履約管理 base)
+// ─────────────────────────────────────────────────────────────
+
+/// A construction project under supervision.
+model Project {
+  id          String        @id @default(cuid())
+  code        String        @unique
+  name        String
+  description String?
+  location    String?
+  contractNo  String?
+  client      String?
+  contractor  String?
+  supervisor  String?
+  budget      Decimal?
+  startDate   DateTime?
+  endDate     DateTime?
+  status      ProjectStatus @default(PLANNING)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  deletedAt   DateTime?
+
+  workItems         WorkItem[]
+  inspections       Inspection[]
+  defects           Defect[]
+  contractChanges   ContractChange[]
+  milestones        Milestone[]
+  paymentNodes      PaymentNode[]
+  documents         ProjectDocument[]
+  reminders         ReminderEvent[]
+  todos             TodoItem[]
+  ehsAudits         EhsAudit[]
+  submittals        Submittal[]
+  mediaAssets       MediaAsset[]
+  supervisionReports SupervisionReport[]
+}
+
+// ─────────────────────────────────────────────────────────────
+// PMIS-04 時程進度管理
+// ─────────────────────────────────────────────────────────────
+
+/// A work item / sub-work within a project (分項工程).
+model WorkItem {
+  id           String         @id @default(cuid())
+  projectId    String
+  code         String?
+  name         String
+  category     String?
+  plannedStart DateTime?
+  plannedEnd   DateTime?
+  actualStart  DateTime?
+  actualEnd    DateTime?
+  progress     Int            @default(0) // percent 0-100
+  status       WorkItemStatus @default(NOT_STARTED)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  inspections Inspection[]
+  defects     Defect[]
+
+  @@index([projectId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// PMIS-07 品質稽核管理 (施工查驗 + 缺失)
+// ─────────────────────────────────────────────────────────────
+
+/// An inspection / acceptance check (查驗).
+model Inspection {
+  id          String           @id @default(cuid())
+  projectId   String
+  workItemId  String?
+  type        InspectionType   @default(PROCESS)
+  scheduledAt DateTime
+  inspector   String?
+  result      InspectionResult @default(PENDING)
+  location    String?
+  notes       String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workItem WorkItem? @relation(fields: [workItemId], references: [id], onDelete: SetNull)
+  defects  Defect[]
+
+  @@index([projectId])
+  @@index([workItemId])
+}
+
+/// A quality/safety defect raised during supervision (缺失).
+model Defect {
+  id           String         @id @default(cuid())
+  projectId    String
+  workItemId   String?
+  inspectionId String?
+  title        String
+  description  String?
+  severity     DefectSeverity @default(MEDIUM)
+  status       DefectStatus   @default(OPEN)
+  reportedBy   String?
+  assignedTo   String?
+  dueDate      DateTime?
+  resolvedAt   DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workItem   WorkItem?   @relation(fields: [workItemId], references: [id], onDelete: SetNull)
+  inspection Inspection? @relation(fields: [inspectionId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────
+// PMIS-03 契約履約管理 (變更 / 里程碑 / 付款節點)
+// ─────────────────────────────────────────────────────────────
+
+/// Contract change record (契約變更).
+model ContractChange {
+  id          String    @id @default(cuid())
+  projectId   String
+  sequence    Int // 變更次數
+  description String
+  amountAfter Decimal? // 變更後契約金額
+  daysChanged Int? // 變更天數
+  approvedDate DateTime?
+  docNo       String? // 核准文號
+  createdAt   DateTime  @default(now())
+  deletedAt   DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+/// Contract & project document (契約與文件).
+model ProjectDocument {
+  id         String                  @id @default(cuid())
+  projectId  String
+  category   ProjectDocumentCategory @default(CONTRACT)
+  name       String
+  fileNo     String?
+  url        String?
+  issuedDate DateTime?
+  note       String?
+  createdAt  DateTime                @default(now())
+  deletedAt  DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+/// Schedule milestone or extension (工期里程碑 / 展延).
+model Milestone {
+  id          String        @id @default(cuid())
+  projectId   String
+  name          String
+  type          MilestoneType @default(MILESTONE)
+  plannedDate   DateTime?
+  actualDate    DateTime?
+  weight        Int           @default(1) // 進度權重
+  commissioning Boolean       @default(false) // 計入試運轉就緒度
+  docNo         String? // 核准文號 (展延)
+  note          String?
+  createdAt     DateTime      @default(now())
+  deletedAt     DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+/// Payment / valuation node (付款節點 / 計價).
+model PaymentNode {
+  id          String        @id @default(cuid())
+  projectId   String
+  name        String
+  amount      Decimal?
+  plannedDate DateTime?
+  paidDate    DateTime?
+  status      PaymentStatus @default(PENDING)
+  createdAt   DateTime      @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// PMIS-01 行事曆提醒及預警
+// ─────────────────────────────────────────────────────────────
+
+/// Calendar event / reminder (行事曆事件與預警).
+model ReminderEvent {
+  id        String           @id @default(cuid())
+  projectId String
+  title     String
+  category  ReminderCategory @default(OTHER)
+  dueDate   DateTime
+  status    ReminderStatus   @default(UPCOMING)
+  note      String?
+  createdAt DateTime         @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([dueDate])
+}
+
+// ─────────────────────────────────────────────────────────────
+// PMIS-02 待辦事項追蹤
+// ─────────────────────────────────────────────────────────────
+
+/// Cross-unit to-do / follow-up item (待辦事項).
+model TodoItem {
+  id        String     @id @default(cuid())
+  projectId String
+  title     String
+  unit      String? // 負責單位
+  assignee  String?
+  source    String? // 來源 (缺失 / 退件 / 待簽核…)
+  dueDate   DateTime?
+  status    TodoStatus @default(PENDING)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────
+// PMIS-05 環安衛管理
+// ─────────────────────────────────────────────────────────────
+
+/// Environment / Health & Safety / Traffic audit (環安衛稽核).
+model EhsAudit {
+  id         String    @id @default(cuid())
+  projectId  String
+  type       EhsType   @default(SAFETY)
+  auditedAt  DateTime
+  inspector  String?
+  location   String?
+  result     EhsResult @default(PENDING)
+  findings   String? // 缺失情形
+  dueDate    DateTime? // 改善期限
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([type])
+}
+
+// ─────────────────────────────────────────────────────────────
+// PMIS-06 送審文件材料管理
+// ─────────────────────────────────────────────────────────────
+
+/// Submittal for design / construction / material / test report (送審).
+model Submittal {
+  id                String            @id @default(cuid())
+  projectId         String
+  category          SubmittalCategory @default(MATERIAL)
+  name              String
+  materialName      String?
+  plannedSubmitDate DateTime?
+  actualSubmitDate  DateTime?
+  reviewDate        DateTime?
+  reviewResult      ReviewResult      @default(PENDING)
+  status            SubmittalStatus   @default(DRAFT)
+  fileNo            String? // 歸檔編號
+  note              String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────
+// PMIS-08 文件/照片/影片資料庫 + 監造報表
+// ─────────────────────────────────────────────────────────────
+
+/// Media / document asset (文件 / 照片 / 影片).
+model MediaAsset {
+  id         String    @id @default(cuid())
+  projectId  String
+  title      String
+  type       MediaType @default(PHOTO)
+  category   String?
+  fileUrl    String?
+  fileSizeKb Int?
+  uploadedBy String?
+  capturedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([type])
+}
+
+/// Daily supervision report (監造報表).
+model SupervisionReport {
+  id         String       @id @default(cuid())
+  projectId  String
+  reportDate DateTime
+  weather    String?
+  summary    String? // 按圖施工概況
+  manpower   String? // 工地人員及機具
+  equipment  String?
+  keyNotes   String? // 重要事項
+  filedBy    String?
+  status     ReportStatus @default(DRAFT)
+  createdAt  DateTime     @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, reportDate])
+  @@index([projectId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum WorkItemStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  DELAYED
+}
+
+enum InspectionType {
+  MATERIAL
+  PROCESS
+  ACCEPTANCE
+  SAFETY
+}
+
+enum InspectionResult {
+  PENDING
+  PASSED
+  FAILED
+  CONDITIONAL
+}
+
+enum DefectSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum DefectStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum MilestoneType {
+  MILESTONE
+  EXTENSION
+}
+
+enum ProjectDocumentCategory {
+  CONTRACT
+  AMENDMENT
+  DRAWING
+  PERMIT
+  REPORT
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  INVOICED
+  PAID
+}
+
+enum ReminderCategory {
+  DEADLINE
+  MEETING
+  SUBMITTAL
+  AUDIT
+  IMPROVEMENT
+  OTHER
+}
+
+enum ReminderStatus {
+  UPCOMING
+  DUE_SOON
+  OVERDUE
+  DONE
+}
+
+enum TodoStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
+  OVERDUE
+}
+
+enum EhsType {
+  SAFETY
+  ENVIRONMENT
+  TRAFFIC
+  HEALTH
+}
+
+enum EhsResult {
+  PENDING
+  PASS
+  FAIL
+  IMPROVING
+}
+
+enum SubmittalCategory {
+  DESIGN
+  CONSTRUCTION
+  MATERIAL
+  TEST_REPORT
+}
+
+enum SubmittalStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  RETURNED
+  APPROVED
+}
+
+enum ReviewResult {
+  PENDING
+  APPROVED
+  REJECTED
+  CONDITIONAL
+}
+
+enum MediaType {
+  PHOTO
+  VIDEO
+  DOCUMENT
+  DRAWING
+  REPORT
+}
+
+enum ReportStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+}
+
+// ─────────────────────────────────────────────────────────────
+// 人員管理 (組織 / 職位 / 帳號)
+// ─────────────────────────────────────────────────────────────
+
+/// Organisation unit with self-referencing hierarchy (組織).
+model OrgUnit {
+  id        String    @id @default(cuid())
+  name      String
+  code      String?
+  parentId  String?
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  parent   OrgUnit?  @relation("OrgTree", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children OrgUnit[] @relation("OrgTree")
+  accounts Account[]
+
+  @@index([parentId])
+}
+
+/// Job position / title (職位).
+model Position {
+  id        String    @id @default(cuid())
+  name      String
+  rank      Int       @default(0)
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  accounts      Account[]
+  workflowSteps ApprovalWorkflowStep[]
+  documentSteps ApprovalDocumentStep[]
+}
+
+/// User account / personnel (帳號).
+model Account {
+  id         String        @id @default(cuid())
+  name       String
+  email      String        @unique
+  phone      String?
+  role       AccountRole   @default(ENGINEER)
+  status     AccountStatus @default(ACTIVE)
+  orgUnitId  String?
+  positionId String?
+  createdAt  DateTime      @default(now())
+  deletedAt  DateTime?
+
+  orgUnit  OrgUnit?  @relation(fields: [orgUnitId], references: [id], onDelete: SetNull)
+  position Position? @relation(fields: [positionId], references: [id], onDelete: SetNull)
+
+  appliedDocuments ApprovalDocument[]     @relation("AppliedDocuments")
+  signedSteps      ApprovalDocumentStep[] @relation("SignedSteps")
+
+  @@index([orgUnitId])
+  @@index([positionId])
+}
+
+enum AccountRole {
+  ADMIN
+  MANAGER
+  ENGINEER
+  INSPECTOR
+  VIEWER
+}
+
+enum AccountStatus {
+  ACTIVE
+  DISABLED
+}
+
+// ─────────────────────────────────────────────────────────────
+// 簽核管理 (流程範本 / 簽核文件 / 附件)
+// ─────────────────────────────────────────────────────────────
+
+/// Approval workflow template (簽核流程範本).
+model ApprovalWorkflow {
+  id          String                 @id @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime               @default(now())
+  deletedAt   DateTime?
+  steps       ApprovalWorkflowStep[]
+  documents   ApprovalDocument[]
+}
+
+/// A position that must sign at a given order (流程關卡).
+model ApprovalWorkflowStep {
+  id         String @id @default(cuid())
+  workflowId String
+  order      Int
+  positionId String
+
+  workflow ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  position Position         @relation(fields: [positionId], references: [id])
+
+  @@index([workflowId])
+}
+
+/// An approval document routed through a workflow (簽核文件).
+model ApprovalDocument {
+  id          String                 @id @default(cuid())
+  title       String
+  description String?
+  applicantId String
+  workflowId  String
+  status      ApprovalStatus         @default(PENDING)
+  currentStep Int                    @default(0)
+  createdAt   DateTime               @default(now())
+  deletedAt   DateTime?
+
+  applicant   Account                @relation("AppliedDocuments", fields: [applicantId], references: [id])
+  workflow    ApprovalWorkflow       @relation(fields: [workflowId], references: [id])
+  steps       ApprovalDocumentStep[]
+  attachments ApprovalAttachment[]
+
+  @@index([applicantId])
+  @@index([status])
+}
+
+/// A single sign-off step within a document (文件簽核關卡).
+model ApprovalDocumentStep {
+  id         String       @id @default(cuid())
+  documentId String
+  order      Int
+  positionId String
+  signedById String?
+  signedAt   DateTime?
+  decision   StepDecision @default(PENDING)
+  comment    String?
+
+  document ApprovalDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  position Position         @relation(fields: [positionId], references: [id])
+  signedBy Account?         @relation("SignedSteps", fields: [signedById], references: [id], onDelete: SetNull)
+
+  @@index([documentId])
+}
+
+/// Reference file attached to an approval document (參考文件).
+model ApprovalAttachment {
+  id         String   @id @default(cuid())
+  documentId String
+  fileName   String
+  storedName String
+  mimeType   String
+  size       Int
+  createdAt  DateTime @default(now())
+
+  document ApprovalDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum StepDecision {
+  PENDING
+  APPROVED
+  REJECTED
+}
