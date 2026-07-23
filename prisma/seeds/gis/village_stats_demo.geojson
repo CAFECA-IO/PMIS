@@ -1,0 +1,48 @@
+{
+  "type": "FeatureCollection",
+  "name": "village_stats_demo",
+  "note": "示範資料（村里人口），非正式 SEGIS 統計",
+  "metric": "人口數",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "label": "示範一里", "value": 8200 },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [[121.492, 25.0], [121.4995, 25.0], [121.4995, 25.006], [121.492, 25.006], [121.492, 25.0]]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "label": "示範二里", "value": 15400 },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [[121.4995, 25.0], [121.507, 25.0], [121.507, 25.006], [121.4995, 25.006], [121.4995, 25.0]]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "label": "示範三里", "value": 4300 },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [[121.492, 24.994], [121.4995, 24.994], [121.4995, 25.0], [121.492, 25.0], [121.492, 24.994]]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "label": "示範四里", "value": 11800 },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [[121.4995, 24.994], [121.507, 24.994], [121.507, 25.0], [121.4995, 25.0], [121.4995, 24.994]]
+        ]
+      }
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import * as projectService from "@/service/project.service";
 import { requireUser } from "@/service/auth.service";
+import { assertModuleAccess } from "@/service/access.service";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { ProjectSwitcher } from "@/components/project-switcher";
@@ -14,6 +15,7 @@ export default async function MonitoringPage({
   searchParams: Promise<{ project?: string }>;
 }) {
   const user = await requireUser();
+  await assertModuleAccess(user, "/monitoring");
   const { project } = await searchParams;
   const projectList = await projectService.listProjects(user);
   const selected =

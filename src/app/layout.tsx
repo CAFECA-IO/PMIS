@@ -7,6 +7,10 @@ import { NotificationProvider } from "@/components/ui/notification";
 import { ConfirmProvider } from "@/components/ui/confirm-provider";
 import { AiAssistantProvider } from "@/components/ai-assistant-context";
 import { getCurrentUser } from "@/service/auth.service";
+import {
+  getUserModulePermissions,
+  accessibleRoutes,
+} from "@/service/access.service";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -30,6 +34,9 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const user = await getCurrentUser();
+  const allowedRoutes = user
+    ? accessibleRoutes(await getUserModulePermissions(user))
+    : [];
 
   return (
     <html
@@ -44,6 +51,7 @@ export default async function RootLayout({
               <div className="flex h-screen">
                 <Sidebar
                   user={{ name: user.name, email: user.email, role: user.role }}
+                  allowedRoutes={allowedRoutes}
                 />
                 <main className="min-w-0 flex-1 overflow-y-auto bg-background pt-14 lg:pt-0">
                   {children}

@@ -65,3 +65,12 @@ export function addAttachment(
 export function findAttachment(id: string) {
   return prisma.ehsAttachment.findUnique({ where: { id } });
 }
+
+/** 全部環安衛上傳檔案（含所屬稽核與專案），供資料庫彙整。 */
+export function listAllAttachments() {
+  return prisma.ehsAttachment.findMany({
+    where: { audit: { project: { deletedAt: null } } },
+    orderBy: { createdAt: "desc" },
+    include: { audit: { include: { project: true } } },
+  });
+}

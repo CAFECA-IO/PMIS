@@ -1,11 +1,9 @@
 import Link from "next/link";
-import { Plus } from "lucide-react";
 
 import * as people from "@/service/people.service";
 import { PageHeader } from "@/components/page-header";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -23,9 +21,15 @@ import { accountRoleMeta, accountStatusMeta } from "@/constant/people";
 import { cn } from "@/lib/utils";
 import { AccountForm } from "./account-form";
 import { AccountStatusToggle } from "./account-status-toggle";
+import { ModulePermissionFields } from "./module-permission-fields";
+import { CreateRecordDialog } from "@/components/ui/create-record-dialog";
+import { PMIS_MODULES } from "@/constant/modules";
+import { requireUser } from "@/service/auth.service";
+import { assertModuleAccess, canEditModule } from "@/service/access.service";
 import {
   createOrgUnitAction,
-  createPositionAction,
+  createPositionWithPermsAction,
+  updatePositionPermsAction,
   deleteAccountAction,
   restoreAccountAction,
   deleteOrgUnitAction,
@@ -35,7 +39,7 @@ import {
 } from "./actions";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "人員管理 — PMIS" };
+export const metadata = { title: "組織管理 — PMIS" };
 
 const TABS = [
   { key: "accounts", label: "帳號" },
@@ -44,23 +48,35 @@ const TABS = [
   { key: "chart", label: "組織架構圖" },
 ] as const;
 
+const PERM_OVERVIEW: Record<string, { label: string; className: string }> = {
+  NONE: { label: "無", className: "text-muted-foreground" },
+  VIEW: { label: "檢視", className: "bg-blue-50 text-blue-700" },
+  EDIT: { label: "編輯", className: "bg-emerald-50 text-emerald-700" },
+};
+
 export default async function PeoplePage({
   searchParams,
 }: {
   searchParams: Promise<{ tab?: string }>;
 }) {
   const { tab } = await searchParams;
+  const user = await requireUser();
+  const perms = await assertModuleAccess(user, "/people");
+  const canEdit = canEditModule(perms, "/people");
   const active = TABS.some((t) => t.key === tab) ? tab! : "accounts";
 
   const { orgUnits, positions, accounts, chart } = await people.getOverview();
   const orgName = new Map(orgUnits.map((o) => [o.id, o.name]));
   const orgOptions = orgUnits.map((o) => ({ id: o.id, name: o.name }));
   const positionOptions = positions.map((p) => ({ id: p.id, name: p.name }));
+  const positionPerms =
+    active === "positions" ? await people.listPositionPermissions() : [];
+  const permById = new Map(positionPerms.map((pp) => [pp.id, pp.permissions]));
 
   return (
     <>
       <PageHeader
-        title="人員管理"
+        title="組織管理"
         description="設定組織、職位與帳號，並檢視組織架構"
       />
 
@@ -84,7 +100,16 @@ export default async function PeoplePage({
       <div className="max-w-5xl space-y-6 p-8">
         {active === "accounts" && (
           <Card>
-            <CardContent className="space-y-5 p-6">
+            <CardHeader className="flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-base">帳號</CardTitle>
+              {canEdit && (
+                <AccountForm
+                  orgOptions={orgOptions}
+                  positionOptions={positionOptions}
+                />
+              )}
+            </CardHeader>
+            <CardContent className="space-y-5 p-6 pt-0">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -128,16 +153,18 @@ export default async function PeoplePage({
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <div className="flex items-center justify-end gap-1">
-                            <AccountStatusToggle id={a.id} status={a.status} />
-                            <SoftDeleteButton
-                              id={a.id}
-                              label="帳號"
-                              name={a.name}
-                              onDelete={deleteAccountAction}
-                              onRestore={restoreAccountAction}
-                            />
-                          </div>
+                          {canEdit && (
+                            <div className="flex items-center justify-end gap-1">
+                              <AccountStatusToggle id={a.id} status={a.status} />
+                              <SoftDeleteButton
+                                id={a.id}
+                                label="帳號"
+                                name={a.name}
+                                onDelete={deleteAccountAction}
+                                onRestore={restoreAccountAction}
+                              />
+                            </div>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))
@@ -145,22 +172,43 @@ export default async function PeoplePage({
                 </TableBody>
               </Table>
 
-              <div>
-                <h3 className="mb-3 text-sm font-medium text-muted-foreground">
-                  新增帳號
-                </h3>
-                <AccountForm
-                  orgOptions={orgOptions}
-                  positionOptions={positionOptions}
-                />
-              </div>
             </CardContent>
           </Card>
         )}
 
         {active === "orgs" && (
           <Card>
-            <CardContent className="space-y-5 p-6">
+            <CardHeader className="flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-base">組織單位</CardTitle>
+              {canEdit && (
+              <CreateRecordDialog
+                title="新增組織"
+                triggerLabel="新增組織"
+                action={createOrgUnitAction}
+              >
+                <div className="space-y-1.5">
+                  <Label htmlFor="org-name">組織名稱 *</Label>
+                  <Input id="org-name" name="name" placeholder="品管組" required />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="org-code">代碼</Label>
+                  <Input id="org-code" name="code" />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="org-parent">上級單位</Label>
+                  <Select id="org-parent" name="parentId" defaultValue="">
+                    <option value="">（無，為最上層）</option>
+                    {orgOptions.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              </CreateRecordDialog>
+              )}
+            </CardHeader>
+            <CardContent className="space-y-5 p-6 pt-0">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -192,119 +240,159 @@ export default async function PeoplePage({
                           {o._count.accounts}
                         </TableCell>
                         <TableCell className="text-right">
-                          <SoftDeleteButton
-                            id={o.id}
-                            label="組織"
-                            name={o.name}
-                            onDelete={deleteOrgUnitAction}
-                            onRestore={restoreOrgUnitAction}
-                          />
+                          {canEdit && (
+                            <SoftDeleteButton
+                              id={o.id}
+                              label="組織"
+                              name={o.name}
+                              onDelete={deleteOrgUnitAction}
+                              onRestore={restoreOrgUnitAction}
+                            />
+                          )}
                         </TableCell>
                       </TableRow>
                     ))
                   )}
                 </TableBody>
               </Table>
-
-              <form
-                action={createOrgUnitAction}
-                className="grid grid-cols-1 gap-4 rounded-lg border bg-muted/30 p-4 sm:grid-cols-3"
-              >
-                <div className="space-y-1.5">
-                  <Label htmlFor="org-name">組織名稱 *</Label>
-                  <Input id="org-name" name="name" placeholder="品管組" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="org-code">代碼</Label>
-                  <Input id="org-code" name="code" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="org-parent">上級單位</Label>
-                  <Select id="org-parent" name="parentId" defaultValue="">
-                    <option value="">（無，為最上層）</option>
-                    {orgOptions.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.name}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-                <div className="sm:col-span-3">
-                  <Button type="submit" variant="secondary">
-                    <Plus className="size-4" />
-                    新增組織
-                  </Button>
-                </div>
-              </form>
             </CardContent>
           </Card>
         )}
 
         {active === "positions" && (
-          <Card>
-            <CardContent className="space-y-5 p-6">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>職位名稱</TableHead>
-                    <TableHead className="text-center">排序</TableHead>
-                    <TableHead className="text-center">人數</TableHead>
-                    <TableHead className="text-right">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {positions.length === 0 ? (
+          <div className="space-y-6">
+            <Card>
+              <CardHeader className="flex-row items-center justify-between space-y-0">
+                <CardTitle className="text-base">職位</CardTitle>
+                {canEdit && (
+                <CreateRecordDialog
+                  title="新增職位"
+                  triggerLabel="新增職位"
+                  action={createPositionWithPermsAction}
+                >
+                  <div className="space-y-1.5">
+                    <Label htmlFor="pos-name">職位名稱 *</Label>
+                    <Input id="pos-name" name="name" placeholder="主任工程師" required />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="pos-rank">排序</Label>
+                    <Input id="pos-rank" name="rank" type="number" placeholder="0" />
+                  </div>
+                  <ModulePermissionFields />
+                </CreateRecordDialog>
+                )}
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
                     <TableRow>
-                      <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
-                        尚無職位。
-                      </TableCell>
+                      <TableHead>職位名稱</TableHead>
+                      <TableHead className="text-center">排序</TableHead>
+                      <TableHead className="text-center">人數</TableHead>
+                      <TableHead className="text-right">操作</TableHead>
                     </TableRow>
-                  ) : (
-                    positions.map((p) => (
-                      <TableRow key={p.id}>
-                        <TableCell className="font-medium">{p.name}</TableCell>
-                        <TableCell className="text-center tabular-nums text-muted-foreground">
-                          {p.rank}
-                        </TableCell>
-                        <TableCell className="text-center tabular-nums">
-                          {p._count.accounts}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <SoftDeleteButton
-                            id={p.id}
-                            label="職位"
-                            name={p.name}
-                            onDelete={deletePositionAction}
-                            onRestore={restorePositionAction}
-                          />
+                  </TableHeader>
+                  <TableBody>
+                    {positions.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                          尚無職位。
                         </TableCell>
                       </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+                    ) : (
+                      positions.map((p) => (
+                        <TableRow key={p.id}>
+                          <TableCell className="font-medium">{p.name}</TableCell>
+                          <TableCell className="text-center tabular-nums text-muted-foreground">
+                            {p.rank}
+                          </TableCell>
+                          <TableCell className="text-center tabular-nums">
+                            {p._count.accounts}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {canEdit && (
+                              <div className="flex items-center justify-end gap-1">
+                                <CreateRecordDialog
+                                  title={`編輯權限：${p.name}`}
+                                  triggerLabel="編輯權限"
+                                  triggerVariant="outline"
+                                  triggerSize="sm"
+                                  action={updatePositionPermsAction}
+                                >
+                                  <input type="hidden" name="positionId" value={p.id} />
+                                  <ModulePermissionFields values={permById.get(p.id)} />
+                                </CreateRecordDialog>
+                                <SoftDeleteButton
+                                  id={p.id}
+                                  label="職位"
+                                  name={p.name}
+                                  onDelete={deletePositionAction}
+                                  onRestore={restorePositionAction}
+                                />
+                              </div>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
 
-              <form
-                action={createPositionAction}
-                className="grid grid-cols-1 gap-4 rounded-lg border bg-muted/30 p-4 sm:grid-cols-3"
-              >
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label htmlFor="pos-name">職位名稱 *</Label>
-                  <Input id="pos-name" name="name" placeholder="主任工程師" />
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">權限總覽</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto rounded-lg border">
+                  <table className="w-max border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="sticky left-0 z-20 w-[150px] min-w-[150px] border-r bg-muted px-3 py-2 text-left font-medium">
+                          職位
+                        </th>
+                        {PMIS_MODULES.map((m) => (
+                          <th
+                            key={m.key}
+                            className="w-[84px] min-w-[84px] whitespace-nowrap bg-muted/40 px-2 py-2 text-center text-xs font-medium"
+                            title={m.code}
+                          >
+                            {m.label}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {positionPerms.map((p) => (
+                        <tr key={p.id} className="border-b last:border-0">
+                          <td className="sticky left-0 z-10 w-[150px] min-w-[150px] border-r bg-card px-3 py-2 font-medium">
+                            {p.name}
+                          </td>
+                          {PMIS_MODULES.map((m) => {
+                            const lv = p.permissions[m.key] ?? "NONE";
+                            const meta = PERM_OVERVIEW[lv];
+                            return (
+                              <td key={m.key} className="px-2 py-2 text-center">
+                                <span
+                                  className={cn(
+                                    "inline-block rounded px-1.5 py-0.5 text-xs",
+                                    meta.className,
+                                  )}
+                                >
+                                  {meta.label}
+                                </span>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="pos-rank">排序</Label>
-                  <Input id="pos-rank" name="rank" type="number" placeholder="0" />
-                </div>
-                <div className="sm:col-span-3">
-                  <Button type="submit" variant="secondary">
-                    <Plus className="size-4" />
-                    新增職位
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </div>
         )}
 
         {active === "chart" && (

@@ -4,6 +4,7 @@ import { Sparkles, TrendingUp, TrendingDown, Scale, Wallet } from "lucide-react"
 import * as financeService from "@/service/finance.service";
 import * as projectService from "@/service/project.service";
 import { requireUser } from "@/service/auth.service";
+import { assertModuleAccess, canEditModule } from "@/service/access.service";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -72,6 +73,8 @@ export default async function FinancePage({
   searchParams: Promise<{ project?: string }>;
 }) {
   const user = await requireUser();
+  const perms = await assertModuleAccess(user, "/finance");
+  const canEdit = canEditModule(perms, "/finance");
   const { project } = await searchParams;
   const projectList = await projectService.listProjects(user);
   const actor = { id: user.id, name: user.name, role: user.role };
@@ -138,7 +141,11 @@ export default async function FinancePage({
             </CardHeader>
             <CardContent className="space-y-4">
               {vouchers.length === 0 ? (
-                <p className="text-sm text-muted-foreground">尚無傳票，請於下方新增或上傳憑證。</p>
+                <p className="text-sm text-muted-foreground">
+                  {canEdit
+                    ? "尚無傳票，請於下方新增或上傳憑證。"
+                    : "尚無傳票。"}
+                </p>
               ) : (
                 <Table>
                   <TableHeader>
@@ -186,7 +193,9 @@ export default async function FinancePage({
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <VoucherRowActions id={v.id} status={v.status} />
+                          {canEdit && (
+                            <VoucherRowActions id={v.id} status={v.status} />
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -194,7 +203,7 @@ export default async function FinancePage({
                 </Table>
               )}
 
-              <VoucherForm projectId={selectedProjectId} />
+              {canEdit && <VoucherForm projectId={selectedProjectId} />}
             </CardContent>
           </Card>
         </div>

@@ -1,0 +1,23 @@
+{
+  "type": "FeatureCollection",
+  "name": "soil_liquefaction_demo",
+  "note": "示範資料，非正式潛勢圖",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "level": "中", "label": "土壤液化中潛勢區（示範）" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [121.4965, 25.0005],
+            [121.5035, 25.0005],
+            [121.5035, 25.0045],
+            [121.4965, 25.0045],
+            [121.4965, 25.0005]
+          ]
+        ]
+      }
+    }
+  ]
+}

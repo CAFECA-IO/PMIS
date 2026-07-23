@@ -92,6 +92,14 @@ export function findAttachment(id: string) {
   return prisma.approvalAttachment.findUnique({ where: { id } });
 }
 
+/** 全部簽核文件上傳檔案（含所屬文件），供資料庫彙整。 */
+export function listAllAttachments() {
+  return prisma.approvalAttachment.findMany({
+    orderBy: { createdAt: "desc" },
+    include: { document: { select: { id: true, title: true } } },
+  });
+}
+
 export function countActive() {
   return prisma.approvalDocument.count({
     where: { deletedAt: null, status: "PENDING" },

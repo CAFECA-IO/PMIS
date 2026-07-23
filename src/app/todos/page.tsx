@@ -13,11 +13,16 @@ import {
 import { todoStatusMeta } from "@/constant/pmis";
 import { cn, formatDate } from "@/lib/utils";
 import { TodoActions } from "./todo-actions";
+import { requireUser } from "@/service/auth.service";
+import { assertModuleAccess, canEditModule } from "@/service/access.service";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "待辦追蹤 — PMIS" };
 
 export default async function TodosPage() {
+  const user = await requireUser();
+  const perms = await assertModuleAccess(user, "/todos");
+  const canEdit = canEditModule(perms, "/todos");
   const todos = await todoService.listTodos();
 
   return (
@@ -65,12 +70,14 @@ export default async function TodosPage() {
                         期限 {formatDate(t.dueDate)}
                       </span>
                     </div>
-                    <TodoActions
-                      id={t.id}
-                      status={t.status}
-                      read={read}
-                      title={t.title}
-                    />
+                    {canEdit && (
+                      <TodoActions
+                        id={t.id}
+                        status={t.status}
+                        read={read}
+                        title={t.title}
+                      />
+                    )}
                   </div>
                 );
               })}
@@ -125,12 +132,14 @@ export default async function TodosPage() {
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <TodoActions
-                            id={t.id}
-                            status={t.status}
-                            read={read}
-                            title={t.title}
-                          />
+                          {canEdit && (
+                            <TodoActions
+                              id={t.id}
+                              status={t.status}
+                              read={read}
+                              title={t.title}
+                            />
+                          )}
                         </TableCell>
                       </TableRow>
                     );

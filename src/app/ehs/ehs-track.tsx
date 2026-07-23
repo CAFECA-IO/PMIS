@@ -21,10 +21,12 @@ export function EhsTrack({
   auditId,
   attachments,
   notes,
+  canEdit = true,
 }: {
   auditId: string;
   attachments: Attachment[];
   notes: Note[];
+  canEdit?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const count = attachments.length + notes.length;
@@ -70,20 +72,22 @@ export function EhsTrack({
             ))}
           </ul>
         )}
-        <form action={uploadEhsFileAction} className="flex items-center gap-2">
-          <input type="hidden" name="auditId" value={auditId} />
-          <input
-            type="file"
-            name="file"
-            accept="image/*,application/pdf"
-            capture="environment"
-            className="min-w-0 flex-1 text-xs file:mr-2 file:rounded file:border-0 file:bg-secondary file:px-2 file:py-1 file:text-xs"
-          />
-          <Button type="submit" size="sm" variant="outline">
-            <Upload className="size-4" />
-            上傳
-          </Button>
-        </form>
+        {canEdit && (
+          <form action={uploadEhsFileAction} className="flex items-center gap-2">
+            <input type="hidden" name="auditId" value={auditId} />
+            <input
+              type="file"
+              name="file"
+              accept="image/*,application/pdf"
+              capture="environment"
+              className="min-w-0 flex-1 text-xs file:mr-2 file:rounded file:border-0 file:bg-secondary file:px-2 file:py-1 file:text-xs"
+            />
+            <Button type="submit" size="sm" variant="outline">
+              <Upload className="size-4" />
+              上傳
+            </Button>
+          </form>
+        )}
       </div>
 
       {/* Info: (20260721 - Luphia) 追蹤紀錄 */}
@@ -103,15 +107,32 @@ export function EhsTrack({
             ))}
           </div>
         )}
-        <form action={addEhsNoteAction} className="space-y-2">
-          <input type="hidden" name="auditId" value={auditId} />
-          <Textarea
-            name="body"
-            rows={2}
-            placeholder="新增追蹤紀錄（改善進度、複查結果…）"
-            className="text-sm"
-          />
-          <div className="flex justify-end gap-2">
+        {canEdit ? (
+          <form action={addEhsNoteAction} className="space-y-2">
+            <input type="hidden" name="auditId" value={auditId} />
+            <Textarea
+              name="body"
+              rows={2}
+              placeholder="新增追蹤紀錄（改善進度、複查結果…）"
+              className="text-sm"
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setOpen(false)}
+              >
+                收合
+              </Button>
+              <Button type="submit" size="sm">
+                <Plus className="size-4" />
+                新增紀錄
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <div className="flex justify-end">
             <Button
               type="button"
               variant="ghost"
@@ -120,12 +141,8 @@ export function EhsTrack({
             >
               收合
             </Button>
-            <Button type="submit" size="sm">
-              <Plus className="size-4" />
-              新增紀錄
-            </Button>
           </div>
-        </form>
+        )}
       </div>
     </div>
   );

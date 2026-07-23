@@ -1,0 +1,12 @@
+{
+  "type": "FeatureCollection",
+  "name": "shelter_demo",
+  "note": "示範資料",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "中和示範活動中心（避難收容）" },
+      "geometry": { "type": "Point", "coordinates": [121.498, 25.0009] }
+    }
+  ]
+}

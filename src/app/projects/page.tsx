@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { Plus } from "lucide-react";
 
 import * as projectService from "@/service/project.service";
 import { requireUser } from "@/service/auth.service";
+import { assertModuleAccess, canEditModule } from "@/service/access.service";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,11 +18,14 @@ import {
 import { ProgressWithTarget } from "@/components/charts";
 import { projectStatusMeta } from "@/constant/pmis";
 import { formatDate } from "@/lib/utils";
+import { ProjectCreateDialog } from "./project-create-dialog";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProjectsPage() {
   const user = await requireUser();
+  const perms = await assertModuleAccess(user, "/projects");
+  const canEdit = canEditModule(perms, "/projects");
   const projects = await projectService.listProjects(user);
 
   return (
@@ -30,14 +33,7 @@ export default async function ProjectsPage() {
       <PageHeader
         title="工程專案"
         description="所有監造工程專案清單"
-        action={
-          <Button asChild>
-            <Link href="/projects/new">
-              <Plus className="size-4" />
-              新增專案
-            </Link>
-          </Button>
-        }
+        action={canEdit ? <ProjectCreateDialog /> : undefined}
       />
       <div className="p-8">
         <Card className="overflow-hidden">
@@ -62,7 +58,9 @@ export default async function ProjectsPage() {
                     colSpan={9}
                     className="py-10 text-center text-muted-foreground"
                   >
-                    尚無專案，請點選「新增專案」建立第一筆。
+                    {canEdit
+                      ? "尚無專案，請點選「新增專案」建立第一筆。"
+                      : "尚無專案。"}
                   </TableCell>
                 </TableRow>
               ) : (

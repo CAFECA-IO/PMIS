@@ -1,19 +1,19 @@
 import Link from "next/link";
-import { Plus } from "lucide-react";
 
 import * as approval from "@/service/approval.service";
 import * as people from "@/service/people.service";
 import * as submittalService from "@/service/submittal.service";
 import * as projectService from "@/service/project.service";
 import { requireUser } from "@/service/auth.service";
+import { assertModuleAccess, canEditModule } from "@/service/access.service";
 import { PageHeader } from "@/components/page-header";
 import { ProjectSwitcher } from "@/components/project-switcher";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { CreateRecordDialog } from "@/components/ui/create-record-dialog";
 import {
   Table,
   TableBody,
@@ -70,6 +70,8 @@ export default async function SubmittalsPage({
     : "ALL") as (typeof PERIODS)[number]["value"];
 
   const user = await requireUser();
+  const perms = await assertModuleAccess(user, "/submittals");
+  const canEdit = canEditModule(perms, "/submittals");
   const projectList = await projectService.listProjects(user);
   const selectedProjectId =
     project && projectList.some((p) => p.id === project) ? project : undefined;
@@ -352,13 +354,15 @@ export default async function SubmittalsPage({
                               </Badge>
                             </TableCell>
                             <TableCell className="text-right">
-                              <SoftDeleteButton
-                                id={d.id}
-                                label="簽核文件"
-                                name={d.title}
-                                onDelete={deleteDocumentAction}
-                                onRestore={restoreDocumentAction}
-                              />
+                              {canEdit && (
+                                <SoftDeleteButton
+                                  id={d.id}
+                                  label="簽核文件"
+                                  name={d.title}
+                                  onDelete={deleteDocumentAction}
+                                  onRestore={restoreDocumentAction}
+                                />
+                              )}
                             </TableCell>
                           </TableRow>
                         );
@@ -369,23 +373,25 @@ export default async function SubmittalsPage({
               </CardContent>
             </Card>
 
-            <Card>
-              <CardContent className="space-y-4 p-6">
-                <h3 className="text-sm font-medium text-muted-foreground">
-                  建立簽核文件
-                </h3>
-                {workflowOptions.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    請先於「流程設定」建立至少一個簽核流程。
-                  </p>
-                ) : (
-                  <DocumentForm
-                    applicants={applicantOptions}
-                    workflows={workflowOptions}
-                  />
-                )}
-              </CardContent>
-            </Card>
+            {canEdit && (
+              <Card>
+                <CardContent className="space-y-4 p-6">
+                  <h3 className="text-sm font-medium text-muted-foreground">
+                    建立簽核文件
+                  </h3>
+                  {workflowOptions.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      請先於「流程設定」建立至少一個簽核流程。
+                    </p>
+                  ) : (
+                    <DocumentForm
+                      applicants={applicantOptions}
+                      workflows={workflowOptions}
+                    />
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </>
         )}
 
@@ -417,52 +423,53 @@ export default async function SubmittalsPage({
                           <span className="ml-2">· {w._count.documents} 份文件</span>
                         </div>
                       </div>
-                      <SoftDeleteButton
-                        id={w.id}
-                        label="流程"
-                        name={w.name}
-                        onDelete={deleteWorkflowAction}
-                        onRestore={restoreWorkflowAction}
-                      />
+                      {canEdit && (
+                        <SoftDeleteButton
+                          id={w.id}
+                          label="流程"
+                          name={w.name}
+                          onDelete={deleteWorkflowAction}
+                          onRestore={restoreWorkflowAction}
+                        />
+                      )}
                     </div>
                   ))
                 )}
               </div>
 
-              <form
-                action={createWorkflowAction}
-                className="space-y-4 rounded-lg border bg-muted/30 p-4"
-              >
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div className="space-y-1.5">
+              {canEdit && (
+              <div className="flex justify-end">
+                <CreateRecordDialog
+                  title="新增簽核流程"
+                  triggerLabel="新增流程"
+                  action={createWorkflowAction}
+                >
+                  <div className="space-y-1.5 sm:col-span-2">
                     <Label htmlFor="wf-name">流程名稱 *</Label>
                     <Input id="wf-name" name="name" placeholder="施工計畫審核流程" />
                   </div>
-                  <div className="space-y-1.5">
+                  <div className="space-y-1.5 sm:col-span-2">
                     <Label htmlFor="wf-desc">說明</Label>
                     <Input id="wf-desc" name="description" />
                   </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>簽核關卡（依序，最多 5 關，可留空）</Label>
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-5">
-                    {[0, 1, 2, 3, 4].map((i) => (
-                      <Select key={i} name="positionId" defaultValue="">
-                        <option value="">第 {i + 1} 關（無）</option>
-                        {positions.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name}
-                          </option>
-                        ))}
-                      </Select>
-                    ))}
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>簽核關卡（依序，最多 5 關，可留空）</Label>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {[0, 1, 2, 3, 4].map((i) => (
+                        <Select key={i} name="positionId" defaultValue="">
+                          <option value="">第 {i + 1} 關（無）</option>
+                          {positions.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </Select>
+                      ))}
+                    </div>
                   </div>
-                </div>
-                <Button type="submit" variant="secondary">
-                  <Plus className="size-4" />
-                  新增流程
-                </Button>
-              </form>
+                </CreateRecordDialog>
+              </div>
+              )}
             </CardContent>
           </Card>
         )}

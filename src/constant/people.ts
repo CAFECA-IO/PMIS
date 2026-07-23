@@ -13,10 +13,8 @@ type Meta = { label: string; variant: BadgeVariant };
 
 export const accountRoleMeta: Record<AccountRole, Meta> = {
   ADMIN: { label: "系統管理員", variant: "default" },
-  MANAGER: { label: "計畫主管", variant: "secondary" },
-  ENGINEER: { label: "監造工程師", variant: "secondary" },
-  INSPECTOR: { label: "查驗人員", variant: "secondary" },
-  VIEWER: { label: "唯讀", variant: "muted" },
+  MANAGER: { label: "計畫主管（可見全部專案）", variant: "secondary" },
+  MEMBER: { label: "一般成員（僅指派專案）", variant: "muted" },
 };
 
 export const accountStatusMeta: Record<AccountStatus, Meta> = {

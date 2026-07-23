@@ -28,6 +28,8 @@ model Project {
   supervisor  String?
   budget      Decimal?
   floorArea   Decimal? // 樓地板面積 (m²)，供碳排強度基準使用
+  lat         Float? // 工地緯度 (WGS84)，供 PMIS-12 GIS 地圖定位
+  lng         Float? // 工地經度 (WGS84)
   startDate   DateTime?
   endDate     DateTime?
   status      ProjectStatus @default(PLANNING)
@@ -51,6 +53,7 @@ model Project {
   members           ProjectMember[]
   carbonInventories CarbonInventory[]
   vouchers          FinancialVoucher[]
+  gisFeatures       GisFeature[]
 }
 
 /// Staffing — links an account to a project with a project-scoped role (配置人力).
@@ -269,6 +272,7 @@ enum VoucherStatus {
 model WorkItem {
   id           String         @id @default(cuid())
   projectId    String
+  milestoneId  String? // 歸屬里程碑（PMIS-04→里程碑上捲，選填）
   code         String?
   name         String
   category     String?
@@ -282,11 +286,13 @@ model WorkItem {
   updatedAt    DateTime       @updatedAt
 
   project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  milestone    Milestone?    @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
   inspections  Inspection[]
   defects      Defect[]
   carbonEntries CarbonEntry[]
 
   @@index([projectId])
+  @@index([milestoneId])
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -395,7 +401,8 @@ model Milestone {
   createdAt     DateTime      @default(now())
   deletedAt     DateTime?
 
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workItems WorkItem[] // 歸屬此里程碑的分項工程（PMIS-04→里程碑 上捲）
 
   @@index([projectId])
 }
@@ -751,6 +758,7 @@ model Position {
   id        String    @id @default(cuid())
   name      String
   rank      Int       @default(0)
+  modulePermissions String? // JSON：各模組權限 { "/route": "NONE"|"VIEW"|"EDIT" }
   createdAt DateTime  @default(now())
   deletedAt DateTime?
 
@@ -765,7 +773,7 @@ model Account {
   name       String
   email      String        @unique
   phone      String?
-  role       AccountRole   @default(ENGINEER)
+  role       AccountRole   @default(MEMBER)
   status     AccountStatus @default(ACTIVE)
   orgUnitId  String?
   positionId String?
@@ -784,11 +792,9 @@ model Account {
 }
 
 enum AccountRole {
-  ADMIN
-  MANAGER
-  ENGINEER
-  INSPECTOR
-  VIEWER
+  ADMIN // 系統管理員：不受限，可管理職位權限
+  MANAGER // 計畫主管：可見全部專案
+  MEMBER // 一般成員：僅見被指派專案；模組操作權限由職位決定
 }
 
 enum AccountStatus {
@@ -889,4 +895,60 @@ enum StepDecision {
   PENDING
   APPROVED
   REJECTED
+}
+
+// ─────────────────────────────────────────────────────────────
+// PMIS-12 GIS 地圖（政府圖資套疊 + 專案自訂圖徵）
+// ─────────────────────────────────────────────────────────────
+
+/// 專案自訂圖徵（點 / 線 / 面），幾何以 GeoJSON 儲存（WGS84）。
+model GisFeature {
+  id         String         @id @default(cuid())
+  projectId  String
+  name       String
+  type       GisFeatureType @default(MARKER)
+  geojson    String // GeoJSON geometry 字串（WGS84 經緯度）
+  color      String? // 顯示顏色（HEX）
+  note       String?
+  linkModule String? // 關聯模組，如 DEFECT / EHS / INSPECTION
+  linkId     String? // 關聯資料 id
+  visible    Boolean        @default(true)
+  createdBy  String?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  deletedAt  DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([type])
+}
+
+/// 政府圖資圖層目錄／seed（依類別 × 年份版本化）。
+model GisLayerSeed {
+  id        String   @id @default(cuid())
+  category  String // 主題分組，如 BASE / RISK / FACILITY / LAND / ADMIN
+  title     String // 顯示名稱
+  source    String // 來源：NLSC / TGOS / SEGIS
+  wmtsCode  String? // WMTS 圖層代碼，如 SoilLiquefaction
+  format    String   @default("png") // 圖磚格式 png / jpeg
+  year      Int // 適用年度
+  srs       String   @default("EPSG:3857")
+  color     String? // 圖例代表色（前端面板用）
+  filePath  String? // 向量 seed（GeoJSON）路徑，圖磚類可空
+  opacity   Int      @default(70) // 預設透明度 0-100
+  sortOrder Int      @default(0)
+  isBase    Boolean  @default(false) // 是否為底圖（單選）
+  isDefault Boolean  @default(false) // 預設開啟
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([wmtsCode, year])
+  @@index([category])
+}
+
+enum GisFeatureType {
+  MARKER // 地標（點）
+  ROUTE // 路線圖（線）
+  AREA // 圈定範圍（面）
 }

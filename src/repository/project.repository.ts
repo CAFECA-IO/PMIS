@@ -39,7 +39,7 @@ export function listWithCounts() {
       _count: { select: { workItems: true, inspections: true, defects: true } },
       milestones: {
         where: { deletedAt: null, type: "MILESTONE" },
-        select: { weight: true, plannedDate: true, actualDate: true },
+        select: { id: true, weight: true, plannedDate: true, actualDate: true },
       },
     },
   });
@@ -53,7 +53,7 @@ export function listWithCountsForAccount(accountId: string) {
       _count: { select: { workItems: true, inspections: true, defects: true } },
       milestones: {
         where: { deletedAt: null, type: "MILESTONE" },
-        select: { weight: true, plannedDate: true, actualDate: true },
+        select: { id: true, weight: true, plannedDate: true, actualDate: true },
       },
     },
   });

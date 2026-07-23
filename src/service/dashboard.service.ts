@@ -8,6 +8,8 @@ import * as ehsRepo from "@/repository/ehs.repository";
 import * as inspectionRepo from "@/repository/inspection.repository";
 import * as mediaRepo from "@/repository/media.repository";
 import * as milestoneRepo from "@/repository/milestone.repository";
+import { buildSCurve } from "./scurve";
+import { effectiveMilestoneActual, type RollupItem } from "./milestone-rollup";
 
 /**
  * Overall KPIs computed from project milestones (整體進度/差距/試運轉就緒度) and
@@ -180,91 +182,40 @@ export function assessHealth(input: {
   return { level, headline, detail, actions };
 }
 
-export type SCurvePoint = {
-  label: string;
-  planned: number;
-  actual: number | null;
-  forecast: number | null;
-};
+export type { SCurvePoint } from "./scurve";
 
 /**
  * Monthly cumulative planned / actual / forecast progress (%), computed from
- * weighted milestones — the S-Curve.
+ * weighted milestones across all projects — the dashboard S-Curve.
  */
-export async function getSCurve(): Promise<SCurvePoint[]> {
-  const milestones = await milestoneRepo.listForMetrics();
-  const totalWeight = milestones.reduce((s, m) => s + m.weight, 0);
-  const withPlanned = milestones.filter((m) => m.plannedDate);
-  if (totalWeight === 0 || withPlanned.length === 0) return [];
-
-  const round = (n: number) => Math.round(n * 100) / 100;
-  const times = withPlanned.map((m) => m.plannedDate!.getTime());
-  const min = new Date(Math.min(...times));
-  const max = new Date(Math.max(...times));
-  const now = Date.now();
-
-  // monthly buckets from min month to max month
-  const buckets: Date[] = [];
-  const cursor = new Date(min.getFullYear(), min.getMonth(), 1);
-  const end = new Date(max.getFullYear(), max.getMonth(), 1);
-  while (cursor <= end) {
-    buckets.push(new Date(cursor));
-    cursor.setMonth(cursor.getMonth() + 1);
+export async function getSCurve() {
+  const [milestones, wiRows] = await Promise.all([
+    milestoneRepo.listForMetrics(),
+    workItemRepo.listAllDetailForMetrics(),
+  ]);
+  // 全體工項依 milestoneId 分組，供上捲判定里程碑有效實際完成日
+  const d = (s: string | null) => (s ? new Date(s) : null);
+  const byMs = new Map<string, RollupItem[]>();
+  for (const r of wiRows) {
+    if (!r.milestoneId) continue;
+    const arr = byMs.get(r.milestoneId) ?? [];
+    arr.push({
+      plannedStart: d(r.plannedStart),
+      plannedEnd: d(r.plannedEnd),
+      actualStart: d(r.actualStart),
+      actualEnd: d(r.actualEnd),
+      progress: r.progress,
+    });
+    byMs.set(r.milestoneId, arr);
   }
-
-  // index of the last bucket that has already started (relative to today)
-  let currentIndex = 0;
-  buckets.forEach((b, i) => {
-    if (b.getTime() <= now) currentIndex = i;
-  });
-
-  const cutoffOf = (b: Date) =>
-    new Date(b.getFullYear(), b.getMonth() + 1, 0, 23, 59, 59).getTime();
-
-  const sumWeight = (pred: (m: (typeof milestones)[number]) => boolean) =>
-    milestones.reduce((s, m) => (pred(m) ? s + m.weight : s), 0);
-
-  const points: SCurvePoint[] = buckets.map((b, i) => {
-    const cutoff = cutoffOf(b);
-    const planned = round(
-      (sumWeight((m) => !!m.plannedDate && m.plannedDate.getTime() <= cutoff) /
-        totalWeight) *
-        100,
-    );
-    const actual =
-      i <= currentIndex
-        ? round(
-            (sumWeight(
-              (m) => !!m.actualDate && m.actualDate.getTime() <= cutoff,
-            ) /
-              totalWeight) *
-              100,
-          )
-        : null;
-    return {
-      label: `${b.getFullYear()}/${String(b.getMonth() + 1).padStart(2, "0")}`,
-      planned,
-      actual,
-      forecast: null,
-    };
-  });
-
-  // forecast: linear from current actual to 100% at the final bucket
-  const currentActual = points[currentIndex]?.actual ?? 0;
-  const lastIndex = points.length - 1;
-  for (let i = currentIndex; i <= lastIndex; i++) {
-    if (i === currentIndex) {
-      points[i].forecast = currentActual;
-    } else if (lastIndex > currentIndex) {
-      points[i].forecast = round(
-        currentActual +
-          ((100 - currentActual) * (i - currentIndex)) /
-            (lastIndex - currentIndex),
-      );
-    }
-  }
-
-  return points;
+  // 以上捲後的有效實際完成日建立 S-Curve（與各專案定義一致）
+  return buildSCurve(
+    milestones.map((m) => ({
+      weight: m.weight,
+      plannedDate: m.plannedDate,
+      actualDate: effectiveMilestoneActual(m.actualDate, byMs.get(m.id) ?? []),
+    })),
+  );
 }
 
 /**

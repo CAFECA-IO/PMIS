@@ -18,6 +18,20 @@ import type {
 } from "@/generated/prisma/enums";
 import type { UpdateProjectData } from "@/repository/project.repository";
 import { canSeeAllProjects } from "@/lib/auth";
+import * as workItemRepo from "@/repository/workItem.repository";
+import {
+  buildSCurve,
+  buildWorkItemSCurve,
+  type SCurvePoint,
+  type SCurveBasis,
+} from "./scurve";
+import {
+  derivedProgress,
+  effectiveMilestoneActual,
+  rolledUpProgress,
+  type RollupItem,
+  type ProgressWorkItem,
+} from "./milestone-rollup";
 
 const VALID_STATUSES = Object.keys(projectStatusMeta) as ProjectStatus[];
 const VALID_MILESTONE_TYPES = Object.keys(milestoneTypeMeta) as MilestoneType[];
@@ -64,6 +78,89 @@ export function computeMilestoneProgress(
   const overall = total > 0 ? round((actual / total) * 100) : 0;
   const plannedPct = total > 0 ? round((planned / total) * 100) : 0;
   return { overall, planned: plannedPct, gap: round(overall - plannedPct) };
+}
+
+/**
+ * 單一專案的進度 S-Curve（預定/實際/預測累計 %），支援兩種計算基準：
+ *  - "MILESTONE"（預設）：以「里程碑」權重與預定/實際完成日計算（事件式）。
+ *  - "WORKITEM"：以「分項工程」預定工期與 progress 計算（期間式）。
+ * 於對應分頁修改資料（里程碑權重/日期、或工項起訖日/進度）皆會即時改變此曲線。
+ */
+export type MilestoneLite = {
+  id: string;
+  type: string;
+  weight: number;
+  plannedDate: Date | null;
+  actualDate: Date | null;
+};
+export type WorkItemDetail = RollupItem & {
+  id: string;
+  name: string;
+  status: string;
+  milestoneId: string | null;
+};
+
+/** 讀取專案工項明細（含 milestoneId，raw SQL 過渡）。 */
+export async function getWorkItemDetails(
+  projectId: string,
+): Promise<WorkItemDetail[]> {
+  const rows = await workItemRepo.listDetailByProject(projectId);
+  const d = (s: string | null) => (s ? new Date(s) : null);
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    status: r.status,
+    progress: r.progress,
+    plannedStart: d(r.plannedStart),
+    plannedEnd: d(r.plannedEnd),
+    actualStart: d(r.actualStart),
+    actualEnd: d(r.actualEnd),
+    milestoneId: r.milestoneId,
+  }));
+}
+
+export function computeProjectSCurve(
+  milestones: MilestoneLite[],
+  workItems: WorkItemDetail[],
+  basis: SCurveBasis = "MILESTONE",
+): SCurvePoint[] {
+  if (basis === "WORKITEM") {
+    return buildWorkItemSCurve(
+      workItems.map((w) => ({
+        plannedStart: w.plannedStart,
+        plannedEnd: w.plannedEnd,
+        actualStart: w.actualStart,
+        actualEnd: w.actualEnd,
+        progress: w.progress,
+      })),
+    );
+  }
+  // 里程碑基準：實際完成日由其下工項上捲（見 milestone-rollup），手動 actualDate 優先。
+  return buildSCurve(
+    milestones
+      .filter((m) => m.type === "MILESTONE")
+      .map((m) => {
+        const items = workItems.filter((w) => w.milestoneId === m.id);
+        return {
+          weight: m.weight,
+          plannedDate: m.plannedDate,
+          actualDate: effectiveMilestoneActual(m.actualDate, items),
+        };
+      }),
+  );
+}
+
+/** 每個里程碑由工項上捲的達成度與工項數（供里程碑分頁顯示）。 */
+export function computeMilestoneRollups(
+  milestones: MilestoneLite[],
+  workItems: WorkItemDetail[],
+): Map<string, { progress: number; count: number }> {
+  const map = new Map<string, { progress: number; count: number }>();
+  for (const m of milestones) {
+    const items = workItems.filter((w) => w.milestoneId === m.id);
+    map.set(m.id, { progress: derivedProgress(items), count: items.length });
+  }
+  return map;
 }
 
 type OverviewProject = {
@@ -143,9 +240,29 @@ export async function listProjects(viewer: Viewer) {
   const projects = canSeeAllProjects(viewer.role)
     ? await projectRepo.listWithCounts()
     : await projectRepo.listWithCountsForAccount(viewer.id);
+
+  // 批次讀取各專案工項明細，逐案以「上捲」計算進度（全系統統一定義）
+  const wiRows = await workItemRepo.listDetailByProjectIds(
+    projects.map((p) => p.id),
+  );
+  const byProject = new Map<string, ProgressWorkItem[]>();
+  const d = (s: string | null) => (s ? new Date(s) : null);
+  for (const r of wiRows) {
+    const arr = byProject.get(r.projectId) ?? [];
+    arr.push({
+      milestoneId: r.milestoneId,
+      plannedStart: d(r.plannedStart),
+      plannedEnd: d(r.plannedEnd),
+      actualStart: d(r.actualStart),
+      actualEnd: d(r.actualEnd),
+      progress: r.progress,
+    });
+    byProject.set(r.projectId, arr);
+  }
+
   return projects.map((p) => ({
     ...p,
-    progress: computeMilestoneProgress(p.milestones),
+    progress: rolledUpProgress(p.milestones, byProject.get(p.id) ?? []),
   }));
 }
 

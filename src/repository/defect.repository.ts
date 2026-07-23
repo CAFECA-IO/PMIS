@@ -1,14 +1,31 @@
 import { prisma } from "./client";
-import type { DefectStatus } from "@/generated/prisma/enums";
+import type { DefectStatus, DefectSeverity } from "@/generated/prisma/enums";
 
 const activeProject = { project: { deletedAt: null } };
+
+export type CreateDefectData = {
+  projectId: string;
+  workItemId?: string | null;
+  inspectionId?: string | null;
+  title: string;
+  description?: string | null;
+  severity: DefectSeverity;
+  status: DefectStatus;
+  reportedBy?: string | null;
+  assignedTo?: string | null;
+  dueDate?: Date | null;
+};
+
+export function create(data: CreateDefectData) {
+  return prisma.defect.create({ data });
+}
 const OPEN_STATUSES: DefectStatus[] = ["OPEN", "IN_PROGRESS"];
 
 export function listWithProject(projectId?: string) {
   return prisma.defect.findMany({
     where: { ...activeProject, ...(projectId ? { projectId } : {}) },
     orderBy: { createdAt: "desc" },
-    include: { project: true },
+    include: { project: true, workItem: true },
   });
 }
 

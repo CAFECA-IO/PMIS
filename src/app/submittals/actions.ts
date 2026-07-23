@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import * as approval from "@/service/approval.service";
 import * as ai from "@/service/ai.service";
 import type { StepDecision } from "@/generated/prisma/enums";
+import { currentUserCanEdit } from "@/service/access.service";
 
 export type DocActionState = { error?: string };
 
@@ -19,6 +20,8 @@ export async function createDocumentAction(
   _prev: DocActionState,
   fd: FormData,
 ): Promise<DocActionState> {
+  if (!(await currentUserCanEdit("/submittals")))
+    return { error: "權限不足，無法編輯此模組。" };
   const files = fd.getAll("files").filter((v): v is File => v instanceof File);
   const result = await approval.createDocument(
     {
@@ -35,6 +38,7 @@ export async function createDocumentAction(
 }
 
 export async function signStepAction(fd: FormData) {
+  if (!(await currentUserCanEdit("/submittals"))) return;
   const stepId = f(fd, "stepId");
   const documentId = f(fd, "documentId");
   const signerId = f(fd, "signerId");
@@ -58,16 +62,19 @@ export async function analyzeAttachmentAction(
 }
 
 export async function deleteDocumentAction(id: string) {
+  if (!(await currentUserCanEdit("/submittals"))) return;
   await approval.deleteDocument(id);
   revalidatePath("/submittals");
 }
 export async function restoreDocumentAction(id: string) {
+  if (!(await currentUserCanEdit("/submittals"))) return;
   await approval.restoreDocument(id);
   revalidatePath("/submittals");
 }
 
 // ── workflows ──────────────────────────────────────────────
 export async function createWorkflowAction(fd: FormData) {
+  if (!(await currentUserCanEdit("/submittals"))) return;
   const positionIds = fd
     .getAll("positionId")
     .filter((v): v is string => typeof v === "string" && v.length > 0);
@@ -80,10 +87,12 @@ export async function createWorkflowAction(fd: FormData) {
 }
 
 export async function deleteWorkflowAction(id: string) {
+  if (!(await currentUserCanEdit("/submittals"))) return;
   await approval.deleteWorkflow(id);
   revalidatePath("/submittals");
 }
 export async function restoreWorkflowAction(id: string) {
+  if (!(await currentUserCanEdit("/submittals"))) return;
   await approval.restoreWorkflow(id);
   revalidatePath("/submittals");
 }

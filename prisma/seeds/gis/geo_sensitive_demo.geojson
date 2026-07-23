@@ -1,0 +1,23 @@
+{
+  "type": "FeatureCollection",
+  "name": "geo_sensitive_demo",
+  "note": "示範資料，非正式地質敏感區",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "label": "地質敏感區（山崩與地滑，示範）" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [121.44, 25.165],
+            [121.45, 25.165],
+            [121.45, 25.173],
+            [121.44, 25.173],
+            [121.44, 25.165]
+          ]
+        ]
+      }
+    }
+  ]
+}

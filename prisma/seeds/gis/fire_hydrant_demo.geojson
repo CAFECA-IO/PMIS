@@ -1,0 +1,17 @@
+{
+  "type": "FeatureCollection",
+  "name": "fire_hydrant_demo",
+  "note": "示範資料",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "消防栓 A" },
+      "geometry": { "type": "Point", "coordinates": [121.4999, 25.0019] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "消防栓 B" },
+      "geometry": { "type": "Point", "coordinates": [121.5008, 25.0028] }
+    }
+  ]
+}

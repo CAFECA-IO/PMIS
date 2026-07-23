@@ -2,16 +2,22 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   ArrowLeft,
-  Plus,
   AlertTriangle,
   ClipboardCheck,
   CircleDollarSign,
   CalendarClock,
+  MapPin,
 } from "lucide-react";
 
 import * as projectService from "@/service/project.service";
+import * as gisService from "@/service/gis.service";
 import { requireUser } from "@/service/auth.service";
+import { assertModuleAccess, canEditModule } from "@/service/access.service";
 import { canSeeAllProjects } from "@/lib/auth";
+import { ProjectMiniMap, MiniMapEmpty } from "./project-mini-map";
+import { SCurveChart } from "@/components/s-curve-chart";
+import { CurveBasisToggle } from "./curve-basis-toggle";
+import { rolledUpProgress } from "@/service/milestone-rollup";
 import {
   updateProjectAction,
   addMilestoneAction,
@@ -24,12 +30,16 @@ import {
   deleteDocumentAction,
   restoreDocumentAction,
   addProjectMemberAction,
+  createWorkItemAction,
+  updateWorkItemAction,
 } from "../actions";
+import { WorkItemDeleteButton } from "./work-item-delete-button";
 import { DeleteProjectButton } from "./delete-project-button";
 import { RecordDeleteButton } from "./record-delete-button";
 import { MemberRemoveButton } from "./member-remove-button";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
+import { CreateRecordDialog } from "@/components/ui/create-record-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -38,14 +48,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { ProgressWithTarget, RadialGauge } from "@/components/charts";
 import { CityCombobox } from "@/components/city-combobox";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   projectStatusMeta,
   projectStatusOptions,
@@ -72,8 +74,8 @@ const TABS = [
   { key: "members", label: "人力配置" },
   { key: "contract", label: "契約與文件" },
   { key: "milestones", label: "里程碑" },
-  { key: "changes", label: "變更紀錄" },
   { key: "related", label: "相關作業" },
+  { key: "changes", label: "變更紀錄" },
 ] as const;
 
 function dateInput(d: Date | null | undefined) {
@@ -107,21 +109,50 @@ function Field({
   );
 }
 
+/** Date → yyyy-mm-dd（供 <input type="date"> 的 defaultValue） */
+function toDateInput(d: Date | null | undefined): string | undefined {
+  if (!d) return undefined;
+  const dt = new Date(d);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(
+    dt.getDate(),
+  ).padStart(2, "0")}`;
+}
+
 export default async function ProjectDetailPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; curve?: string }>;
 }) {
   const { id } = await params;
-  const { tab } = await searchParams;
+  const { tab, curve } = await searchParams;
+  const curveBasis = curve === "workitem" ? "WORKITEM" : "MILESTONE";
   const user = await requireUser();
+  const perms = await assertModuleAccess(user, "/projects");
+  const canEdit = canEditModule(perms, "/projects");
   const project = await projectService.getProject(id, user);
   if (!project) notFound();
 
   const active = TABS.some((t) => t.key === tab) ? tab! : "overview";
   const meta = projectStatusMeta[project.status];
+  const miniMap =
+    active === "overview"
+      ? await gisService.getProjectMiniMap(project.id, user)
+      : null;
+  // 工項明細（含 milestoneId）供 S-Curve 上捲、里程碑達成度與工項編輯表單
+  const wiDetails =
+    active === "overview" || active === "related" || active === "milestones"
+      ? await projectService.getWorkItemDetails(project.id)
+      : [];
+  const milestoneRollups = projectService.computeMilestoneRollups(
+    project.milestones,
+    wiDetails,
+  );
+  const wiMilestoneMap = new Map(wiDetails.map((w) => [w.id, w.milestoneId]));
+  const milestoneOptions = project.milestones.filter(
+    (m) => m.type === "MILESTONE",
+  );
   const canManageMembers = canSeeAllProjects(user.role);
   const assignableAccounts = active === "members" && canManageMembers
     ? await projectService.listAssignableAccounts()
@@ -141,7 +172,9 @@ export default async function ProjectDetailPage({
                 返回
               </Link>
             </Button>
-            <DeleteProjectButton id={project.id} name={project.name} />
+            {canEdit && (
+              <DeleteProjectButton id={project.id} name={project.name} />
+            )}
           </div>
         }
       />
@@ -169,14 +202,23 @@ export default async function ProjectDetailPage({
           (() => {
             const o = projectService.computeProjectOverview(project);
             const now = o.now;
-            const prog = o.progress;
-            const behind = prog.gap < 0;
             const currentAmount = o.currentAmount;
             const originalAmount = o.originalAmount;
             const paidTotal = o.paidTotal;
             const paidPct = o.paidPct;
             const daysLeft = o.daysLeft;
             const overdueSchedule = o.overdueSchedule;
+            const sCurve = projectService.computeProjectSCurve(
+              project.milestones,
+              wiDetails,
+              curveBasis,
+            );
+            // 進度環圈／落差警示／S-Curve 卡共用全系統統一的「上捲進度」定義
+            const prog = rolledUpProgress(project.milestones, wiDetails);
+            const behind = prog.gap < 0;
+            const milestoneCount = milestoneOptions.length;
+            const workItemCount = wiDetails.length;
+            const isWorkItemBasis = curveBasis === "WORKITEM";
 
             const recentInspections = project.inspections.slice(0, 4);
             const priorityDefects = project.defects
@@ -410,7 +452,61 @@ export default async function ProjectDetailPage({
                   </CardContent>
                 </Card>
 
-                {/* 第五層：近期動態 */}
+                {/* 第五層：進度 S-Curve（資料連動） */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
+                      <span className="flex items-center gap-3">
+                        進度 S-Curve
+                        <CurveBasisToggle basis={curveBasis} />
+                      </span>
+                      <span
+                        className={cn(
+                          "text-xs font-normal",
+                          behind ? "text-destructive" : "text-emerald-600",
+                        )}
+                      >
+                        {behind
+                          ? `落後預定 ${Math.abs(prog.gap)}%`
+                          : `準時／超前 ${prog.gap}%`}
+                      </span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <SCurveChart points={sCurve} />
+                    {isWorkItemBasis ? (
+                      <p className="mt-3 border-t pt-3 text-xs leading-relaxed text-muted-foreground">
+                        以<b>分項工程</b>（共 {workItemCount} 項）為基準：
+                        <b>預定累計</b>將各工項按「預定工期天數」在其期間內線性展開累計、
+                        <b>實際累計</b>以工項目前 <b>進度 %</b> 為終值自起始日線性分佈，
+                        <b>預測</b>自目前實際值外推至工期末。調整工項的預定/實際起訖日或進度即會改變曲線 —{" "}
+                        <Link
+                          href={`/projects/${project.id}?tab=related`}
+                          className="text-primary hover:underline"
+                        >
+                          前往分項工程
+                        </Link>
+                        。
+                      </p>
+                    ) : (
+                      <p className="mt-3 border-t pt-3 text-xs leading-relaxed text-muted-foreground">
+                        以<b>里程碑</b>（共 {milestoneCount} 項）為基準：
+                        <b>預定累計</b>來自各里程碑的「預定完成日 × 權重」、
+                        <b>實際累計</b>來自「實際完成日 × 權重」，<b>預測</b>自目前實際值外推至工期末。
+                        調整權重或填入實際完成日即會改變曲線 —{" "}
+                        <Link
+                          href={`/projects/${project.id}?tab=milestones`}
+                          className="text-primary hover:underline"
+                        >
+                          前往里程碑編輯
+                        </Link>
+                        。
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* 第六層：近期動態 */}
                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                   <Card>
                     <CardHeader>
@@ -513,6 +609,34 @@ export default async function ProjectDetailPage({
                     </CardContent>
                   </Card>
                 </div>
+
+                {/* 第七層：工地位置 GIS 小地圖（PMIS-12） */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <MapPin className="size-4" /> 工地位置與周邊（GIS）
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {miniMap && miniMap.lat != null && miniMap.lng != null ? (
+                      <ProjectMiniMap
+                        projectId={project.id}
+                        lat={miniMap.lat}
+                        lng={miniMap.lng}
+                        features={miniMap.features.map((f) => ({
+                          id: f.id,
+                          name: f.name,
+                          type: f.type,
+                          geojson: f.geojson,
+                          color: f.color,
+                        }))}
+                        overlays={miniMap.overlays}
+                      />
+                    ) : (
+                      <MiniMapEmpty projectId={project.id} />
+                    )}
+                  </CardContent>
+                </Card>
               </div>
             );
           })()}
@@ -572,7 +696,7 @@ export default async function ProjectDetailPage({
                     defaultValue={project.description ?? ""}
                   />
                 </div>
-                <Button type="submit">儲存</Button>
+                {canEdit && <Button type="submit">儲存</Button>}
               </form>
             </CardContent>
           </Card>
@@ -618,7 +742,7 @@ export default async function ProjectDetailPage({
                           </div>
                         </div>
                       </div>
-                      {canManageMembers && (
+                      {canManageMembers && canEdit && (
                         <MemberRemoveButton
                           id={m.id}
                           projectId={project.id}
@@ -630,42 +754,40 @@ export default async function ProjectDetailPage({
                 </div>
               )}
 
-              {canManageMembers ? (
-                <form
-                  action={addProjectMemberAction}
-                  className="grid grid-cols-1 gap-4 rounded-lg border bg-muted/30 p-4 sm:grid-cols-2"
-                >
-                  <input type="hidden" name="projectId" value={project.id} />
-                  <div className="space-y-1.5">
-                    <Label htmlFor="member-account">成員</Label>
-                    <Select id="member-account" name="accountId" defaultValue="">
-                      <option value="" disabled>
-                        選擇帳號…
-                      </option>
-                      {assignableAccounts.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.name}（{accountRoleMeta[a.role].label}）
+              {canManageMembers && canEdit ? (
+                <div className="flex justify-end">
+                  <CreateRecordDialog
+                    title="加入成員"
+                    triggerLabel="新增成員"
+                    action={addProjectMemberAction}
+                    submitLabel="加入"
+                  >
+                    <input type="hidden" name="projectId" value={project.id} />
+                    <div className="space-y-1.5">
+                      <Label htmlFor="member-account">成員</Label>
+                      <Select id="member-account" name="accountId" defaultValue="">
+                        <option value="" disabled>
+                          選擇帳號…
                         </option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="member-role">專案角色</Label>
-                    <Select id="member-role" name="role" defaultValue="MEMBER">
-                      {projectMemberRoleOptions.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <Button type="submit" variant="secondary">
-                      <Plus className="size-4" />
-                      加入成員
-                    </Button>
-                  </div>
-                </form>
+                        {assignableAccounts.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.name}（{accountRoleMeta[a.role].label}）
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="member-role">專案角色</Label>
+                      <Select id="member-role" name="role" defaultValue="MEMBER">
+                        {projectMemberRoleOptions.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                  </CreateRecordDialog>
+                </div>
               ) : (
                 <p className="text-xs text-muted-foreground">
                   僅系統管理員與計畫主管可調整人力配置。
@@ -712,7 +834,7 @@ export default async function ProjectDetailPage({
                       defaultValue={project.supervisor ?? ""}
                     />
                   </div>
-                  <Button type="submit">儲存契約資料</Button>
+                  {canEdit && <Button type="submit">儲存契約資料</Button>}
                 </form>
               </CardContent>
             </Card>
@@ -761,45 +883,46 @@ export default async function ProjectDetailPage({
                             </div>
                           </div>
                         </div>
-                        <RecordDeleteButton
-                          id={d.id}
-                          projectId={project.id}
-                          label="文件"
-                          onDelete={deleteDocumentAction}
-                          onRestore={restoreDocumentAction}
-                        />
+                        {canEdit && (
+                          <RecordDeleteButton
+                            id={d.id}
+                            projectId={project.id}
+                            label="文件"
+                            onDelete={deleteDocumentAction}
+                            onRestore={restoreDocumentAction}
+                          />
+                        )}
                       </div>
                     ))}
                   </div>
                 )}
 
-                <form
-                  action={addDocumentAction}
-                  className="grid grid-cols-1 gap-4 rounded-lg border bg-muted/30 p-4 sm:grid-cols-2"
-                >
-                  <input type="hidden" name="projectId" value={project.id} />
-                  <div className="space-y-1.5">
-                    <Label htmlFor="doc-category">類別</Label>
-                    <Select id="doc-category" name="category" defaultValue="CONTRACT">
-                      {projectDocumentCategoryOptions.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  <Field label="文件名稱" name="name" placeholder="如：工程契約書" />
-                  <Field label="歸檔編號" name="fileNo" />
-                  <Field label="核發/文件日期" name="issuedDate" type="date" />
-                  <Field label="連結 (URL)" name="url" placeholder="https://…" />
-                  <Field label="備註" name="note" />
-                  <div className="sm:col-span-2">
-                    <Button type="submit" variant="secondary">
-                      <Plus className="size-4" />
-                      新增文件
-                    </Button>
-                  </div>
-                </form>
+                {canEdit && (
+                <div className="flex justify-end">
+                  <CreateRecordDialog
+                    title="新增契約文件"
+                    triggerLabel="新增文件"
+                    action={addDocumentAction}
+                  >
+                    <input type="hidden" name="projectId" value={project.id} />
+                    <div className="space-y-1.5">
+                      <Label htmlFor="doc-category">類別</Label>
+                      <Select id="doc-category" name="category" defaultValue="CONTRACT">
+                        {projectDocumentCategoryOptions.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    <Field label="文件名稱" name="name" placeholder="如：工程契約書" />
+                    <Field label="歸檔編號" name="fileNo" />
+                    <Field label="核發/文件日期" name="issuedDate" type="date" />
+                    <Field label="連結 (URL)" name="url" placeholder="https://…" />
+                    <Field label="備註" name="note" />
+                  </CreateRecordDialog>
+                </div>
+                )}
               </CardContent>
             </Card>
           </>
@@ -807,9 +930,8 @@ export default async function ProjectDetailPage({
 
         {active === "milestones" &&
           (() => {
-            const prog = projectService.computeMilestoneProgress(
-              project.milestones.filter((m) => m.type === "MILESTONE"),
-            );
+            // 與總覽一致：全系統統一的上捲進度
+            const prog = rolledUpProgress(project.milestones, wiDetails);
             const behind = prog.gap < 0;
             return (
               <div className="space-y-6">
@@ -885,57 +1007,62 @@ export default async function ProjectDetailPage({
                             預定 {formatDate(m.plannedDate)}
                             {m.actualDate ? ` · 實際 ${formatDate(m.actualDate)}` : ""}
                             {m.docNo ? ` · ${m.docNo}` : ""}
+                            {m.type === "MILESTONE" &&
+                            (milestoneRollups.get(m.id)?.count ?? 0) > 0
+                              ? ` · 工項推算 ${milestoneRollups.get(m.id)!.progress}%（${milestoneRollups.get(m.id)!.count} 項）`
+                              : ""}
                           </div>
                         </div>
                       </div>
-                      <RecordDeleteButton
-                        id={m.id}
-                        projectId={project.id}
-                        label="里程碑"
-                        onDelete={deleteMilestoneAction}
-                        onRestore={restoreMilestoneAction}
-                      />
+                      {canEdit && (
+                        <RecordDeleteButton
+                          id={m.id}
+                          projectId={project.id}
+                          label="里程碑"
+                          onDelete={deleteMilestoneAction}
+                          onRestore={restoreMilestoneAction}
+                        />
+                      )}
                     </div>
                   ))}
                 </div>
               )}
 
-              <form
-                action={addMilestoneAction}
-                className="grid grid-cols-1 gap-4 rounded-lg border bg-muted/30 p-4 sm:grid-cols-2"
-              >
-                <input type="hidden" name="projectId" value={project.id} />
-                <Field label="名稱" name="name" placeholder="如：連續壁完成" />
-                <div className="space-y-1.5">
-                  <Label htmlFor="ms-type">類型</Label>
-                  <Select id="ms-type" name="type" defaultValue="MILESTONE">
-                    {milestoneTypeOptions.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-                <Field label="預定日期" name="plannedDate" type="date" />
-                <Field label="實際日期（達成日）" name="actualDate" type="date" />
-                <Field label="進度權重" name="weight" type="number" placeholder="1" />
-                <Field label="核准文號" name="docNo" />
-                <Field label="說明" name="note" />
-                <label className="flex items-center gap-2 text-sm sm:col-span-2">
-                  <input
-                    type="checkbox"
-                    name="commissioning"
-                    className="size-4 rounded border-input"
-                  />
-                  計入試運轉就緒度
-                </label>
-                <div className="sm:col-span-2">
-                  <Button type="submit" variant="secondary">
-                    <Plus className="size-4" />
-                    新增里程碑
-                  </Button>
-                </div>
-              </form>
+              {canEdit && (
+              <div className="flex justify-end">
+                <CreateRecordDialog
+                  title="新增里程碑"
+                  triggerLabel="新建里程碑"
+                  action={addMilestoneAction}
+                >
+                  <input type="hidden" name="projectId" value={project.id} />
+                  <Field label="名稱" name="name" placeholder="如：連續壁完成" />
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ms-type">類型</Label>
+                    <Select id="ms-type" name="type" defaultValue="MILESTONE">
+                      {milestoneTypeOptions.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <Field label="預定日期" name="plannedDate" type="date" />
+                  <Field label="實際日期（達成日）" name="actualDate" type="date" />
+                  <Field label="進度權重" name="weight" type="number" placeholder="1" />
+                  <Field label="核准文號" name="docNo" />
+                  <Field label="說明" name="note" />
+                  <label className="flex items-center gap-2 text-sm sm:col-span-2">
+                    <input
+                      type="checkbox"
+                      name="commissioning"
+                      className="size-4 rounded border-input"
+                    />
+                    計入試運轉就緒度
+                  </label>
+                </CreateRecordDialog>
+              </div>
+              )}
             </CardContent>
                 </Card>
               </div>
@@ -975,39 +1102,40 @@ export default async function ProjectDetailPage({
                           {c.docNo ? ` · ${c.docNo}` : ""}
                         </div>
                       </div>
-                      <RecordDeleteButton
-                        id={c.id}
-                        projectId={project.id}
-                        label="變更紀錄"
-                        onDelete={deleteContractChangeAction}
-                        onRestore={restoreContractChangeAction}
-                      />
+                      {canEdit && (
+                        <RecordDeleteButton
+                          id={c.id}
+                          projectId={project.id}
+                          label="變更紀錄"
+                          onDelete={deleteContractChangeAction}
+                          onRestore={restoreContractChangeAction}
+                        />
+                      )}
                     </div>
                   ))}
                 </div>
               )}
 
-              <form
-                action={addContractChangeAction}
-                className="grid grid-cols-1 gap-4 rounded-lg border bg-muted/30 p-4 sm:grid-cols-2"
-              >
-                <input type="hidden" name="projectId" value={project.id} />
-                <Field label="變更次數 (留空自動遞增)" name="sequence" type="number" />
-                <Field label="核准日期" name="approvedDate" type="date" />
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label htmlFor="cc-desc">變更內容</Label>
-                  <Textarea id="cc-desc" name="description" rows={2} />
-                </div>
-                <Field label="變更後金額 (TWD)" name="amountAfter" type="number" />
-                <Field label="變更天數" name="daysChanged" type="number" />
-                <Field label="核准文號" name="docNo" />
-                <div className="sm:col-span-2">
-                  <Button type="submit" variant="secondary">
-                    <Plus className="size-4" />
-                    新增變更紀錄
-                  </Button>
-                </div>
-              </form>
+              {canEdit && (
+              <div className="flex justify-end">
+                <CreateRecordDialog
+                  title="新增契約變更"
+                  triggerLabel="新增變更紀錄"
+                  action={addContractChangeAction}
+                >
+                  <input type="hidden" name="projectId" value={project.id} />
+                  <Field label="變更次數 (留空自動遞增)" name="sequence" type="number" />
+                  <Field label="核准日期" name="approvedDate" type="date" />
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor="cc-desc">變更內容</Label>
+                    <Textarea id="cc-desc" name="description" rows={2} />
+                  </div>
+                  <Field label="變更後金額 (TWD)" name="amountAfter" type="number" />
+                  <Field label="變更天數" name="daysChanged" type="number" />
+                  <Field label="核准文號" name="docNo" />
+                </CreateRecordDialog>
+              </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -1020,48 +1148,206 @@ export default async function ProjectDetailPage({
                   分項工程 ({project.workItems.length})
                 </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  分項工程之預定/實際起訖與進度為「工項基準」進度 S-Curve 的資料來源；
+                  查驗（PMIS-07）與缺失可關聯至工項。
+                </p>
                 {project.workItems.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">尚無工項。</p>
+                  <p className="text-sm text-muted-foreground">尚無工項，請於下方新增。</p>
                 ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>名稱</TableHead>
-                        <TableHead>類別</TableHead>
-                        <TableHead>狀態</TableHead>
-                        <TableHead className="w-40">進度</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {project.workItems.map((wi) => (
-                        <TableRow key={wi.id}>
-                          <TableCell className="font-medium">{wi.name}</TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {wi.category ?? "—"}
-                          </TableCell>
-                          <TableCell>
+                  <div className="space-y-2">
+                    {project.workItems.map((wi) => (
+                      <div key={wi.id} className="rounded-lg border p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{wi.name}</span>
+                            {wi.category ? (
+                              <span className="text-xs text-muted-foreground">
+                                {wi.category}
+                              </span>
+                            ) : null}
                             <Badge variant={workItemStatusMeta[wi.status].variant}>
                               {workItemStatusMeta[wi.status].label}
                             </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                                <div
-                                  className="h-full rounded-full bg-primary"
-                                  style={{ width: `${wi.progress}%` }}
-                                />
-                              </div>
-                              <span className="w-9 text-right text-xs tabular-nums text-muted-foreground">
-                                {wi.progress}%
-                              </span>
+                          </div>
+                          <div className="flex w-48 items-center gap-2">
+                            <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                              <div
+                                className="h-full rounded-full bg-primary"
+                                style={{ width: `${wi.progress}%` }}
+                              />
                             </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                            <span className="w-9 text-right text-xs tabular-nums text-muted-foreground">
+                              {wi.progress}%
+                            </span>
+                          </div>
+                        </div>
+                        {canEdit && (
+                        <details className="mt-2">
+                          <summary className="cursor-pointer text-xs text-primary hover:underline">
+                            編輯 / 刪除
+                          </summary>
+                          <form
+                            action={updateWorkItemAction}
+                            className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2"
+                          >
+                            <input type="hidden" name="id" value={wi.id} />
+                            <input type="hidden" name="projectId" value={project.id} />
+                            <label className="space-y-1 text-xs sm:col-span-2">
+                              <span className="text-muted-foreground">名稱</span>
+                              <Input name="name" defaultValue={wi.name} />
+                            </label>
+                            <label className="space-y-1 text-xs">
+                              <span className="text-muted-foreground">類別</span>
+                              <Input name="category" defaultValue={wi.category ?? ""} />
+                            </label>
+                            <label className="space-y-1 text-xs">
+                              <span className="text-muted-foreground">狀態</span>
+                              <Select name="status" defaultValue={wi.status}>
+                                {Object.entries(workItemStatusMeta).map(([v, m]) => (
+                                  <option key={v} value={v}>
+                                    {m.label}
+                                  </option>
+                                ))}
+                              </Select>
+                            </label>
+                            <label className="space-y-1 text-xs">
+                              <span className="text-muted-foreground">進度 %</span>
+                              <Input
+                                name="progress"
+                                type="number"
+                                min={0}
+                                max={100}
+                                defaultValue={String(wi.progress)}
+                              />
+                            </label>
+                            <label className="space-y-1 text-xs">
+                              <span className="text-muted-foreground">
+                                歸屬里程碑
+                              </span>
+                              <Select
+                                name="milestoneId"
+                                defaultValue={wiMilestoneMap.get(wi.id) ?? ""}
+                              >
+                                <option value="">不歸屬</option>
+                                {milestoneOptions.map((m) => (
+                                  <option key={m.id} value={m.id}>
+                                    {m.name}
+                                  </option>
+                                ))}
+                              </Select>
+                            </label>
+                            <label className="space-y-1 text-xs">
+                              <span className="text-muted-foreground">預定開工</span>
+                              <Input
+                                name="plannedStart"
+                                type="date"
+                                defaultValue={toDateInput(wi.plannedStart)}
+                              />
+                            </label>
+                            <label className="space-y-1 text-xs">
+                              <span className="text-muted-foreground">預定完工</span>
+                              <Input
+                                name="plannedEnd"
+                                type="date"
+                                defaultValue={toDateInput(wi.plannedEnd)}
+                              />
+                            </label>
+                            <label className="space-y-1 text-xs">
+                              <span className="text-muted-foreground">實際開工</span>
+                              <Input
+                                name="actualStart"
+                                type="date"
+                                defaultValue={toDateInput(wi.actualStart)}
+                              />
+                            </label>
+                            <label className="space-y-1 text-xs">
+                              <span className="text-muted-foreground">實際完工</span>
+                              <Input
+                                name="actualEnd"
+                                type="date"
+                                defaultValue={toDateInput(wi.actualEnd)}
+                              />
+                            </label>
+                            <div className="flex items-center gap-2 sm:col-span-2">
+                              <Button type="submit" size="sm" variant="secondary">
+                                儲存
+                              </Button>
+                              <WorkItemDeleteButton
+                                id={wi.id}
+                                projectId={project.id}
+                                name={wi.name}
+                              />
+                            </div>
+                          </form>
+                        </details>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* 新增分項工程 */}
+                {canEdit && (
+                <div className="flex justify-end">
+                  <CreateRecordDialog
+                    title="新增分項工程"
+                    triggerLabel="新建分項工程"
+                    action={createWorkItemAction}
+                  >
+                    <input type="hidden" name="projectId" value={project.id} />
+                    <label className="space-y-1 text-xs sm:col-span-2">
+                      <span className="text-muted-foreground">名稱</span>
+                      <Input name="name" placeholder="如：連續壁施工" />
+                    </label>
+                    <label className="space-y-1 text-xs">
+                      <span className="text-muted-foreground">類別</span>
+                      <Input name="category" placeholder="如：結構" />
+                    </label>
+                    <label className="space-y-1 text-xs">
+                      <span className="text-muted-foreground">狀態</span>
+                      <Select name="status" defaultValue="NOT_STARTED">
+                        {Object.entries(workItemStatusMeta).map(([v, m]) => (
+                          <option key={v} value={v}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </label>
+                    <label className="space-y-1 text-xs">
+                      <span className="text-muted-foreground">進度 %</span>
+                      <Input name="progress" type="number" min={0} max={100} placeholder="0" />
+                    </label>
+                    <label className="space-y-1 text-xs">
+                      <span className="text-muted-foreground">歸屬里程碑</span>
+                      <Select name="milestoneId" defaultValue="">
+                        <option value="">不歸屬</option>
+                        {milestoneOptions.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </label>
+                    <label className="space-y-1 text-xs">
+                      <span className="text-muted-foreground">預定開工</span>
+                      <Input name="plannedStart" type="date" />
+                    </label>
+                    <label className="space-y-1 text-xs">
+                      <span className="text-muted-foreground">預定完工</span>
+                      <Input name="plannedEnd" type="date" />
+                    </label>
+                    <label className="space-y-1 text-xs">
+                      <span className="text-muted-foreground">實際開工</span>
+                      <Input name="actualStart" type="date" />
+                    </label>
+                    <label className="space-y-1 text-xs">
+                      <span className="text-muted-foreground">實際完工</span>
+                      <Input name="actualEnd" type="date" />
+                    </label>
+                  </CreateRecordDialog>
+                </div>
                 )}
               </CardContent>
             </Card>

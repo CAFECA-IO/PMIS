@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import * as financeService from "@/service/finance.service";
 import { requireUser } from "@/service/auth.service";
+import { currentUserCanEdit } from "@/service/access.service";
 import type { VoucherStatus } from "@/generated/prisma/enums";
 
 function field(formData: FormData, key: string): string | undefined {
@@ -17,6 +18,7 @@ async function actor() {
 }
 
 export async function createVoucherAction(formData: FormData) {
+  if (!(await currentUserCanEdit("/finance"))) return;
   const projectId = field(formData, "projectId");
   if (!projectId) return;
   await financeService.createVoucher(
@@ -42,11 +44,13 @@ export async function setVoucherStatusAction(
   id: string,
   status: VoucherStatus,
 ) {
+  if (!(await currentUserCanEdit("/finance"))) return;
   await financeService.setVoucherStatus(id, status, await actor());
   revalidatePath("/finance");
 }
 
 export async function removeVoucherAction(id: string) {
+  if (!(await currentUserCanEdit("/finance"))) return;
   await financeService.removeVoucher(id, await actor());
   revalidatePath("/finance");
 }

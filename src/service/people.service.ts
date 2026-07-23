@@ -2,6 +2,12 @@ import * as orgRepo from "@/repository/orgUnit.repository";
 import * as positionRepo from "@/repository/position.repository";
 import * as accountRepo from "@/repository/account.repository";
 import { accountRoleMeta, accountStatusMeta } from "@/constant/people";
+import {
+  PMIS_MODULES,
+  isPermissionLevel,
+  parseModulePermissions,
+  type ModulePermissionLevel,
+} from "@/constant/modules";
 import type { AccountRole, AccountStatus } from "@/generated/prisma/enums";
 
 const VALID_ROLES = Object.keys(accountRoleMeta) as AccountRole[];
@@ -57,8 +63,55 @@ export async function createPosition(input: PositionInput) {
     input.rank && !Number.isNaN(Number(input.rank)) ? Number(input.rank) : 0;
   await positionRepo.create({ name, rank });
 }
+
+/** 新增職位並同時設定模組權限。 */
+export async function createPositionWithPermissions(
+  input: PositionInput,
+  perms: Record<string, string>,
+) {
+  const name = input.name?.trim();
+  if (!name) return false;
+  const rank =
+    input.rank && !Number.isNaN(Number(input.rank)) ? Number(input.rank) : 0;
+  const created = await positionRepo.create({ name, rank });
+  await savePositionPermissions(created.id, perms);
+  return true;
+}
 export const deletePosition = (id: string) => positionRepo.softDelete(id);
 export const restorePosition = (id: string) => positionRepo.restore(id);
+
+// ── 職位模組權限（無／檢視／可編輯）──────────────────────
+export type PositionPermission = {
+  id: string;
+  name: string;
+  permissions: Record<string, ModulePermissionLevel>;
+};
+
+/** 各職位的模組權限（未設定者預設為「無」）。 */
+export async function listPositionPermissions(): Promise<PositionPermission[]> {
+  const rows = await positionRepo.listWithPermissions();
+  return rows.map((r) => {
+    const parsed = parseModulePermissions(r.modulePermissions);
+    const permissions: Record<string, ModulePermissionLevel> = {};
+    for (const m of PMIS_MODULES) permissions[m.key] = parsed[m.key] ?? "NONE";
+    return { id: r.id, name: r.name, permissions };
+  });
+}
+
+/** 儲存單一職位的模組權限（只接受合法模組與等級）。 */
+export async function savePositionPermissions(
+  positionId: string,
+  perms: Record<string, string>,
+) {
+  if (!positionId) return false;
+  const clean: Record<string, ModulePermissionLevel> = {};
+  for (const m of PMIS_MODULES) {
+    const v = perms[m.key];
+    clean[m.key] = isPermissionLevel(v) ? v : "NONE";
+  }
+  await positionRepo.setPermissions(positionId, JSON.stringify(clean));
+  return true;
+}
 
 // ── accounts ───────────────────────────────────────────────
 export type AccountInput = {
@@ -89,7 +142,7 @@ export async function createAccount(input: AccountInput): Promise<AccountResult>
 
   const role: AccountRole = VALID_ROLES.includes(input.role as AccountRole)
     ? (input.role as AccountRole)
-    : "ENGINEER";
+    : "MEMBER";
   const status: AccountStatus = VALID_STATUSES.includes(
     input.status as AccountStatus,
   )

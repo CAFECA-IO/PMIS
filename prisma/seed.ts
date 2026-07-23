@@ -158,6 +158,23 @@ async function main() {
       { projectId: bridge.id, name: "颱風災損展延", type: "EXTENSION", plannedDate: new Date("2027-10-15"), docNo: "公路字第1150087號", note: "因梅花颱風停工 45 天展延。" },
     ],
   });
+  // PMIS-04→里程碑 上捲：示範把捷運工項掛到對應里程碑（milestoneId 以 raw SQL 寫入）
+  const wiMilestonePairs: [string, string][] = [
+    ["連續壁施工", "連續壁完成"],
+    ["潛盾隧道推進", "潛盾隧道貫通"],
+    ["車站主體結構", "車站主體結構完成"],
+  ];
+  for (const [wiName, msName] of wiMilestonePairs) {
+    await prisma.$executeRawUnsafe(
+      `UPDATE "WorkItem" SET "milestoneId" = (SELECT "id" FROM "Milestone" WHERE "projectId" = ? AND "name" = ? LIMIT 1)
+       WHERE "projectId" = ? AND "name" = ?`,
+      metro.id,
+      msName,
+      metro.id,
+      wiName,
+    );
+  }
+
   await prisma.paymentNode.createMany({
     data: [
       { projectId: metro.id, name: "第 5 期估驗計價", amount: 320_000_000, plannedDate: new Date("2026-07-25"), status: "INVOICED" },
@@ -343,6 +360,34 @@ async function main() {
   const posAsst = await pos("助理工程師", 8);
   const posClerk = await pos("行政助理", 9);
 
+  // 職位模組權限（PMIS-14）：主管全可編輯、其餘檢視、人員管理僅高階可編輯（raw SQL）
+  const ALL_MODULES = [
+    "/calendar", "/todos", "/projects", "/schedule", "/ehs", "/submittals",
+    "/quality", "/finance", "/carbon", "/monitoring", "/logs", "/gis",
+    "/documents", "/people",
+  ];
+  const permJson = (
+    level: "VIEW" | "EDIT",
+    peopleLevel: "NONE" | "VIEW" | "EDIT" = level,
+  ) =>
+    JSON.stringify(
+      Object.fromEntries(
+        ALL_MODULES.map((m) => [m, m === "/people" ? peopleLevel : level]),
+      ),
+    );
+  const setPerm = (id: string, json: string) =>
+    prisma.$executeRawUnsafe(
+      'UPDATE "Position" SET "modulePermissions"=? WHERE "id"=?',
+      json,
+      id,
+    );
+  for (const id of [posChair.id, posGm.id, posVp.id, posMgr.id])
+    await setPerm(id, permJson("EDIT"));
+  for (const id of [posLead.id, posChief.id, posSenior.id, posEng.id])
+    await setPerm(id, permJson("EDIT", "NONE"));
+  for (const id of [posSpec.id, posAsst.id, posClerk.id])
+    await setPerm(id, permJson("VIEW", "NONE"));
+
   await prisma.account.createMany({
     data: [
       // 總經理室
@@ -352,43 +397,43 @@ async function main() {
       // 監造事業部
       { name: "張志偉", email: "zw.zhang@cafeca.com.tw", role: "MANAGER", status: "ACTIVE", orgUnitId: sup.id, positionId: posMgr.id },
       { name: "李文彬", email: "wb.li@cafeca.com.tw", role: "MANAGER", status: "ACTIVE", orgUnitId: supSt.id, positionId: posLead.id },
-      { name: "吳建宏", email: "jh.wu@cafeca.com.tw", role: "ENGINEER", status: "ACTIVE", orgUnitId: supSt.id, positionId: posChief.id },
-      { name: "黃俊傑", email: "jj.huang@cafeca.com.tw", role: "ENGINEER", status: "ACTIVE", orgUnitId: supSt.id, positionId: posSenior.id },
-      { name: "蔡宜庭", email: "yt.tsai@cafeca.com.tw", role: "ENGINEER", status: "ACTIVE", orgUnitId: supSt.id, positionId: posEng.id },
+      { name: "吳建宏", email: "jh.wu@cafeca.com.tw", role: "MEMBER", status: "ACTIVE", orgUnitId: supSt.id, positionId: posChief.id },
+      { name: "黃俊傑", email: "jj.huang@cafeca.com.tw", role: "MEMBER", status: "ACTIVE", orgUnitId: supSt.id, positionId: posSenior.id },
+      { name: "蔡宜庭", email: "yt.tsai@cafeca.com.tw", role: "MEMBER", status: "ACTIVE", orgUnitId: supSt.id, positionId: posEng.id },
       { name: "鄭凱文", email: "kw.zheng@cafeca.com.tw", role: "MANAGER", status: "ACTIVE", orgUnitId: supGe.id, positionId: posLead.id },
-      { name: "許雅婷", email: "yt.hsu@cafeca.com.tw", role: "ENGINEER", status: "ACTIVE", orgUnitId: supGe.id, positionId: posEng.id },
+      { name: "許雅婷", email: "yt.hsu@cafeca.com.tw", role: "MEMBER", status: "ACTIVE", orgUnitId: supGe.id, positionId: posEng.id },
       { name: "劉建志", email: "jz.liu@cafeca.com.tw", role: "MANAGER", status: "ACTIVE", orgUnitId: supHy.id, positionId: posLead.id },
-      { name: "楊承翰", email: "ch.yang@cafeca.com.tw", role: "ENGINEER", status: "ACTIVE", orgUnitId: supHy.id, positionId: posEng.id },
+      { name: "楊承翰", email: "ch.yang@cafeca.com.tw", role: "MEMBER", status: "ACTIVE", orgUnitId: supHy.id, positionId: posEng.id },
       { name: "周世昌", email: "sc.zhou@cafeca.com.tw", role: "MANAGER", status: "ACTIVE", orgUnitId: supTr.id, positionId: posLead.id },
-      { name: "賴怡君", email: "yj.lai@cafeca.com.tw", role: "ENGINEER", status: "ACTIVE", orgUnitId: supTr.id, positionId: posEng.id },
+      { name: "賴怡君", email: "yj.lai@cafeca.com.tw", role: "MEMBER", status: "ACTIVE", orgUnitId: supTr.id, positionId: posEng.id },
       { name: "洪敏華", email: "mh.hong@cafeca.com.tw", role: "MANAGER", status: "ACTIVE", orgUnitId: supQc.id, positionId: posLead.id },
-      { name: "曾國峰", email: "gf.zeng@cafeca.com.tw", role: "INSPECTOR", status: "ACTIVE", orgUnitId: supQc.id, positionId: posChief.id },
-      { name: "邱淑貞", email: "sz.qiu@cafeca.com.tw", role: "INSPECTOR", status: "ACTIVE", orgUnitId: supQc.id, positionId: posEng.id },
+      { name: "曾國峰", email: "gf.zeng@cafeca.com.tw", role: "MEMBER", status: "ACTIVE", orgUnitId: supQc.id, positionId: posChief.id },
+      { name: "邱淑貞", email: "sz.qiu@cafeca.com.tw", role: "MEMBER", status: "ACTIVE", orgUnitId: supQc.id, positionId: posEng.id },
       { name: "高志鵬", email: "zp.gao@cafeca.com.tw", role: "MANAGER", status: "ACTIVE", orgUnitId: supEhs.id, positionId: posLead.id },
-      { name: "范振宇", email: "zy.fan@cafeca.com.tw", role: "INSPECTOR", status: "ACTIVE", orgUnitId: supEhs.id, positionId: posEng.id },
+      { name: "范振宇", email: "zy.fan@cafeca.com.tw", role: "MEMBER", status: "ACTIVE", orgUnitId: supEhs.id, positionId: posEng.id },
       { name: "潘冠廷", email: "gt.pan@cafeca.com.tw", role: "MANAGER", status: "ACTIVE", orgUnitId: supSv.id, positionId: posLead.id },
-      { name: "蕭雅文", email: "yw.xiao@cafeca.com.tw", role: "ENGINEER", status: "ACTIVE", orgUnitId: supSv.id, positionId: posAsst.id },
+      { name: "蕭雅文", email: "yw.xiao@cafeca.com.tw", role: "MEMBER", status: "ACTIVE", orgUnitId: supSv.id, positionId: posAsst.id },
       // 設計部
       { name: "徐嘉玲", email: "jl.hsu@cafeca.com.tw", role: "MANAGER", status: "ACTIVE", orgUnitId: des.id, positionId: posMgr.id },
       { name: "郭柏勳", email: "bx.guo@cafeca.com.tw", role: "MANAGER", status: "ACTIVE", orgUnitId: desCv.id, positionId: posLead.id },
-      { name: "何佩珊", email: "ps.he@cafeca.com.tw", role: "ENGINEER", status: "ACTIVE", orgUnitId: desCv.id, positionId: posEng.id },
+      { name: "何佩珊", email: "ps.he@cafeca.com.tw", role: "MEMBER", status: "ACTIVE", orgUnitId: desCv.id, positionId: posEng.id },
       { name: "呂昆霖", email: "kl.lu@cafeca.com.tw", role: "MANAGER", status: "ACTIVE", orgUnitId: desMe.id, positionId: posLead.id },
-      { name: "葉宗翰", email: "zh.ye@cafeca.com.tw", role: "ENGINEER", status: "ACTIVE", orgUnitId: desMe.id, positionId: posEng.id },
+      { name: "葉宗翰", email: "zh.ye@cafeca.com.tw", role: "MEMBER", status: "ACTIVE", orgUnitId: desMe.id, positionId: posEng.id },
       { name: "江宛儒", email: "wr.jiang@cafeca.com.tw", role: "MANAGER", status: "ACTIVE", orgUnitId: desAr.id, positionId: posLead.id },
-      { name: "蘇冠宇", email: "gy.su@cafeca.com.tw", role: "ENGINEER", status: "ACTIVE", orgUnitId: desAr.id, positionId: posEng.id },
+      { name: "蘇冠宇", email: "gy.su@cafeca.com.tw", role: "MEMBER", status: "ACTIVE", orgUnitId: desAr.id, positionId: posEng.id },
       // 專案管理部
       { name: "馮士軒", email: "sx.feng@cafeca.com.tw", role: "MANAGER", status: "ACTIVE", orgUnitId: pmo.id, positionId: posMgr.id },
       { name: "董雅琪", email: "yq.dong@cafeca.com.tw", role: "MANAGER", status: "ACTIVE", orgUnitId: pmo.id, positionId: posChief.id },
-      { name: "石承恩", email: "ce.shi@cafeca.com.tw", role: "VIEWER", status: "ACTIVE", orgUnitId: pmo.id, positionId: posSpec.id },
+      { name: "石承恩", email: "ce.shi@cafeca.com.tw", role: "MEMBER", status: "ACTIVE", orgUnitId: pmo.id, positionId: posSpec.id },
       // 品保稽核部
       { name: "溫國華", email: "gh.wen@cafeca.com.tw", role: "MANAGER", status: "ACTIVE", orgUnitId: qaDept.id, positionId: posMgr.id },
-      { name: "尤靜怡", email: "jy.you@cafeca.com.tw", role: "INSPECTOR", status: "ACTIVE", orgUnitId: qaDept.id, positionId: posEng.id },
+      { name: "尤靜怡", email: "jy.you@cafeca.com.tw", role: "MEMBER", status: "ACTIVE", orgUnitId: qaDept.id, positionId: posEng.id },
       // 行政管理部
       { name: "田美惠", email: "mh.tian@cafeca.com.tw", role: "MANAGER", status: "ACTIVE", orgUnitId: admDept.id, positionId: posMgr.id },
-      { name: "白詩涵", email: "sh.bai@cafeca.com.tw", role: "VIEWER", status: "ACTIVE", orgUnitId: admHr.id, positionId: posSpec.id },
-      { name: "孔令儀", email: "ly.kong@cafeca.com.tw", role: "VIEWER", status: "ACTIVE", orgUnitId: admFi.id, positionId: posSpec.id },
+      { name: "白詩涵", email: "sh.bai@cafeca.com.tw", role: "MEMBER", status: "ACTIVE", orgUnitId: admHr.id, positionId: posSpec.id },
+      { name: "孔令儀", email: "ly.kong@cafeca.com.tw", role: "MEMBER", status: "ACTIVE", orgUnitId: admFi.id, positionId: posSpec.id },
       { name: "秦子軒", email: "zx.qin@cafeca.com.tw", role: "ADMIN", status: "ACTIVE", orgUnitId: admIt.id, positionId: posEng.id },
-      { name: "龔志明", email: "zm.gong@cafeca.com.tw", role: "VIEWER", status: "ACTIVE", orgUnitId: admGa.id, positionId: posClerk.id },
+      { name: "龔志明", email: "zm.gong@cafeca.com.tw", role: "MEMBER", status: "ACTIVE", orgUnitId: admGa.id, positionId: posClerk.id },
       { name: "系統管理員", email: "admin@cafeca.com.tw", role: "ADMIN", status: "ACTIVE", orgUnitId: admIt.id, positionId: posEng.id },
     ],
   });
@@ -639,6 +684,69 @@ async function main() {
       },
     },
   });
+
+  // ── PMIS-12 GIS 地圖（圖層目錄 + 專案座標 + 範例自訂圖徵）───────────
+  // Info: 以 raw SQL 寫入，避免相依於需重新產生的 Prisma model。
+  await prisma.$executeRawUnsafe('DELETE FROM "GisFeature"');
+  await prisma.$executeRawUnsafe('DELETE FROM "GisLayerSeed"');
+
+  const gisLayers: [string, string, string, string, string | null, string, number, string | null, number, number, number, number][] = [
+    // id, category, title, source, wmtsCode, format, year, color, opacity, sortOrder, isBase, isDefault
+    ["gl_osm", "BASE", "OpenStreetMap 白底", "OSM", null, "png", 2026, null, 100, 0, 1, 1],
+    ["gl_emapx99", "BASE", "臺灣通用電子地圖(無文字)", "NLSC", "EMAPX99", "jpeg", 2026, null, 100, 1, 1, 0],
+    ["gl_photo2", "BASE", "正射影像(通用)", "NLSC", "PHOTO2", "jpeg", 2026, null, 100, 2, 1, 0],
+    ["gl_soil", "RISK", "土壤液化潛勢", "NLSC", "SoilLiquefaction", "png", 2024, "#dc2626", 55, 10, 0, 1],
+    ["gl_geo2", "RISK", "地質敏感區(山崩與地滑)", "NLSC", "GeoSensitive2", "png", 2024, "#b45309", 55, 11, 0, 1],
+    ["gl_geo", "RISK", "地質敏感區(含活動斷層)", "NLSC", "GeoSensitive", "png", 2024, "#92400e", 55, 12, 0, 0],
+    ["gl_school", "FACILITY", "各級學校範圍圖", "NLSC", "SCHOOL", "png", 2026, "#059669", 70, 20, 0, 1],
+    ["gl_shelter", "FACILITY", "避難收容所", "NLSC", "SHELTERS", "png", 2026, "#0891b2", 85, 21, 0, 0],
+    ["gl_fire", "FACILITY", "消防栓", "NLSC", "fireplug", "png", 2026, "#ef4444", 85, 22, 0, 0],
+    ["gl_road", "TRANSPORT", "道路路網", "NLSC", "ROAD", "png", 2026, "#475569", 70, 30, 0, 0],
+    ["gl_landsect", "LAND", "地段外圍圖(段籍圖)", "NLSC", "LANDSECT", "png", 2026, "#6b7280", 60, 40, 0, 0],
+    ["gl_landpub", "LAND", "公有土地地籍圖", "NLSC", "LAND_OPENDATA", "png", 2026, "#7c3aed", 55, 41, 0, 0],
+    ["gl_nurban1", "LAND", "非都市土地使用分區圖", "NLSC", "nURBAN1", "png", 2026, "#ca8a04", 55, 42, 0, 0],
+    ["gl_village", "ADMIN", "村里界", "NLSC", "Village", "png", 2026, "#94a3b8", 60, 50, 0, 0],
+    ["gl_stats_pop", "STATS", "村里人口統計(示範)", "SEGIS", null, "geojson", 2024, "#2563eb", 60, 60, 0, 0],
+  ];
+  for (const [id, category, title, source, wmtsCode, format, year, color, opacity, sortOrder, isBase, isDefault] of gisLayers) {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "GisLayerSeed" ("id","category","title","source","wmtsCode","format","year","srs","color","opacity","sortOrder","isBase","isDefault","active")
+       VALUES (?,?,?,?,?,?,?, 'EPSG:3857', ?,?,?,?,?,1)`,
+      id, category, title, source, wmtsCode, format, year, color, opacity, sortOrder, isBase, isDefault,
+    );
+  }
+
+  // 向量示範 seed（供周邊風險摘要空間查詢）
+  const gisVectorPaths: [string, string][] = [
+    ["gl_soil", "prisma/seeds/gis/soil_liquefaction_demo.geojson"],
+    ["gl_geo2", "prisma/seeds/gis/geo_sensitive_demo.geojson"],
+    ["gl_school", "prisma/seeds/gis/school_demo.geojson"],
+    ["gl_shelter", "prisma/seeds/gis/shelter_demo.geojson"],
+    ["gl_fire", "prisma/seeds/gis/fire_hydrant_demo.geojson"],
+    ["gl_stats_pop", "prisma/seeds/gis/village_stats_demo.geojson"],
+  ];
+  for (const [id, filePath] of gisVectorPaths) {
+    await prisma.$executeRawUnsafe('UPDATE "GisLayerSeed" SET "filePath"=? WHERE "id"=?', filePath, id);
+  }
+
+  // 專案工地座標 (WGS84)
+  await prisma.$executeRawUnsafe('UPDATE "Project" SET "lat"=?, "lng"=? WHERE "code"=?', 25.0021, 121.4995, "PMIS-2026-001");
+  await prisma.$executeRawUnsafe('UPDATE "Project" SET "lat"=?, "lng"=? WHERE "code"=?', 25.169, 121.447, "PMIS-2026-002");
+  await prisma.$executeRawUnsafe('UPDATE "Project" SET "lat"=?, "lng"=? WHERE "code"=?', 24.9536, 121.225, "PMIS-2026-003");
+
+  // 範例自訂圖徵（捷運藍線工地）
+  const gisFeatures: [string, string, string, string, string, string][] = [
+    ["gf_gate", "MARKER", "工地大門(門禁)", "#2563eb", "車輛進出管制，7:00-18:00", JSON.stringify({ type: "Point", coordinates: [121.4998, 25.0025] })],
+    ["gf_fence", "AREA", "施工圍籬範圍", "#7c3aed", "主要施工區警戒範圍", JSON.stringify({ type: "Polygon", coordinates: [[[121.4986, 25.0016], [121.5006, 25.0016], [121.5006, 25.0028], [121.4986, 25.0028], [121.4986, 25.0016]]] })],
+    ["gf_haul", "ROUTE", "工程車便道", "#ea580c", "進場動線，避開學校路段", JSON.stringify({ type: "LineString", coordinates: [[121.4975, 25.001], [121.4988, 25.0018], [121.4998, 25.0025]] })],
+  ];
+  for (const [id, type, name, color, note, geojson] of gisFeatures) {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "GisFeature" ("id","projectId","name","type","geojson","color","note","visible","createdBy","updatedAt")
+       VALUES (?,?,?,?,?,?,?,1,'seed', datetime('now'))`,
+      id, metro.id, name, type, geojson, color, note,
+    );
+  }
 
   const counts = {
     專案: await prisma.project.count(),

@@ -1,0 +1,17 @@
+{
+  "type": "FeatureCollection",
+  "name": "school_demo",
+  "note": "示範資料",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "中和示範國小" },
+      "geometry": { "type": "Point", "coordinates": [121.5013, 25.0026] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "永和示範高中" },
+      "geometry": { "type": "Point", "coordinates": [121.4955, 25.005] }
+    }
+  ]
+}

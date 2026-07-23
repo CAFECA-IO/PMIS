@@ -7,8 +7,8 @@ import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Markdown } from "@/components/markdown";
 
+// Info: 日報改由人工填報（監造報表），不再由 AI 生成；AI 僅彙整週/月/季/年報。
 const TYPES = [
-  { value: "DAILY", label: "日報" },
   { value: "WEEKLY", label: "週報" },
   { value: "MONTHLY", label: "月報" },
   { value: "QUARTERLY", label: "季報" },

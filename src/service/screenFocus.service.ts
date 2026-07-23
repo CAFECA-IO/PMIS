@@ -1,5 +1,6 @@
 import * as focusRepo from "@/repository/screenFocus.repository";
 import * as projectService from "@/service/project.service";
+import { rolledUpProgress } from "@/service/milestone-rollup";
 import { canSeeAllProjects } from "@/lib/auth";
 import type { Viewer } from "@/service/project.service";
 
@@ -14,8 +15,9 @@ const MODULE_LABELS: Record<string, string> = {
   "/ehs": "環安衛管理",
   "/submittals": "簽核管理",
   "/quality": "品質稽核",
+  "/gis": "GIS 地圖",
   "/documents": "資料庫",
-  "/people": "人員管理",
+  "/people": "組織管理",
   "/docs": "功能說明",
 };
 
@@ -69,11 +71,13 @@ export async function getScreenFocus(
     const project = await projectService.getProject(detail[1], viewer);
     if (!project) return { label: "工程專案", facts: [] };
     const o = projectService.computeProjectOverview(project);
+    const wi = await projectService.getWorkItemDetails(project.id);
+    const prog = rolledUpProgress(project.milestones, wi);
     const facts: string[] = [];
     facts.push(
-      o.progress.gap < 0
-        ? `進度落後 ${Math.abs(o.progress.gap)}%`
-        : `進度 ${o.progress.overall}%（符合預定）`,
+      prog.gap < 0
+        ? `進度落後 ${Math.abs(prog.gap)}%`
+        : `進度 ${prog.overall}%（符合預定）`,
     );
     if (o.overdueCount > 0) facts.push(`${o.overdueCount} 件逾期缺失待改善`);
     if (o.pendingInspectionCount > 0)

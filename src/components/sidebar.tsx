@@ -14,6 +14,7 @@ import {
   FileCheck,
   ClipboardCheck,
   FolderArchive,
+  Map,
   Users,
   Leaf,
   Radar,
@@ -50,8 +51,9 @@ const nav: NavItem[] = [
   { href: "/carbon", label: "碳盤查", code: "PMIS-09", icon: Leaf },
   { href: "/monitoring", label: "智能監測", code: "PMIS-10", icon: Radar },
   { href: "/logs", label: "工程日誌", code: "PMIS-11", icon: NotebookPen },
-  { href: "/documents", label: "資料庫", code: "PMIS-12", icon: FolderArchive },
-  { href: "/people", label: "人員管理", code: "PMIS-13", icon: Users },
+  { href: "/gis", label: "GIS 地圖", code: "PMIS-12", icon: Map },
+  { href: "/documents", label: "資料庫", code: "PMIS-13", icon: FolderArchive },
+  { href: "/people", label: "組織管理", code: "PMIS-14", icon: Users },
 ];
 
 function isActive(pathname: string, href: string) {
@@ -59,9 +61,18 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function Sidebar({ user }: { user: SidebarUser }) {
+export function Sidebar({
+  user,
+  allowedRoutes = [],
+}: {
+  user: SidebarUser;
+  allowedRoutes?: string[];
+}) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  // Info: 依職位權限過濾模組（無 code 者為儀表板/功能說明，一律顯示）
+  const allowed = new Set(allowedRoutes);
+  const visibleNav = nav.filter((n) => !n.code || allowed.has(n.href));
 
   // Info: (20260721 - Luphia) 導航後自動關閉手機抽屜（以 timeout 延遲，避免在 effect 內同步 setState）
   useEffect(() => {
@@ -119,7 +130,7 @@ export function Sidebar({ user }: { user: SidebarUser }) {
           </button>
         </div>
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-3">
-          {nav.map(({ href, label, code, icon: Icon }) => {
+          {visibleNav.map(({ href, label, code, icon: Icon }) => {
             const active = isActive(pathname, href);
             return (
               <Link

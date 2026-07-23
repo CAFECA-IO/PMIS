@@ -17,6 +17,13 @@ export function create(data: CreateMilestoneData) {
   return prisma.milestone.create({ data });
 }
 
+export function findById(id: string) {
+  return prisma.milestone.findUnique({
+    where: { id },
+    select: { id: true, projectId: true, type: true },
+  });
+}
+
 /** Milestones used for progress metrics (實績型，排除展延與已刪除)。 */
 export function listForMetrics() {
   return prisma.milestone.findMany({
@@ -26,6 +33,7 @@ export function listForMetrics() {
       project: { deletedAt: null },
     },
     select: {
+      id: true,
       weight: true,
       plannedDate: true,
       actualDate: true,

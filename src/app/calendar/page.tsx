@@ -2,11 +2,15 @@ import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { CalendarView } from "@/components/calendar-view";
 import * as calendarService from "@/service/calendar.service";
+import { requireUser } from "@/service/auth.service";
+import { assertModuleAccess } from "@/service/access.service";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "行事曆預警 — PMIS" };
 
 export default async function CalendarPage() {
+  const user = await requireUser();
+  await assertModuleAccess(user, "/calendar");
   const events = await calendarService.listCalendarEvents();
   const todayISO = new Date().toISOString();
 

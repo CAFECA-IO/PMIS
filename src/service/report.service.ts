@@ -1,6 +1,8 @@
 import * as reportRepo from "@/repository/report.repository";
+import * as supervisionRepo from "@/repository/supervisionReport.repository";
 import * as memberRepo from "@/repository/projectMember.repository";
-import { computeMilestoneProgress } from "@/service/project.service";
+import { getWorkItemDetails } from "@/service/project.service";
+import { rolledUpProgress } from "@/service/milestone-rollup";
 import * as calc from "@/service/carbon.calc";
 import * as aiService from "@/service/ai.service";
 import { canSeeAllProjects } from "@/lib/auth";
@@ -10,6 +12,7 @@ import {
   submittalStatusMeta,
   workItemStatusMeta,
   carbonScopeMeta,
+  reportStatusMeta,
 } from "@/constant/pmis";
 import { formatDate } from "@/lib/utils";
 import type { AccountRole, CarbonScope } from "@/generated/prisma/enums";
@@ -127,7 +130,7 @@ export async function generateReport(
   const { start, end, label } = periodRange(type, ref);
   const typeLabel = TYPE_LABEL[type];
 
-  const [defects, open, inspections, submittals, ehs, inventories] =
+  const [defects, open, inspections, submittals, ehs, inventories, dailyReports] =
     await Promise.all([
       reportRepo.defectsInPeriod(projectId, start, end),
       reportRepo.openDefects(projectId),
@@ -135,11 +138,11 @@ export async function generateReport(
       reportRepo.submittalsInPeriod(projectId, start, end),
       reportRepo.ehsInPeriod(projectId, start, end),
       reportRepo.carbonInventories(projectId),
+      supervisionRepo.listByProjectInPeriod(projectId, start, end),
     ]);
 
-  const progress = computeMilestoneProgress(
-    project.milestones.filter((m) => m.type === "MILESTONE"),
-  );
+  const wiDetails = await getWorkItemDetails(projectId);
+  const progress = rolledUpProgress(project.milestones, wiDetails);
 
   const insByResult = countBy(inspections, (i) => i.result);
   const passRate = (() => {
@@ -169,6 +172,16 @@ export async function generateReport(
   const msDue = project.milestones.filter((m) => inRange(m.plannedDate));
   const msDone = project.milestones.filter((m) => inRange(m.actualDate));
 
+  // Info: 監造日報（人工填報）彙整——供 AI 週/月/季/年報以實際填報內容為依據
+  const dailyDigest = dailyReports
+    .map(
+      (r) =>
+        `${formatDate(r.reportDate)}${r.weather ? `(${r.weather})` : ""}：${
+          r.summary?.trim() || "—"
+        }${r.keyNotes?.trim() ? `；重要：${r.keyNotes.trim()}` : ""}`,
+    )
+    .join("\n");
+
   // Info: (20260721 - Luphia) AI 摘要（失敗時以模板回退）
   const factsText = [
     `專案：${project.name}（${project.code}）`,
@@ -180,6 +193,9 @@ export async function generateReport(
     `本期環安衛稽核 ${ehs.length} 件`,
     `碳排累計 ${carbon.totalTonnes} tCO₂e`,
     `本期預定里程碑 ${msDue.length} 項、達成 ${msDone.length} 項`,
+    `本期監造日報 ${dailyReports.length} 篇${
+      dailyDigest ? `，內容如下（請據此彙整重點）：\n${dailyDigest}` : ""
+    }`,
   ].join("\n");
   const narrative = await aiService.generateReportNarrative(
     factsText,
@@ -204,6 +220,20 @@ export async function generateReport(
   md.push("## 摘要");
   md.push(narrative);
   md.push("");
+
+  if (dailyReports.length > 0) {
+    md.push(`## 監造日報彙整（本期 ${dailyReports.length} 篇）`);
+    for (const r of dailyReports) {
+      md.push(
+        `- **${formatDate(r.reportDate)}**${
+          r.weather ? `（${r.weather}）` : ""
+        } ${reportStatusMeta[r.status].label}：${r.summary?.trim() || "—"}${
+          r.keyNotes?.trim() ? ` ｜ 重要：${r.keyNotes.trim()}` : ""
+        }`,
+      );
+    }
+    md.push("");
+  }
 
   md.push("## 工程進度");
   md.push(

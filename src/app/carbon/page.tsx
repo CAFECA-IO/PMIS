@@ -4,6 +4,7 @@ import { Leaf } from "lucide-react";
 import * as carbonService from "@/service/carbon.service";
 import * as projectService from "@/service/project.service";
 import { requireUser } from "@/service/auth.service";
+import { assertModuleAccess } from "@/service/access.service";
 import { PageHeader } from "@/components/page-header";
 import { CarbonProjectSwitcher } from "./carbon-project-switcher";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,6 +30,7 @@ export default async function CarbonPage({
   searchParams: Promise<{ project?: string; inv?: string }>;
 }) {
   const user = await requireUser();
+  await assertModuleAccess(user, "/carbon");
   const { project, inv } = await searchParams;
   const actor = { id: user.id, name: user.name, role: user.role };
 

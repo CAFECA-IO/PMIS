@@ -4,8 +4,15 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import * as projectService from "@/service/project.service";
+import * as workItemService from "@/service/workItem.service";
+import { requireUser } from "@/service/auth.service";
+import { currentUserCanEdit } from "@/service/access.service";
 
 export type ActionState = { error?: string };
+
+async function canEdit() {
+  return currentUserCanEdit("/projects");
+}
 
 function field(formData: FormData, key: string): string | undefined {
   const value = formData.get(key);
@@ -15,7 +22,67 @@ function field(formData: FormData, key: string): string | undefined {
 function refreshProject(id: string) {
   revalidatePath(`/projects/${id}`);
   revalidatePath("/projects");
+  revalidatePath("/schedule");
   revalidatePath("/");
+}
+
+async function actor() {
+  const user = await requireUser();
+  return { id: user.id, role: user.role };
+}
+
+// ── 分項工程（WorkItem, PMIS-04）新增/編輯/刪除 ─────────────
+export async function createWorkItemAction(formData: FormData) {
+  if (!(await canEdit())) return;
+  const projectId = field(formData, "projectId");
+  if (!projectId) return;
+  await workItemService.addWorkItem(
+    {
+      projectId,
+      milestoneId: field(formData, "milestoneId"),
+      code: field(formData, "code"),
+      name: field(formData, "name"),
+      category: field(formData, "category"),
+      plannedStart: field(formData, "plannedStart"),
+      plannedEnd: field(formData, "plannedEnd"),
+      actualStart: field(formData, "actualStart"),
+      actualEnd: field(formData, "actualEnd"),
+      progress: field(formData, "progress"),
+      status: field(formData, "status"),
+    },
+    await actor(),
+  );
+  refreshProject(projectId);
+}
+
+export async function updateWorkItemAction(formData: FormData) {
+  if (!(await canEdit())) return;
+  const id = field(formData, "id");
+  const projectId = field(formData, "projectId");
+  if (!id || !projectId) return;
+  await workItemService.updateWorkItem(
+    id,
+    {
+      milestoneId: field(formData, "milestoneId"),
+      code: field(formData, "code"),
+      name: field(formData, "name"),
+      category: field(formData, "category"),
+      plannedStart: field(formData, "plannedStart"),
+      plannedEnd: field(formData, "plannedEnd"),
+      actualStart: field(formData, "actualStart"),
+      actualEnd: field(formData, "actualEnd"),
+      progress: field(formData, "progress"),
+      status: field(formData, "status"),
+    },
+    await actor(),
+  );
+  refreshProject(projectId);
+}
+
+export async function deleteWorkItemAction(id: string, projectId: string) {
+  if (!(await canEdit())) return;
+  await workItemService.deleteWorkItem(id, await actor());
+  refreshProject(projectId);
 }
 
 // ── create (useActionState form) ───────────────────────────
@@ -23,6 +90,7 @@ export async function createProject(
   _prevState: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  if (!(await canEdit())) return { error: "權限不足，無法編輯此模組。" };
   const result = await projectService.createProject({
     code: field(formData, "code"),
     name: field(formData, "name"),
@@ -44,6 +112,7 @@ export async function createProject(
 
 // ── update / add (plain <form action>) ─────────────────────
 export async function updateProjectAction(formData: FormData) {
+  if (!(await canEdit())) return;
   const id = field(formData, "id");
   if (!id) return;
   await projectService.updateProject(id, {
@@ -63,6 +132,7 @@ export async function updateProjectAction(formData: FormData) {
 }
 
 export async function addMilestoneAction(formData: FormData) {
+  if (!(await canEdit())) return;
   const projectId = field(formData, "projectId");
   if (!projectId) return;
   await projectService.addMilestone({
@@ -80,6 +150,7 @@ export async function addMilestoneAction(formData: FormData) {
 }
 
 export async function addContractChangeAction(formData: FormData) {
+  if (!(await canEdit())) return;
   const projectId = field(formData, "projectId");
   if (!projectId) return;
   await projectService.addContractChange({
@@ -95,6 +166,7 @@ export async function addContractChangeAction(formData: FormData) {
 }
 
 export async function addProjectMemberAction(formData: FormData) {
+  if (!(await canEdit())) return;
   const projectId = field(formData, "projectId");
   if (!projectId) return;
   await projectService.addProjectMember({
@@ -106,11 +178,13 @@ export async function addProjectMemberAction(formData: FormData) {
 }
 
 export async function removeProjectMemberAction(id: string, projectId: string) {
+  if (!(await canEdit())) return;
   await projectService.removeProjectMember(id);
   refreshProject(projectId);
 }
 
 export async function addDocumentAction(formData: FormData) {
+  if (!(await canEdit())) return;
   const projectId = field(formData, "projectId");
   if (!projectId) return;
   await projectService.addDocument({
@@ -127,26 +201,31 @@ export async function addDocumentAction(formData: FormData) {
 
 // ── soft delete / restore (called directly from client) ────
 export async function deleteProjectAction(id: string) {
+  if (!(await canEdit())) return;
   await projectService.deleteProject(id);
   revalidatePath("/projects");
   revalidatePath("/");
 }
 export async function restoreProjectAction(id: string) {
+  if (!(await canEdit())) return;
   await projectService.restoreProject(id);
   revalidatePath("/projects");
   revalidatePath("/");
 }
 
 export async function deleteMilestoneAction(id: string, projectId: string) {
+  if (!(await canEdit())) return;
   await projectService.deleteMilestone(id);
   refreshProject(projectId);
 }
 export async function restoreMilestoneAction(id: string, projectId: string) {
+  if (!(await canEdit())) return;
   await projectService.restoreMilestone(id);
   refreshProject(projectId);
 }
 
 export async function deleteContractChangeAction(id: string, projectId: string) {
+  if (!(await canEdit())) return;
   await projectService.deleteContractChange(id);
   refreshProject(projectId);
 }
@@ -154,15 +233,18 @@ export async function restoreContractChangeAction(
   id: string,
   projectId: string,
 ) {
+  if (!(await canEdit())) return;
   await projectService.restoreContractChange(id);
   refreshProject(projectId);
 }
 
 export async function deleteDocumentAction(id: string, projectId: string) {
+  if (!(await canEdit())) return;
   await projectService.deleteDocument(id);
   refreshProject(projectId);
 }
 export async function restoreDocumentAction(id: string, projectId: string) {
+  if (!(await canEdit())) return;
   await projectService.restoreDocument(id);
   refreshProject(projectId);
 }

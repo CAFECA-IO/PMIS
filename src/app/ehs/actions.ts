@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import * as ai from "@/service/ai.service";
 import * as ehsService from "@/service/ehs.service";
 import { requireUser } from "@/service/auth.service";
+import { currentUserCanEdit } from "@/service/access.service";
 
 export async function analyzeImageAction(
   base64: string,
@@ -30,6 +31,7 @@ async function actor() {
 
 // Info: (20260721 - Luphia) 新增環安衛稽核（人工或 AI 判讀皆走此，並可附照片）
 export async function createEhsAction(formData: FormData) {
+  if (!(await currentUserCanEdit("/ehs"))) return;
   const projectId = field(formData, "projectId");
   if (!projectId) return;
   const who = await actor();
@@ -56,12 +58,14 @@ export async function createEhsAction(formData: FormData) {
 
 // Info: (20260721 - Luphia) 快速修改稽核結果
 export async function setEhsResultAction(id: string, result: string) {
+  if (!(await currentUserCanEdit("/ehs"))) return;
   await ehsService.setResult(id, result, await actor());
   revalidatePath("/ehs");
 }
 
 // Info: (20260721 - Luphia) 新增追蹤紀錄
 export async function addEhsNoteAction(formData: FormData) {
+  if (!(await currentUserCanEdit("/ehs"))) return;
   const auditId = field(formData, "auditId");
   const body = field(formData, "body");
   if (!auditId || !body) return;
@@ -71,6 +75,7 @@ export async function addEhsNoteAction(formData: FormData) {
 
 // Info: (20260721 - Luphia) 上傳／拍攝文件
 export async function uploadEhsFileAction(formData: FormData) {
+  if (!(await currentUserCanEdit("/ehs"))) return;
   const auditId = field(formData, "auditId");
   const file = formData.get("file");
   if (!auditId || !(file instanceof File) || file.size === 0) return;

@@ -1,6 +1,7 @@
 import * as scheduleService from "@/service/schedule.service";
 import * as projectService from "@/service/project.service";
 import { requireUser } from "@/service/auth.service";
+import { assertModuleAccess } from "@/service/access.service";
 import { PageHeader } from "@/components/page-header";
 import { ProjectSwitcher } from "@/components/project-switcher";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +26,7 @@ export default async function SchedulePage({
   searchParams: Promise<{ project?: string }>;
 }) {
   const user = await requireUser();
+  await assertModuleAccess(user, "/schedule");
   const { project } = await searchParams;
   const projectList = await projectService.listProjects(user);
   const selectedProjectId =
