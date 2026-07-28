@@ -17,12 +17,23 @@ import { canSeeAllProjects } from "@/lib/auth";
 import { ProjectMiniMap, MiniMapEmpty } from "./project-mini-map";
 import { SCurveChart } from "@/components/s-curve-chart";
 import { CurveBasisToggle } from "./curve-basis-toggle";
-import { rolledUpProgress } from "@/service/milestone-rollup";
+import * as faithUpload from "@/service/faithUpload.service";
+import { rolledUpProgress } from "@/service/obligation-rollup";
+import { ownerLabel } from "@/service/obligation-view";
+import {
+  obligationRiskMeta,
+  obligationRiskOptions,
+  obligationStageMeta,
+  obligationStageOptions,
+  obligationStatusMeta,
+  obligationStatusOptions,
+  obligationTriggerOptions,
+} from "@/constant/obligation";
 import {
   updateProjectAction,
-  addMilestoneAction,
-  deleteMilestoneAction,
-  restoreMilestoneAction,
+  addObligationAction,
+  deleteObligationAction,
+  restoreObligationAction,
   addContractChangeAction,
   deleteContractChangeAction,
   restoreContractChangeAction,
@@ -33,6 +44,7 @@ import {
   createWorkItemAction,
   updateWorkItemAction,
 } from "../actions";
+import { UnassignedUploadsPrompt } from "./unassigned-uploads";
 import { WorkItemDeleteButton } from "./work-item-delete-button";
 import { DeleteProjectButton } from "./delete-project-button";
 import { RecordDeleteButton } from "./record-delete-button";
@@ -51,8 +63,6 @@ import { CityCombobox } from "@/components/city-combobox";
 import {
   projectStatusMeta,
   projectStatusOptions,
-  milestoneTypeMeta,
-  milestoneTypeOptions,
   projectDocumentCategoryMeta,
   projectDocumentCategoryOptions,
   workItemStatusMeta,
@@ -73,7 +83,7 @@ const TABS = [
   { key: "basic", label: "基本資料" },
   { key: "members", label: "人力配置" },
   { key: "contract", label: "契約與文件" },
-  { key: "milestones", label: "里程碑" },
+  { key: "obligations", label: "履約事項" },
   { key: "related", label: "相關作業" },
   { key: "changes", label: "變更紀錄" },
 ] as const;
@@ -123,11 +133,11 @@ export default async function ProjectDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string; curve?: string }>;
+  searchParams: Promise<{ tab?: string; curve?: string; created?: string }>;
 }) {
   const { id } = await params;
-  const { tab, curve } = await searchParams;
-  const curveBasis = curve === "workitem" ? "WORKITEM" : "MILESTONE";
+  const { tab, curve, created } = await searchParams;
+  const curveBasis = curve === "workitem" ? "WORKITEM" : "OBLIGATION";
   const user = await requireUser();
   const perms = await assertModuleAccess(user, "/projects");
   const canEdit = canEditModule(perms, "/projects");
@@ -140,19 +150,33 @@ export default async function ProjectDetailPage({
     active === "overview"
       ? await gisService.getProjectMiniMap(project.id, user)
       : null;
-  // 工項明細（含 milestoneId）供 S-Curve 上捲、里程碑達成度與工項編輯表單
+  // 工程分項明細（含 obligationId）供 S-Curve 上捲、履約事項達成度與分項編輯表單
   const wiDetails =
-    active === "overview" || active === "related" || active === "milestones"
+    active === "overview" || active === "related" || active === "obligations"
       ? await projectService.getWorkItemDetails(project.id)
       : [];
-  const milestoneRollups = projectService.computeMilestoneRollups(
-    project.milestones,
+  const obligationRollups = projectService.computeObligationRollups(
+    project.obligations,
     wiDetails,
   );
-  const wiMilestoneMap = new Map(wiDetails.map((w) => [w.id, w.milestoneId]));
-  const milestoneOptions = project.milestones.filter(
-    (m) => m.type === "MILESTONE",
-  );
+  const wiObligationMap = new Map(wiDetails.map((w) => [w.id, w.obligationId]));
+  const obligationOptions = project.obligations;
+  /*
+    專案剛建立時（?created=1）才查詢未指派檔案並提示是否一併歸入。
+    刻意只在建立後的這一刻出現，避免每次進入專案都被同一則提示打擾；
+    平時要處理未指派檔案，檔案管理（PMIS-13）已有完整清單。
+  */
+  const unassignedUploads =
+    created === "1" && canEdit
+      ? (await faithUpload.listUnassigned(user.id)).map((u) => ({
+          id: u.id,
+          fileName: u.fileName,
+          size: u.size,
+          taskTitle: u.taskTitle,
+          createdAt: u.createdAt.toISOString(),
+        }))
+      : [];
+
   const canManageMembers = canSeeAllProjects(user.role);
   const assignableAccounts = active === "members" && canManageMembers
     ? await projectService.listAssignableAccounts()
@@ -161,6 +185,7 @@ export default async function ProjectDetailPage({
   return (
     <>
       <PageHeader
+        section="02 契約與時程管理"
         title={project.name}
         description={`專案編號 ${project.code}`}
         action={
@@ -198,6 +223,13 @@ export default async function ProjectDetailPage({
       </div>
 
       <div className="max-w-4xl space-y-6 p-8">
+        {unassignedUploads.length > 0 ? (
+          <UnassignedUploadsPrompt
+            projectId={project.id}
+            uploads={unassignedUploads}
+          />
+        ) : null}
+
         {active === "overview" &&
           (() => {
             const o = projectService.computeProjectOverview(project);
@@ -209,14 +241,14 @@ export default async function ProjectDetailPage({
             const daysLeft = o.daysLeft;
             const overdueSchedule = o.overdueSchedule;
             const sCurve = projectService.computeProjectSCurve(
-              project.milestones,
+              project.obligations,
               wiDetails,
               curveBasis,
             );
             // 進度環圈／落差警示／S-Curve 卡共用全系統統一的「上捲進度」定義
-            const prog = rolledUpProgress(project.milestones, wiDetails);
+            const prog = rolledUpProgress(project.obligations, wiDetails);
             const behind = prog.gap < 0;
-            const milestoneCount = milestoneOptions.length;
+            const obligationCount = obligationOptions.length;
             const workItemCount = wiDetails.length;
             const isWorkItemBasis = curveBasis === "WORKITEM";
 
@@ -237,7 +269,7 @@ export default async function ProjectDetailPage({
                 value: behind ? `落後 ${Math.abs(prog.gap)}%` : "準時/超前",
                 danger: behind,
                 icon: AlertTriangle,
-                href: `/projects/${project.id}?tab=milestones`,
+                href: `/projects/${project.id}?tab=obligations`,
               },
               {
                 key: "defects",
@@ -287,7 +319,7 @@ export default async function ProjectDetailPage({
                           a.danger
                             ? "border-destructive/40 bg-destructive/5"
                             : a.warn
-                              ? "border-amber-500/40 bg-amber-500/5"
+                              ? "border-warning/40"
                               : "",
                         )}
                       >
@@ -298,7 +330,7 @@ export default async function ProjectDetailPage({
                               a.danger
                                 ? "text-destructive"
                                 : a.warn
-                                  ? "text-amber-500"
+                                  ? "text-warning"
                                   : "text-muted-foreground",
                             )}
                           />
@@ -408,7 +440,7 @@ export default async function ProjectDetailPage({
                       </div>
                       <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
                         <div
-                          className="h-full rounded-full bg-emerald-600"
+                          className="h-full rounded-full bg-primary"
                           style={{ width: `${Math.min(100, paidPct)}%` }}
                         />
                       </div>
@@ -463,7 +495,7 @@ export default async function ProjectDetailPage({
                       <span
                         className={cn(
                           "text-xs font-normal",
-                          behind ? "text-destructive" : "text-emerald-600",
+                          behind ? "text-destructive" : "text-success",
                         )}
                       >
                         {behind
@@ -476,29 +508,29 @@ export default async function ProjectDetailPage({
                     <SCurveChart points={sCurve} />
                     {isWorkItemBasis ? (
                       <p className="mt-3 border-t pt-3 text-xs leading-relaxed text-muted-foreground">
-                        以<b>分項工程</b>（共 {workItemCount} 項）為基準：
-                        <b>預定累計</b>將各工項按「預定工期天數」在其期間內線性展開累計、
-                        <b>實際累計</b>以工項目前 <b>進度 %</b> 為終值自起始日線性分佈，
-                        <b>預測</b>自目前實際值外推至工期末。調整工項的預定/實際起訖日或進度即會改變曲線 —{" "}
+                        以<b>工程分項</b>（共 {workItemCount} 項）為基準：
+                        <b>預定累計</b>將各分項按「預定工期天數」在其期間內線性展開累計、
+                        <b>實際累計</b>以分項目前 <b>進度 %</b> 為終值自起始日線性分佈，
+                        <b>預測</b>自目前實際值外推至工期末。調整分項的預定/實際起訖日或進度即會改變曲線 —{" "}
                         <Link
                           href={`/projects/${project.id}?tab=related`}
                           className="text-primary hover:underline"
                         >
-                          前往分項工程
+                          前往工程分項
                         </Link>
                         。
                       </p>
                     ) : (
                       <p className="mt-3 border-t pt-3 text-xs leading-relaxed text-muted-foreground">
-                        以<b>里程碑</b>（共 {milestoneCount} 項）為基準：
-                        <b>預定累計</b>來自各里程碑的「預定完成日 × 權重」、
+                        以<b>履約事項</b>（共 {obligationCount} 項）為基準：
+                        <b>預定累計</b>來自各履約事項的「期限 × 權重」、
                         <b>實際累計</b>來自「實際完成日 × 權重」，<b>預測</b>自目前實際值外推至工期末。
                         調整權重或填入實際完成日即會改變曲線 —{" "}
                         <Link
-                          href={`/projects/${project.id}?tab=milestones`}
+                          href={`/projects/${project.id}?tab=obligations`}
                           className="text-primary hover:underline"
                         >
-                          前往里程碑編輯
+                          前往履約事項編輯
                         </Link>
                         。
                       </p>
@@ -928,10 +960,10 @@ export default async function ProjectDetailPage({
           </>
         )}
 
-        {active === "milestones" &&
+        {active === "obligations" &&
           (() => {
             // 與總覽一致：全系統統一的上捲進度
-            const prog = rolledUpProgress(project.milestones, wiDetails);
+            const prog = rolledUpProgress(project.obligations, wiDetails);
             const behind = prog.gap < 0;
             return (
               <div className="space-y-6">
@@ -973,9 +1005,9 @@ export default async function ProjectDetailPage({
                       planned={prog.planned}
                     />
                     <p className="text-xs text-muted-foreground">
-                      進度依里程碑權重計算，｜為預定進度位置。
+                      進度依履約事項權重計算，｜為預定進度位置。
                       {behind
-                        ? "目前落後，建議檢視未達成里程碑並排定趕工。"
+                        ? "目前落後，建議檢視未達成履約事項並排定趕工。"
                         : "進度符合或超前預定。"}
                     </p>
                   </CardContent>
@@ -984,32 +1016,42 @@ export default async function ProjectDetailPage({
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">
-                      工期里程碑 ({project.milestones.length})
+                      履約事項 ({project.obligations.length})
                     </CardTitle>
                   </CardHeader>
             <CardContent className="space-y-4">
-              {project.milestones.length === 0 ? (
-                <p className="text-sm text-muted-foreground">尚無里程碑。</p>
+              {project.obligations.length === 0 ? (
+                <p className="text-sm text-muted-foreground">尚無履約事項。</p>
               ) : (
                 <div className="divide-y">
-                  {project.milestones.map((m) => (
+                  {project.obligations.map((m) => (
                     <div
                       key={m.id}
                       className="flex items-center justify-between gap-3 py-2"
                     >
                       <div className="flex min-w-0 items-center gap-3">
-                        <Badge variant={milestoneTypeMeta[m.type].variant}>
-                          {milestoneTypeMeta[m.type].label}
+                        <span
+                          className={cn(
+                            "size-2.5 shrink-0 rounded-full",
+                            obligationRiskMeta[m.risk].dot,
+                          )}
+                          title={`風險：${obligationRiskMeta[m.risk].label}`}
+                        />
+                        <Badge variant={obligationStageMeta[m.stage].variant}>
+                          {obligationStageMeta[m.stage].label}
                         </Badge>
                         <div className="min-w-0">
-                          <div className="truncate text-sm font-medium">{m.name}</div>
+                          <div className="truncate text-sm font-medium">
+                            <span className="text-muted-foreground">{m.code}</span>{" "}
+                            {m.title}
+                          </div>
                           <div className="text-xs text-muted-foreground">
-                            預定 {formatDate(m.plannedDate)}
+                            {obligationStatusMeta[m.status].label} · 期限{" "}
+                            {formatDate(m.dueDate)}
                             {m.actualDate ? ` · 實際 ${formatDate(m.actualDate)}` : ""}
-                            {m.docNo ? ` · ${m.docNo}` : ""}
-                            {m.type === "MILESTONE" &&
-                            (milestoneRollups.get(m.id)?.count ?? 0) > 0
-                              ? ` · 工項推算 ${milestoneRollups.get(m.id)!.progress}%（${milestoneRollups.get(m.id)!.count} 項）`
+                            {ownerLabel(m) ? ` · ${ownerLabel(m)}` : ""}
+                            {(obligationRollups.get(m.id)?.count ?? 0) > 0
+                              ? ` · 分項推算 ${obligationRollups.get(m.id)!.progress}%（${obligationRollups.get(m.id)!.count} 項）`
                               : ""}
                           </div>
                         </div>
@@ -1018,9 +1060,9 @@ export default async function ProjectDetailPage({
                         <RecordDeleteButton
                           id={m.id}
                           projectId={project.id}
-                          label="里程碑"
-                          onDelete={deleteMilestoneAction}
-                          onRestore={restoreMilestoneAction}
+                          label="履約事項"
+                          onDelete={deleteObligationAction}
+                          onRestore={restoreObligationAction}
                         />
                       )}
                     </div>
@@ -1031,24 +1073,58 @@ export default async function ProjectDetailPage({
               {canEdit && (
               <div className="flex justify-end">
                 <CreateRecordDialog
-                  title="新增里程碑"
-                  triggerLabel="新建里程碑"
-                  action={addMilestoneAction}
+                  title="新增履約事項"
+                  triggerLabel="新建履約事項"
+                  action={addObligationAction}
                 >
                   <input type="hidden" name="projectId" value={project.id} />
-                  <Field label="名稱" name="name" placeholder="如：連續壁完成" />
+                  <Field label="管制編號" name="code" placeholder="如：WURI-C-001" />
+                  <Field label="履約事項" name="title" placeholder="如：連續壁完成" />
                   <div className="space-y-1.5">
-                    <Label htmlFor="ms-type">類型</Label>
-                    <Select id="ms-type" name="type" defaultValue="MILESTONE">
-                      {milestoneTypeOptions.map((o) => (
+                    <Label htmlFor="ob-stage">階段</Label>
+                    <Select id="ob-stage" name="stage" defaultValue="CONSTRUCTION">
+                      {obligationStageOptions.map((o) => (
                         <option key={o.value} value={o.value}>
                           {o.label}
                         </option>
                       ))}
                     </Select>
                   </div>
-                  <Field label="預定日期" name="plannedDate" type="date" />
-                  <Field label="實際日期（達成日）" name="actualDate" type="date" />
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ob-risk">風險</Label>
+                    <Select id="ob-risk" name="risk" defaultValue="GREEN">
+                      {obligationRiskOptions.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ob-trigger">觸發方式</Label>
+                    <Select id="ob-trigger" name="triggerType" defaultValue="FIXED_DATE">
+                      {obligationTriggerOptions.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ob-status">狀態</Label>
+                    <Select id="ob-status" name="status" defaultValue="NOT_STARTED">
+                      {obligationStatusOptions.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <Field label="期限" name="dueDate" type="date" />
+                  <Field label="實際完成日" name="actualDate" type="date" />
+                  <Field label="責任單位" name="ownerUnit" placeholder="如：資訊組" />
+                  <Field label="責任人" name="ownerName" placeholder="如：陳工程師" />
+                  <Field label="契約依據" name="contractBasis" placeholder="如：契約第二條第八款" />
                   <Field label="進度權重" name="weight" type="number" placeholder="1" />
                   <Field label="核准文號" name="docNo" />
                   <Field label="說明" name="note" />
@@ -1145,12 +1221,12 @@ export default async function ProjectDetailPage({
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">
-                  分項工程 ({project.workItems.length})
+                  工程分項 ({project.workItems.length})
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-xs text-muted-foreground">
-                  分項工程之預定/實際起訖與進度為「工項基準」進度 S-Curve 的資料來源；
+                  工程分項之預定/實際起訖與進度為「工程分項基準」進度 S-Curve 的資料來源；
                   查驗（PMIS-07）與缺失可關聯至工項。
                 </p>
                 {project.workItems.length === 0 ? (
@@ -1224,16 +1300,16 @@ export default async function ProjectDetailPage({
                             </label>
                             <label className="space-y-1 text-xs">
                               <span className="text-muted-foreground">
-                                歸屬里程碑
+                                歸屬履約事項
                               </span>
                               <Select
-                                name="milestoneId"
-                                defaultValue={wiMilestoneMap.get(wi.id) ?? ""}
+                                name="obligationId"
+                                defaultValue={wiObligationMap.get(wi.id) ?? ""}
                               >
                                 <option value="">不歸屬</option>
-                                {milestoneOptions.map((m) => (
+                                {obligationOptions.map((m) => (
                                   <option key={m.id} value={m.id}>
-                                    {m.name}
+                                    {m.code} {m.title}
                                   </option>
                                 ))}
                               </Select>
@@ -1288,12 +1364,12 @@ export default async function ProjectDetailPage({
                   </div>
                 )}
 
-                {/* 新增分項工程 */}
+                {/* 新增工程分項 */}
                 {canEdit && (
                 <div className="flex justify-end">
                   <CreateRecordDialog
-                    title="新增分項工程"
-                    triggerLabel="新建分項工程"
+                    title="新增工程分項"
+                    triggerLabel="新建工程分項"
                     action={createWorkItemAction}
                   >
                     <input type="hidden" name="projectId" value={project.id} />
@@ -1320,12 +1396,12 @@ export default async function ProjectDetailPage({
                       <Input name="progress" type="number" min={0} max={100} placeholder="0" />
                     </label>
                     <label className="space-y-1 text-xs">
-                      <span className="text-muted-foreground">歸屬里程碑</span>
-                      <Select name="milestoneId" defaultValue="">
+                      <span className="text-muted-foreground">歸屬履約事項</span>
+                      <Select name="obligationId" defaultValue="">
                         <option value="">不歸屬</option>
-                        {milestoneOptions.map((m) => (
+                        {obligationOptions.map((m) => (
                           <option key={m.id} value={m.id}>
-                            {m.name}
+                            {m.code} {m.title}
                           </option>
                         ))}
                       </Select>

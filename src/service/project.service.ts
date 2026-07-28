@@ -1,17 +1,25 @@
 import * as projectRepo from "@/repository/project.repository";
-import * as milestoneRepo from "@/repository/milestone.repository";
+import * as obligationRepo from "@/repository/obligation.repository";
 import * as contractChangeRepo from "@/repository/contractChange.repository";
 import * as documentRepo from "@/repository/projectDocument.repository";
 import * as projectMemberRepo from "@/repository/projectMember.repository";
 import * as accountRepo from "@/repository/account.repository";
 import {
   projectStatusMeta,
-  milestoneTypeMeta,
   projectDocumentCategoryMeta,
 } from "@/constant/pmis";
+import {
+  obligationRiskMeta,
+  obligationStageMeta,
+  obligationStatusMeta,
+  obligationTriggerMeta,
+} from "@/constant/obligation";
 import type {
   ProjectStatus,
-  MilestoneType,
+  ObligationStage,
+  ObligationRisk,
+  ObligationTrigger,
+  ObligationStatus,
   ProjectDocumentCategory,
   AccountRole,
   ProjectMemberRole,
@@ -27,14 +35,21 @@ import {
 } from "./scurve";
 import {
   derivedProgress,
-  effectiveMilestoneActual,
+  effectiveObligationActual,
   rolledUpProgress,
   type RollupItem,
   type ProgressWorkItem,
-} from "./milestone-rollup";
+} from "./obligation-rollup";
 
 const VALID_STATUSES = Object.keys(projectStatusMeta) as ProjectStatus[];
-const VALID_MILESTONE_TYPES = Object.keys(milestoneTypeMeta) as MilestoneType[];
+const VALID_STAGES = Object.keys(obligationStageMeta) as ObligationStage[];
+const VALID_RISKS = Object.keys(obligationRiskMeta) as ObligationRisk[];
+const VALID_TRIGGERS = Object.keys(obligationTriggerMeta) as ObligationTrigger[];
+const VALID_OB_STATUSES = Object.keys(obligationStatusMeta) as ObligationStatus[];
+
+/** 表單字串收斂為 enum，非法值退回預設。 */
+const pickEnum = <T extends string>(valid: T[], v: unknown, fallback: T): T =>
+  valid.includes(v as T) ? (v as T) : fallback;
 const VALID_DOC_CATEGORIES = Object.keys(
   projectDocumentCategoryMeta,
 ) as ProjectDocumentCategory[];
@@ -61,68 +76,36 @@ function requiredText(v: string | undefined): string | undefined {
 }
 
 // ── queries ────────────────────────────────────────────────
-/** 由里程碑權重計算單一專案的整體/預定進度與落差。 */
-export function computeMilestoneProgress(
-  milestones: { weight: number; plannedDate: Date | null; actualDate: Date | null }[],
-) {
-  const now = Date.now();
-  const round = (n: number) => Math.round(n * 100) / 100;
-  let total = 0;
-  let actual = 0;
-  let planned = 0;
-  for (const m of milestones) {
-    total += m.weight;
-    if (m.actualDate) actual += m.weight;
-    if (m.plannedDate && m.plannedDate.getTime() <= now) planned += m.weight;
-  }
-  const overall = total > 0 ? round((actual / total) * 100) : 0;
-  const plannedPct = total > 0 ? round((planned / total) * 100) : 0;
-  return { overall, planned: plannedPct, gap: round(overall - plannedPct) };
-}
-
 /**
  * 單一專案的進度 S-Curve（預定/實際/預測累計 %），支援兩種計算基準：
- *  - "MILESTONE"（預設）：以「里程碑」權重與預定/實際完成日計算（事件式）。
- *  - "WORKITEM"：以「分項工程」預定工期與 progress 計算（期間式）。
- * 於對應分頁修改資料（里程碑權重/日期、或工項起訖日/進度）皆會即時改變此曲線。
+ *  - "OBLIGATION"（預設）：以「履約事項」權重與期限/實際完成日計算（事件式）。
+ *  - "WORKITEM"：以「工程分項」預定工期與 progress 計算（期間式）。
+ * 於對應分頁修改資料（履約事項權重/日期、或工程分項起訖日/進度）皆會即時改變此曲線。
  */
-export type MilestoneLite = {
+export type ObligationLite = {
   id: string;
-  type: string;
   weight: number;
-  plannedDate: Date | null;
+  dueDate: Date | null;
   actualDate: Date | null;
 };
 export type WorkItemDetail = RollupItem & {
   id: string;
   name: string;
   status: string;
-  milestoneId: string | null;
+  obligationId: string | null;
 };
 
-/** 讀取專案工項明細（含 milestoneId，raw SQL 過渡）。 */
-export async function getWorkItemDetails(
+/** 讀取專案工程分項明細（含所屬履約事項 id）。 */
+export function getWorkItemDetails(
   projectId: string,
 ): Promise<WorkItemDetail[]> {
-  const rows = await workItemRepo.listDetailByProject(projectId);
-  const d = (s: string | null) => (s ? new Date(s) : null);
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    status: r.status,
-    progress: r.progress,
-    plannedStart: d(r.plannedStart),
-    plannedEnd: d(r.plannedEnd),
-    actualStart: d(r.actualStart),
-    actualEnd: d(r.actualEnd),
-    milestoneId: r.milestoneId,
-  }));
+  return workItemRepo.listDetailByProject(projectId);
 }
 
 export function computeProjectSCurve(
-  milestones: MilestoneLite[],
+  obligations: ObligationLite[],
   workItems: WorkItemDetail[],
-  basis: SCurveBasis = "MILESTONE",
+  basis: SCurveBasis = "OBLIGATION",
 ): SCurvePoint[] {
   if (basis === "WORKITEM") {
     return buildWorkItemSCurve(
@@ -135,29 +118,27 @@ export function computeProjectSCurve(
       })),
     );
   }
-  // 里程碑基準：實際完成日由其下工項上捲（見 milestone-rollup），手動 actualDate 優先。
+  // 履約事項基準：實際完成日由其下工程分項上捲（見 obligation-rollup），手動 actualDate 優先。
   return buildSCurve(
-    milestones
-      .filter((m) => m.type === "MILESTONE")
-      .map((m) => {
-        const items = workItems.filter((w) => w.milestoneId === m.id);
-        return {
-          weight: m.weight,
-          plannedDate: m.plannedDate,
-          actualDate: effectiveMilestoneActual(m.actualDate, items),
-        };
-      }),
+    obligations.map((m) => {
+      const items = workItems.filter((w) => w.obligationId === m.id);
+      return {
+        weight: m.weight,
+        plannedDate: m.dueDate,
+        actualDate: effectiveObligationActual(m.actualDate, items),
+      };
+    }),
   );
 }
 
-/** 每個里程碑由工項上捲的達成度與工項數（供里程碑分頁顯示）。 */
-export function computeMilestoneRollups(
-  milestones: MilestoneLite[],
+/** 每個履約事項由工程分項上捲的達成度與分項數（供履約事項分頁顯示）。 */
+export function computeObligationRollups(
+  obligations: ObligationLite[],
   workItems: WorkItemDetail[],
 ): Map<string, { progress: number; count: number }> {
   const map = new Map<string, { progress: number; count: number }>();
-  for (const m of milestones) {
-    const items = workItems.filter((w) => w.milestoneId === m.id);
+  for (const m of obligations) {
+    const items = workItems.filter((w) => w.obligationId === m.id);
     map.set(m.id, { progress: derivedProgress(items), count: items.length });
   }
   return map;
@@ -167,7 +148,8 @@ type OverviewProject = {
   status: string;
   budget: unknown;
   endDate: Date | null;
-  milestones: { type: string; weight: number; plannedDate: Date | null; actualDate: Date | null }[];
+  obligations: { id: string; weight: number; dueDate: Date | null; actualDate: Date | null }[];
+  workItems: ProgressWorkItem[];
   defects: { status: string; dueDate: Date | null }[];
   inspections: { result: string }[];
   contractChanges: { amountAfter: unknown }[];
@@ -181,9 +163,8 @@ export function computeProjectOverview(project: OverviewProject) {
   const num = (v: unknown): number | null =>
     v == null ? null : Number(v as number);
 
-  const progress = computeMilestoneProgress(
-    project.milestones.filter((m) => m.type === "MILESTONE"),
-  );
+  // 進度採全系統單一定義：履約事項權重加權，達成由工程分項上捲判定。
+  const progress = rolledUpProgress(project.obligations, project.workItems, now);
 
   const openDefects = project.defects.filter(
     (d) => d.status === "OPEN" || d.status === "IN_PROGRESS",
@@ -235,6 +216,35 @@ export function computeProjectOverview(project: OverviewProject) {
 
 export type Viewer = { id: string; role: AccountRole };
 
+/** 側邊欄「目前專案」切換清單所需的欄位。 */
+export type ProjectOption = {
+  id: string;
+  code: string;
+  name: string;
+  status: ProjectStatus;
+  client: string | null;
+  location: string | null;
+  description: string | null;
+  startDate: string | null;
+  endDate: string | null;
+};
+
+/** 輕量專案選項，供側邊欄「目前專案」切換用，遵循同樣的存取範圍。 */
+export async function listProjectOptions(
+  viewer: Viewer,
+): Promise<ProjectOption[]> {
+  const rows = canSeeAllProjects(viewer.role)
+    ? await projectRepo.listOptions()
+    : await projectRepo.listOptionsForAccount(viewer.id);
+  // Info: Date 轉為 ISO 日期字串，避免跨 server/client 邊界的序列化差異
+  const day = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
+  return rows.map((p) => ({
+    ...p,
+    startDate: day(p.startDate),
+    endDate: day(p.endDate),
+  }));
+}
+
 /** Projects visible to the viewer — ADMIN/MANAGER see all, others see assigned only. */
 export async function listProjects(viewer: Viewer) {
   const projects = canSeeAllProjects(viewer.role)
@@ -246,23 +256,15 @@ export async function listProjects(viewer: Viewer) {
     projects.map((p) => p.id),
   );
   const byProject = new Map<string, ProgressWorkItem[]>();
-  const d = (s: string | null) => (s ? new Date(s) : null);
   for (const r of wiRows) {
     const arr = byProject.get(r.projectId) ?? [];
-    arr.push({
-      milestoneId: r.milestoneId,
-      plannedStart: d(r.plannedStart),
-      plannedEnd: d(r.plannedEnd),
-      actualStart: d(r.actualStart),
-      actualEnd: d(r.actualEnd),
-      progress: r.progress,
-    });
+    arr.push(r);
     byProject.set(r.projectId, arr);
   }
 
   return projects.map((p) => ({
     ...p,
-    progress: rolledUpProgress(p.milestones, byProject.get(p.id) ?? []),
+    progress: rolledUpProgress(p.obligations, byProject.get(p.id) ?? []),
   }));
 }
 
@@ -373,6 +375,107 @@ export async function createProject(
   return { ok: true, id: project.id };
 }
 
+// ── 專案建置：一次建立專案 + 履約事項 + 工程分項 ─────────────
+export type WizardObligationInput = {
+  code?: string;
+  title?: string;
+  stage?: string;
+  risk?: string;
+  triggerType?: string;
+  dueDate?: string;
+  ownerUnit?: string;
+  ownerName?: string;
+  contractBasis?: string;
+  weight?: number | string;
+  commissioning?: boolean;
+};
+
+export type WizardWorkItemInput = {
+  code?: string;
+  name?: string;
+  category?: string;
+  /** 所屬履約事項「名稱」，建立後再解析為 id。 */
+  obligation?: string;
+  plannedStart?: string;
+  plannedEnd?: string;
+};
+
+const asDate = (v?: string) => {
+  if (!v?.trim()) return undefined;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+};
+
+/**
+ * 建立專案，並依序寫入履約事項與工程分項。
+ * 工程分項以履約事項「名稱」對應剛建立的 id（名稱重複時取第一筆）。
+ * 未提供管制編號時，依專案代號自動編號（如 ABC-001）以滿足唯一性。
+ * 專案建立失敗即中止；子項目個別失敗不影響已建立的專案。
+ */
+export async function createProjectWithStructure(
+  input: CreateProjectInput,
+  obligations: WizardObligationInput[] = [],
+  workItems: WizardWorkItemInput[] = [],
+): Promise<CreateProjectResult> {
+  const result = await createProject(input);
+  if (!result.ok) return result;
+  const projectId = result.id;
+
+  const prefix = input.code?.trim() || "OB";
+  const usedCodes = new Set<string>();
+  const idByName = new Map<string, string>();
+  let seq = 0;
+  for (const m of obligations) {
+    const title = m.title?.trim();
+    if (!title) continue;
+    seq += 1;
+    let code = m.code?.trim() || "";
+    if (!code || usedCodes.has(code)) {
+      code = `${prefix}-${String(seq).padStart(3, "0")}`;
+    }
+    usedCodes.add(code);
+    const weight =
+      m.weight != null && !Number.isNaN(Number(m.weight))
+        ? Math.max(1, Math.round(Number(m.weight)))
+        : 1;
+    const created = await obligationRepo.create({
+      projectId,
+      code,
+      title,
+      stage: pickEnum(VALID_STAGES, m.stage, "CONSTRUCTION"),
+      risk: pickEnum(VALID_RISKS, m.risk, "GREEN"),
+      triggerType: pickEnum(VALID_TRIGGERS, m.triggerType, "FIXED_DATE"),
+      dueDate: asDate(m.dueDate),
+      ownerUnit: m.ownerUnit?.trim() || undefined,
+      ownerName: m.ownerName?.trim() || undefined,
+      contractBasis: m.contractBasis?.trim() || undefined,
+      weight,
+      commissioning: m.commissioning === true,
+    });
+    if (!idByName.has(title)) idByName.set(title, created.id);
+  }
+
+  for (const w of workItems) {
+    const name = w.name?.trim();
+    if (!name) continue;
+    await workItemRepo.create({
+      projectId,
+      code: w.code?.trim() || null,
+      name,
+      category: w.category?.trim() || null,
+      plannedStart: asDate(w.plannedStart) ?? null,
+      plannedEnd: asDate(w.plannedEnd) ?? null,
+      progress: 0,
+      status: "NOT_STARTED",
+      obligationId: w.obligation
+        ? (idByName.get(w.obligation.trim()) ?? null)
+        : null,
+    });
+  }
+
+  return result;
+}
+
 export type UpdateProjectInput = Omit<CreateProjectInput, "code">;
 
 export async function updateProject(id: string, input: UpdateProjectInput) {
@@ -404,50 +507,72 @@ export async function restoreProject(id: string) {
   await projectRepo.restore(id);
 }
 
-// ── milestones ─────────────────────────────────────────────
-export type MilestoneInput = {
+// ── 履約事項 ────────────────────────────────────────────────
+export type ObligationInput = {
   projectId: string;
-  name?: string;
-  type?: string;
-  plannedDate?: string;
+  code?: string;
+  title?: string;
+  stage?: string;
+  risk?: string;
+  triggerType?: string;
+  status?: string;
+  dueDate?: string;
   actualDate?: string;
+  ownerUnit?: string;
+  ownerName?: string;
+  contractBasis?: string;
   weight?: string;
   commissioning?: string;
+  offsetDays?: string;
   docNo?: string;
   note?: string;
 };
 
-export async function addMilestone(input: MilestoneInput) {
-  const name = input.name?.trim();
-  if (!input.projectId || !name) return;
-  const type: MilestoneType = VALID_MILESTONE_TYPES.includes(
-    input.type as MilestoneType,
-  )
-    ? (input.type as MilestoneType)
-    : "MILESTONE";
+export async function addObligation(input: ObligationInput) {
+  const title = input.title?.trim();
+  const code = input.code?.trim();
+  if (!input.projectId || !title || !code) return;
   const weight =
     input.weight && !Number.isNaN(Number(input.weight))
       ? Math.max(1, Math.round(Number(input.weight)))
       : 1;
-  await milestoneRepo.create({
+  const offsetDays =
+    input.offsetDays && !Number.isNaN(Number(input.offsetDays))
+      ? Math.round(Number(input.offsetDays))
+      : undefined;
+  await obligationRepo.create({
     projectId: input.projectId,
-    name,
-    type,
-    plannedDate: input.plannedDate ? new Date(input.plannedDate) : undefined,
+    code,
+    title,
+    stage: pickEnum(VALID_STAGES, input.stage, "CONSTRUCTION"),
+    risk: pickEnum(VALID_RISKS, input.risk, "GREEN"),
+    triggerType: pickEnum(VALID_TRIGGERS, input.triggerType, "FIXED_DATE"),
+    status: pickEnum(VALID_OB_STATUSES, input.status, "NOT_STARTED"),
+    dueDate: input.dueDate ? new Date(input.dueDate) : undefined,
     actualDate: input.actualDate ? new Date(input.actualDate) : undefined,
+    ownerUnit: input.ownerUnit?.trim() || undefined,
+    ownerName: input.ownerName?.trim() || undefined,
+    contractBasis: input.contractBasis?.trim() || undefined,
     weight,
     commissioning: input.commissioning === "on" || input.commissioning === "true",
+    offsetDays,
     docNo: input.docNo?.trim() || undefined,
     note: input.note?.trim() || undefined,
   });
 }
 
-export async function deleteMilestone(id: string) {
-  await milestoneRepo.softDelete(id);
+/** 標記履約事項完成（寫入實際完成日並轉為 DONE）。 */
+export async function completeObligation(id: string, actualDate?: string) {
+  const d = actualDate ? new Date(actualDate) : new Date();
+  await obligationRepo.markDone(id, Number.isNaN(d.getTime()) ? new Date() : d);
 }
 
-export async function restoreMilestone(id: string) {
-  await milestoneRepo.restore(id);
+export async function deleteObligation(id: string) {
+  await obligationRepo.softDelete(id);
+}
+
+export async function restoreObligation(id: string) {
+  await obligationRepo.restore(id);
 }
 
 // ── contract changes ───────────────────────────────────────

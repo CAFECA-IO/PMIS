@@ -1,5 +1,5 @@
 import * as projectRepo from "@/repository/project.repository";
-import * as todoRepo from "@/repository/todo.repository";
+import * as notificationRepo from "@/repository/notification.repository";
 import * as submittalRepo from "@/repository/submittal.repository";
 import * as defectRepo from "@/repository/defect.repository";
 import * as reminderRepo from "@/repository/reminder.repository";
@@ -7,12 +7,12 @@ import * as workItemRepo from "@/repository/workItem.repository";
 import * as ehsRepo from "@/repository/ehs.repository";
 import * as inspectionRepo from "@/repository/inspection.repository";
 import * as mediaRepo from "@/repository/media.repository";
-import * as milestoneRepo from "@/repository/milestone.repository";
+import * as obligationRepo from "@/repository/obligation.repository";
 import { buildSCurve } from "./scurve";
-import { effectiveMilestoneActual, type RollupItem } from "./milestone-rollup";
+import { effectiveObligationActual, type RollupItem } from "./obligation-rollup";
 
 /**
- * Overall KPIs computed from project milestones (整體進度/差距/試運轉就緒度) and
+ * Overall KPIs computed from contract obligations (整體進度/差距/試運轉就緒度) and
  * inspections (檢驗合格率).
  */
 export async function getMetrics(sinceDays: number | null = null) {
@@ -21,7 +21,7 @@ export async function getMetrics(sinceDays: number | null = null) {
     : undefined;
 
   const [
-    milestones,
+    obligations,
     passed,
     conditional,
     failed,
@@ -36,7 +36,7 @@ export async function getMetrics(sinceDays: number | null = null) {
     subReturned,
     subApproved,
   ] = await Promise.all([
-    milestoneRepo.listForMetrics(),
+    obligationRepo.listForMetrics(),
     inspectionRepo.countByResult("PASSED", since),
     inspectionRepo.countByResult("CONDITIONAL", since),
     inspectionRepo.countByResult("FAILED", since),
@@ -63,11 +63,11 @@ export async function getMetrics(sinceDays: number | null = null) {
   let commWeight = 0;
   let commDoneWeight = 0;
 
-  for (const m of milestones) {
+  for (const m of obligations) {
     const w = m.weight;
     totalWeight += w;
     if (m.actualDate) actualWeight += w;
-    if (m.plannedDate && m.plannedDate.getTime() <= now) plannedWeight += w;
+    if (m.dueDate && m.dueDate.getTime() <= now) plannedWeight += w;
     if (m.commissioning) {
       commWeight += w;
       if (m.actualDate) commDoneWeight += w;
@@ -101,7 +101,7 @@ export async function getMetrics(sinceDays: number | null = null) {
       approved: subApproved,
     },
     commissioningReadiness: pct(commDoneWeight, commWeight),
-    milestoneTotal: milestones.length,
+    obligationTotal: obligations.length,
     rangeDays: sinceDays,
   };
 }
@@ -115,7 +115,7 @@ export type Health = {
   actions: HealthAction[];
 };
 
-/** 依進度差距與待辦/缺失/送審狀況,給出白話狀態與建議行動。 */
+/** 依進度差距與通知/缺失/送審狀況,給出白話狀態與建議行動。 */
 export function assessHealth(input: {
   overallProgress: number;
   plannedProgress: number;
@@ -158,12 +158,12 @@ export function assessHealth(input: {
   const actions: HealthAction[] = [];
   if (gap < 0) {
     actions.push({
-      text: `檢視落後里程碑並排定趕工（差距 ${gapAbs}%）`,
+      text: `檢視落後履約事項並排定趕工（差距 ${gapAbs}%）`,
       href: "/projects",
     });
   }
   if (overdueTodos > 0)
-    actions.push({ text: `處理 ${overdueTodos} 件逾期待辦`, href: "/todos" });
+    actions.push({ text: `處理 ${overdueTodos} 件逾期通知`, href: "/notifications" });
   if (failedInspections > 0)
     actions.push({
       text: `複驗 ${failedInspections} 件不合格查驗`,
@@ -186,34 +186,27 @@ export type { SCurvePoint } from "./scurve";
 
 /**
  * Monthly cumulative planned / actual / forecast progress (%), computed from
- * weighted milestones across all projects — the dashboard S-Curve.
+ * weighted contract obligations across all projects — the dashboard S-Curve.
  */
 export async function getSCurve() {
-  const [milestones, wiRows] = await Promise.all([
-    milestoneRepo.listForMetrics(),
+  const [obligations, wiRows] = await Promise.all([
+    obligationRepo.listForMetrics(),
     workItemRepo.listAllDetailForMetrics(),
   ]);
-  // 全體工項依 milestoneId 分組，供上捲判定里程碑有效實際完成日
-  const d = (s: string | null) => (s ? new Date(s) : null);
-  const byMs = new Map<string, RollupItem[]>();
+  // 全體工程分項依 obligationId 分組，供上捲判定履約事項有效實際完成日
+  const byOb = new Map<string, RollupItem[]>();
   for (const r of wiRows) {
-    if (!r.milestoneId) continue;
-    const arr = byMs.get(r.milestoneId) ?? [];
-    arr.push({
-      plannedStart: d(r.plannedStart),
-      plannedEnd: d(r.plannedEnd),
-      actualStart: d(r.actualStart),
-      actualEnd: d(r.actualEnd),
-      progress: r.progress,
-    });
-    byMs.set(r.milestoneId, arr);
+    if (!r.obligationId) continue;
+    const arr = byOb.get(r.obligationId) ?? [];
+    arr.push(r);
+    byOb.set(r.obligationId, arr);
   }
   // 以上捲後的有效實際完成日建立 S-Curve（與各專案定義一致）
   return buildSCurve(
-    milestones.map((m) => ({
+    obligations.map((m) => ({
       weight: m.weight,
-      plannedDate: m.plannedDate,
-      actualDate: effectiveMilestoneActual(m.actualDate, byMs.get(m.id) ?? []),
+      plannedDate: m.dueDate,
+      actualDate: effectiveObligationActual(m.actualDate, byOb.get(m.id) ?? []),
     })),
   );
 }
@@ -232,7 +225,7 @@ export async function getDashboard() {
     upcomingReminders,
     latestDefects,
     reminderCount,
-    todoCount,
+    notificationCount,
     workItemCount,
     ehsCount,
     submittalCount,
@@ -241,13 +234,13 @@ export async function getDashboard() {
   ] = await Promise.all([
     projectRepo.count(),
     projectRepo.countByStatus("ACTIVE"),
-    todoRepo.countOverdue(),
+    notificationRepo.countOverdue(),
     submittalRepo.countPending(),
     defectRepo.countOpen(),
     reminderRepo.listUpcoming(6),
     defectRepo.listOpenLatest(5),
     reminderRepo.count(),
-    todoRepo.count(),
+    notificationRepo.count(),
     workItemRepo.count(),
     ehsRepo.count(),
     submittalRepo.count(),
@@ -261,7 +254,7 @@ export async function getDashboard() {
     latestDefects,
     moduleCounts: {
       reminder: reminderCount,
-      todo: todoCount,
+      notification: notificationCount,
       project: projectCount,
       workItem: workItemCount,
       ehs: ehsCount,

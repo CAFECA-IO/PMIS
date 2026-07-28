@@ -563,7 +563,7 @@ export function GisMap({
       <button
         type="button"
         onClick={() => setPanelOpen((v) => !v)}
-        className="absolute left-3 top-3 z-[1000] flex items-center gap-1.5 rounded-md bg-card px-3 py-2 text-sm font-medium shadow-md lg:hidden"
+        className="absolute left-3 top-3 z-[1000] flex items-center gap-1.5 rounded-md bg-card px-3 py-2 text-sm font-medium shadow-overlay lg:hidden"
       >
         <Layers className="size-4" /> 圖層
       </button>
@@ -571,7 +571,7 @@ export function GisMap({
       {/* 圖層面板 */}
       <div
         className={cn(
-          "absolute left-3 top-3 z-[999] max-h-[calc(100%-1.5rem)] w-64 overflow-y-auto rounded-lg border bg-card/95 p-3 shadow-lg backdrop-blur",
+          "absolute left-3 top-3 z-[999] max-h-[calc(100%-1.5rem)] w-64 overflow-y-auto rounded-lg border bg-card/95 p-3 shadow-overlay backdrop-blur",
           "lg:block",
           panelOpen ? "block" : "hidden",
         )}
@@ -653,7 +653,7 @@ export function GisMap({
 
       {/* 繪圖工具（需選定專案且有權限） */}
       {canEdit && selectedProjectId && (
-        <div className="absolute right-3 top-3 z-[999] flex flex-col gap-1.5 rounded-lg border bg-card/95 p-2 shadow-lg backdrop-blur">
+        <div className="absolute right-3 top-3 z-[999] flex flex-col gap-1.5 rounded-lg border bg-card/95 p-2 shadow-overlay backdrop-blur">
           <p className="flex items-center gap-1 px-1 text-xs font-semibold text-muted-foreground">
             <Pencil className="size-3.5" /> 自訂圖徵
           </p>
@@ -705,14 +705,14 @@ export function GisMap({
       )}
 
       {canEdit && !selectedProjectId && (
-        <div className="absolute right-3 top-3 z-[999] max-w-52 rounded-lg border bg-card/95 p-2.5 text-xs text-muted-foreground shadow-lg backdrop-blur">
+        <div className="absolute right-3 top-3 z-[999] max-w-52 rounded-lg border bg-card/95 p-2.5 text-xs text-muted-foreground shadow-overlay backdrop-blur">
           選擇單一專案後即可新增自訂地標、路線與範圍。
         </div>
       )}
 
       {/* 新增圖徵表單 */}
       {form && (
-        <div className="absolute inset-x-0 bottom-3 z-[1001] mx-auto w-[min(92%,420px)] rounded-lg border bg-card p-3 shadow-xl">
+        <div className="absolute inset-x-0 bottom-3 z-[1001] mx-auto w-[min(92%,420px)] rounded-lg border bg-card p-3 shadow-overlay">
           <div className="mb-2 flex items-center justify-between">
             <p className="text-sm font-semibold">
               新增{TYPE_LABEL[form.type] ?? "圖徵"}
@@ -789,7 +789,7 @@ export function GisMap({
 
       {/* 圖例：自訂圖徵 */}
       {features.length > 0 && (
-        <div className="absolute bottom-3 left-3 z-[998] hidden rounded-lg border bg-card/95 px-3 py-2 text-xs shadow-lg backdrop-blur sm:block">
+        <div className="absolute bottom-3 left-3 z-[998] hidden rounded-lg border bg-card/95 px-3 py-2 text-xs shadow-overlay backdrop-blur sm:block">
           <span className="font-medium">本專案圖徵：</span>
           <span className="text-muted-foreground">
             {features.length} 項（點擊圖示查看／刪除）

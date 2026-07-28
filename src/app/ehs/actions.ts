@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import * as ai from "@/service/ai.service";
+import * as faith from "@/service/faith.service";
 import * as ehsService from "@/service/ehs.service";
 import { requireUser } from "@/service/auth.service";
 import { currentUserCanEdit } from "@/service/access.service";
@@ -12,7 +12,7 @@ export async function analyzeImageAction(
   mimeType: string,
 ): Promise<{ text?: string; error?: string }> {
   try {
-    const text = await ai.analyzeImage(base64, mimeType);
+    const text = await faith.analyzeImage(base64, mimeType);
     return { text };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "AI 影像判讀失敗" };

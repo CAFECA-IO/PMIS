@@ -1,6 +1,7 @@
 import * as mediaRepo from "@/repository/media.repository";
 import * as ehsRepo from "@/repository/ehs.repository";
 import * as approvalRepo from "@/repository/approvalDocument.repository";
+import * as faithUploadRepo from "@/repository/faithUpload.repository";
 import * as memberRepo from "@/repository/projectMember.repository";
 import * as storage from "@/service/storage.service";
 import { canSeeAllProjects } from "@/lib/auth";
@@ -21,18 +22,20 @@ export type UploadedFile = {
   createdAt: Date;
   source: string; // 來源模組
   context: string; // 關聯（專案/文件）
-  url: string; // 檢視/下載連結
+  url: string; // 內嵌檢視連結
+  downloadUrl: string; // 強制下載連結
 };
 
 /**
  * 彙整系統各環節上傳的實體檔案（環安衛稽核附件、簽核文件附件…），
- * 讓「資料庫（PMIS-13）」成為所有上傳檔案的單一入口。
+ * 讓「檔案管理（PMIS-13）」成為所有上傳檔案的單一入口。
  * 新增其他會上傳檔案的模組時，於此加入其來源即可。
  */
 async function getUploads(): Promise<UploadedFile[]> {
-  const [ehs, approval] = await Promise.all([
+  const [ehs, approval, faith] = await Promise.all([
     ehsRepo.listAllAttachments(),
     approvalRepo.listAllAttachments(),
+    faithUploadRepo.listAll(),
   ]);
 
   const ehsFiles: UploadedFile[] = ehs.map((a) => ({
@@ -46,6 +49,7 @@ async function getUploads(): Promise<UploadedFile[]> {
       .filter(Boolean)
       .join("｜"),
     url: `/api/ehs/file/${a.id}`,
+    downloadUrl: `/api/ehs/file/${a.id}?download=1`,
   }));
 
   const approvalFiles: UploadedFile[] = approval.map((a) => ({
@@ -57,9 +61,26 @@ async function getUploads(): Promise<UploadedFile[]> {
     source: "簽核 (PMIS-06)",
     context: a.document?.title ?? "簽核文件",
     url: `/api/files/${a.id}`,
+    downloadUrl: `/api/files/${a.id}?download=1`,
   }));
 
-  return [...ehsFiles, ...approvalFiles].sort(
+  const faithFiles: UploadedFile[] = faith.map((f) => ({
+    id: f.id,
+    fileName: f.fileName,
+    mimeType: f.mimeType,
+    size: f.size,
+    createdAt: f.createdAt,
+    source: "費思 AI 對話",
+    // 未指派專案時顯示上傳者與來源任務，仍可辨識脈絡
+    context:
+      [f.project?.name ?? "未指派專案", f.taskTitle ?? "一般對話"]
+        .filter(Boolean)
+        .join("｜") + (f.uploadedBy ? `｜${f.uploadedBy}` : ""),
+    url: `/api/faith/file/${f.id}`,
+    downloadUrl: `/api/faith/file/${f.id}?download=1`,
+  }));
+
+  return [...ehsFiles, ...approvalFiles, ...faithFiles].sort(
     (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
   );
 }
@@ -73,7 +94,7 @@ export async function getDocuments() {
   return { media, reports, uploads };
 }
 
-// ── 資料庫上傳／管理／閱覽 ─────────────────────────────────
+// ── 舊版數位檔案上傳／管理／閱覽（MediaAsset）─────────────────
 export const ALLOWED_ACCEPT = storage.ALLOWED_ACCEPT;
 
 function mediaTypeOf(mimeType: string): MediaType {
@@ -86,7 +107,7 @@ export type UploadInput = {
   category?: string;
 };
 
-/** 於資料庫上傳文件（pdf/png/jpg），存檔並建立 MediaAsset 記錄。 */
+/** 上傳文件（pdf/png/jpg），存檔並建立 MediaAsset 記錄。 */
 export async function uploadDocument(
   input: UploadInput,
   file: File,
@@ -112,7 +133,7 @@ export async function uploadDocument(
   return true;
 }
 
-/** 刪除資料庫文件記錄（實體檔案保留於儲存區）。 */
+/** 刪除文件記錄（實體檔案保留於儲存區）。 */
 export async function deleteDocument(id: string, actor: Actor): Promise<boolean> {
   const asset = await mediaRepo.findById(id);
   if (!asset || !(await canAccess(asset.projectId, actor))) return false;
@@ -121,9 +142,12 @@ export async function deleteDocument(id: string, actor: Actor): Promise<boolean>
 }
 
 /** 閱覽：取得可服務的檔案（僅限實際上傳、fileUrl 為 storedName 者）。 */
-export async function getMediaFile(
-  id: string,
-): Promise<{ buffer: Buffer; mimeType: string; fileName: string } | null> {
+export async function getMediaFile(id: string): Promise<{
+  buffer: Buffer;
+  mimeType: string;
+  fileName: string;
+  projectId: string;
+} | null> {
   const asset = await mediaRepo.findById(id);
   if (!asset?.fileUrl) return null;
   const buffer = await storage.read(asset.fileUrl);
@@ -135,5 +159,5 @@ export async function getMediaFile(
       : ext === "png"
         ? "image/png"
         : "image/jpeg";
-  return { buffer, mimeType, fileName: asset.title };
+  return { buffer, mimeType, fileName: asset.title, projectId: asset.projectId };
 }

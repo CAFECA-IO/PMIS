@@ -49,7 +49,13 @@ export function VoucherForm({ projectId }: { projectId: string }) {
       const res = await fetch("/api/finance/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mimeType: file.type, data }),
+        body: JSON.stringify({
+          mimeType: file.type,
+          data,
+          // 檔名與專案供歸檔到檔案管理使用
+          fileName: file.name,
+          projectId,
+        }),
       });
       const json = (await res.json()) as {
         fields?: {

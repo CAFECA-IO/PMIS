@@ -15,10 +15,11 @@ export type PmisModule = { key: string; code: string; label: string };
 
 /** 可授權的功能模組（不含儀表板與功能說明）。 */
 export const PMIS_MODULES: PmisModule[] = [
-  { key: "/calendar", code: "PMIS-01", label: "行事曆預警" },
-  { key: "/todos", code: "PMIS-02", label: "待辦追蹤" },
+  { key: "/calendar", code: "PMIS-01", label: "行事曆與預警" },
+  { key: "/notifications", code: "PMIS-02", label: "系統通知" },
   { key: "/projects", code: "PMIS-03", label: "工程專案" },
   { key: "/schedule", code: "PMIS-04", label: "時程進度" },
+  { key: "/obligations", code: "PMIS-15", label: "履約事項" },
   { key: "/ehs", code: "PMIS-05", label: "環安衛管理" },
   { key: "/submittals", code: "PMIS-06", label: "簽核管理" },
   { key: "/quality", code: "PMIS-07", label: "品質稽核" },
@@ -27,7 +28,7 @@ export const PMIS_MODULES: PmisModule[] = [
   { key: "/monitoring", code: "PMIS-10", label: "智能監測" },
   { key: "/logs", code: "PMIS-11", label: "工程日誌" },
   { key: "/gis", code: "PMIS-12", label: "GIS 地圖" },
-  { key: "/documents", code: "PMIS-13", label: "資料庫" },
+  { key: "/documents", code: "PMIS-13", label: "檔案管理" },
   { key: "/people", code: "PMIS-14", label: "組織管理" },
 ];
 

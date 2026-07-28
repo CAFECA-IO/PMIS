@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import * as gisService from "@/service/gis.service";
-import * as ai from "@/service/ai.service";
+import * as faith from "@/service/faith.service";
 import { requireUser } from "@/service/auth.service";
 import { currentUserCanEdit } from "@/service/access.service";
 
@@ -82,7 +82,7 @@ export async function interpretRiskAction(
     const prompt =
       `你是工地監造顧問。以下為某工地的周邊圖資判讀與現場模組狀態，` +
       `請用繁體中文、條列 3-5 點，給出開工前應注意事項與建議（務實、可執行）：\n\n${facts}`;
-    const text = await ai.chat([{ role: "user", text: prompt }]);
+    const text = await faith.chat([{ role: "user", text: prompt }]);
     if (text && text !== "（AI 沒有回覆內容）") return { text, ai: true };
     return { text: facts, ai: false };
   } catch {

@@ -40,7 +40,8 @@ export default async function CarbonPage({
 
   const header = (
     <PageHeader
-      title="碳盤查"
+      section="04 工程執行與查核"
+        title="碳盤查"
       description="溫室氣體盤查與跨專案彙總（僅顯示您可檢視的專案）"
       action={
         <CarbonProjectSwitcher
@@ -83,7 +84,7 @@ export default async function CarbonPage({
           <Card>
             <CardContent className="p-5">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Leaf className="size-4 text-emerald-600" />
+                <Leaf className="size-4 text-muted-foreground" />
                 總排放量
               </div>
               <div className="mt-2 text-2xl font-semibold tabular-nums">
@@ -149,7 +150,7 @@ export default async function CarbonPage({
                       </Link>
                       <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
                         <div
-                          className="h-full rounded-full bg-emerald-600"
+                          className="h-full rounded-full bg-primary"
                           style={{ width: `${(p.totalTonnes / maxTonnes) * 100}%` }}
                         />
                       </div>

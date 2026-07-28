@@ -96,6 +96,7 @@ export default async function SubmittalsPage({
   return (
     <>
       <PageHeader
+        section="03 文件與協作"
         title="簽核管理"
         description="PMIS-06 · 設定簽核流程、建立簽核文件並逐關簽核"
         action={
@@ -133,8 +134,8 @@ export default async function SubmittalsPage({
               "CANCELLED",
             ] as const;
             const barColor: Record<string, string> = {
-              PENDING: "bg-amber-500",
-              APPROVED: "bg-emerald-500",
+              PENDING: "bg-warning",
+              APPROVED: "bg-success",
               REJECTED: "bg-destructive",
               CANCELLED: "bg-muted-foreground/40",
             };

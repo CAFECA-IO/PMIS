@@ -33,6 +33,7 @@ export default async function ApprovalDocumentPage({
   return (
     <>
       <PageHeader
+        section="03 文件與協作"
         title={document.title}
         description={`申請者：${document.applicant.name} · 流程：${document.workflow.name}`}
         action={
@@ -86,7 +87,7 @@ export default async function ApprovalDocumentPage({
                         {step.position.name}
                       </span>
                       {step.decision === "APPROVED" ? (
-                        <CheckCircle2 className="size-4 text-emerald-600" />
+                        <CheckCircle2 className="size-4 text-success" />
                       ) : step.decision === "REJECTED" ? (
                         <XCircle className="size-4 text-destructive" />
                       ) : (

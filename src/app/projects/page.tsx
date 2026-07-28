@@ -3,6 +3,7 @@ import Link from "next/link";
 import * as projectService from "@/service/project.service";
 import { requireUser } from "@/service/auth.service";
 import { assertModuleAccess, canEditModule } from "@/service/access.service";
+import { Wand2 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,9 +32,23 @@ export default async function ProjectsPage() {
   return (
     <>
       <PageHeader
+        section="02 契約與時程管理"
         title="工程專案"
         description="所有監造工程專案清單"
-        action={canEdit ? <ProjectCreateDialog /> : undefined}
+        action={
+          canEdit ? (
+            <div className="flex items-center gap-2">
+              {/* 由契約文件建立：交給費思分段判讀 */}
+              <Button variant="outline" asChild>
+                <Link href="/projects/new">
+                  <Wand2 className="size-4" />
+                  專案建置
+                </Link>
+              </Button>
+              <ProjectCreateDialog />
+            </div>
+          ) : undefined
+        }
       />
       <div className="p-8">
         <Card className="overflow-hidden">

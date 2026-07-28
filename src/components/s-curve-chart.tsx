@@ -16,7 +16,7 @@ export function SCurveChart({ points }: { points: SCurvePoint[] }) {
   if (points.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        尚無里程碑資料可繪製 S-Curve。
+        尚無履約事項資料可繪製 S-Curve。
       </p>
     );
   }

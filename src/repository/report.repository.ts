@@ -6,7 +6,7 @@ export function getProject(id: string) {
   return prisma.project.findFirst({
     where: { id, deletedAt: null },
     include: {
-      milestones: { where: { deletedAt: null }, orderBy: { plannedDate: "asc" } },
+      obligations: { where: { deletedAt: null }, orderBy: { dueDate: "asc" } },
       workItems: { orderBy: { createdAt: "asc" } },
     },
   });

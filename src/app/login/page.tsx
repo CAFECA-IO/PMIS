@@ -22,7 +22,7 @@ export default async function LoginPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-6">
-      <div className="w-full max-w-sm rounded-xl border bg-card p-8 shadow-sm">
+      <div className="w-full max-w-sm rounded-xl border bg-card p-8">
         <div className="mb-6 flex items-center gap-3">
           <Logo className="h-10 w-auto" />
           <div className="leading-tight">

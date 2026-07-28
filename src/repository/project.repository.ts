@@ -37,9 +37,9 @@ export function listWithCounts() {
     orderBy: { createdAt: "desc" },
     include: {
       _count: { select: { workItems: true, inspections: true, defects: true } },
-      milestones: {
-        where: { deletedAt: null, type: "MILESTONE" },
-        select: { id: true, weight: true, plannedDate: true, actualDate: true },
+      obligations: {
+        where: { deletedAt: null },
+        select: { id: true, weight: true, dueDate: true, actualDate: true },
       },
     },
   });
@@ -51,11 +51,42 @@ export function listWithCountsForAccount(accountId: string) {
     orderBy: { createdAt: "desc" },
     include: {
       _count: { select: { workItems: true, inspections: true, defects: true } },
-      milestones: {
-        where: { deletedAt: null, type: "MILESTONE" },
-        select: { id: true, weight: true, plannedDate: true, actualDate: true },
+      obligations: {
+        where: { deletedAt: null },
+        select: { id: true, weight: true, dueDate: true, actualDate: true },
       },
     },
+  });
+}
+
+/** 側邊欄專案切換用的輕量欄位（含簡介所需資訊）。 */
+const OPTION_SELECT = {
+  id: true,
+  code: true,
+  name: true,
+  status: true,
+  client: true,
+  location: true,
+  description: true,
+  startDate: true,
+  endDate: true,
+} as const;
+
+/** 輕量清單，供側邊欄專案切換顯示用。 */
+export function listOptions() {
+  return prisma.project.findMany({
+    where: { deletedAt: null },
+    orderBy: { createdAt: "desc" },
+    select: OPTION_SELECT,
+  });
+}
+
+/** 輕量清單（限指定帳號為成員之專案）。 */
+export function listOptionsForAccount(accountId: string) {
+  return prisma.project.findMany({
+    where: { deletedAt: null, members: { some: { accountId } } },
+    orderBy: { createdAt: "desc" },
+    select: OPTION_SELECT,
   });
 }
 
@@ -85,7 +116,7 @@ export function findByIdWithRelations(id: string) {
         where: { deletedAt: null },
         orderBy: { sequence: "asc" },
       },
-      milestones: { where: { deletedAt: null }, orderBy: { plannedDate: "asc" } },
+      obligations: { where: { deletedAt: null }, orderBy: { dueDate: "asc" } },
       paymentNodes: { orderBy: { plannedDate: "asc" } },
       documents: { where: { deletedAt: null }, orderBy: { createdAt: "desc" } },
       members: {

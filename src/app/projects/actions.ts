@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import * as projectService from "@/service/project.service";
+import * as faithUpload from "@/service/faithUpload.service";
 import * as workItemService from "@/service/workItem.service";
 import { requireUser } from "@/service/auth.service";
 import { currentUserCanEdit } from "@/service/access.service";
@@ -31,7 +32,7 @@ async function actor() {
   return { id: user.id, role: user.role };
 }
 
-// ── 分項工程（WorkItem, PMIS-04）新增/編輯/刪除 ─────────────
+// ── 工程分項（WorkItem, PMIS-04）新增/編輯/刪除 ─────────────
 export async function createWorkItemAction(formData: FormData) {
   if (!(await canEdit())) return;
   const projectId = field(formData, "projectId");
@@ -39,7 +40,7 @@ export async function createWorkItemAction(formData: FormData) {
   await workItemService.addWorkItem(
     {
       projectId,
-      milestoneId: field(formData, "milestoneId"),
+      obligationId: field(formData, "obligationId"),
       code: field(formData, "code"),
       name: field(formData, "name"),
       category: field(formData, "category"),
@@ -63,7 +64,7 @@ export async function updateWorkItemAction(formData: FormData) {
   await workItemService.updateWorkItem(
     id,
     {
-      milestoneId: field(formData, "milestoneId"),
+      obligationId: field(formData, "obligationId"),
       code: field(formData, "code"),
       name: field(formData, "name"),
       category: field(formData, "category"),
@@ -110,6 +111,78 @@ export async function createProject(
   redirect("/projects");
 }
 
+// ── 專案建置：經專案經理人確認後建立 ───────────────────
+export type WizardProfile = {
+  code?: string;
+  name?: string;
+  location?: string;
+  client?: string;
+  contractor?: string;
+  supervisor?: string;
+  budget?: string | number;
+  startDate?: string;
+  endDate?: string;
+  status?: string;
+  description?: string;
+};
+
+export type CreateWizardResult =
+  | { ok: true; id: string; assignedFiles: number }
+  | { ok: false; error: string };
+
+export async function createProjectViaWizard(
+  profile: WizardProfile,
+  obligations: projectService.WizardObligationInput[] = [],
+  workItems: projectService.WizardWorkItemInput[] = [],
+  /** 建置過程由費思歸檔的檔案 id，建立成功後改歸此專案。 */
+  uploadIds: string[] = [],
+): Promise<CreateWizardResult> {
+  if (!(await canEdit())) {
+    return { ok: false, error: "權限不足，無法建立專案。" };
+  }
+  const me = await actor();
+  const result = await projectService.createProjectWithStructure(
+    {
+      code: profile.code,
+      name: profile.name,
+      description: profile.description,
+      location: profile.location,
+      client: profile.client,
+      contractor: profile.contractor,
+      supervisor: profile.supervisor,
+      budget: profile.budget != null ? String(profile.budget) : undefined,
+      startDate: profile.startDate,
+      endDate: profile.endDate,
+      status: profile.status,
+    },
+    obligations,
+    workItems,
+  );
+  if (!result.ok) return { ok: false, error: result.error };
+
+  /*
+    把建置過程上傳的契約／決標文件從「未指派」改歸此專案。
+    僅處理本人上傳且尚未指派者（條件在倉儲的 where），失敗不影響建案結果 ——
+    專案已經建好了，不該因歸屬檔案出錯而讓使用者以為建立失敗。
+  */
+  let assignedFiles = 0;
+  try {
+    assignedFiles = await faithUpload.assignToProject(
+      uploadIds,
+      result.id,
+      me.id,
+    );
+  } catch (error) {
+    console.error("[projects] 建置檔案歸屬失敗：", error);
+  }
+
+  revalidatePath("/projects");
+  revalidatePath("/schedule");
+  revalidatePath("/documents");
+  revalidatePath("/");
+  return { ok: true, id: result.id, assignedFiles };
+}
+
 // ── update / add (plain <form action>) ─────────────────────
 export async function updateProjectAction(formData: FormData) {
   if (!(await canEdit())) return;
@@ -131,18 +204,26 @@ export async function updateProjectAction(formData: FormData) {
   refreshProject(id);
 }
 
-export async function addMilestoneAction(formData: FormData) {
+export async function addObligationAction(formData: FormData) {
   if (!(await canEdit())) return;
   const projectId = field(formData, "projectId");
   if (!projectId) return;
-  await projectService.addMilestone({
+  await projectService.addObligation({
     projectId,
-    name: field(formData, "name"),
-    type: field(formData, "type"),
-    plannedDate: field(formData, "plannedDate"),
+    code: field(formData, "code"),
+    title: field(formData, "title"),
+    stage: field(formData, "stage"),
+    risk: field(formData, "risk"),
+    triggerType: field(formData, "triggerType"),
+    status: field(formData, "status"),
+    dueDate: field(formData, "dueDate"),
     actualDate: field(formData, "actualDate"),
+    ownerUnit: field(formData, "ownerUnit"),
+    ownerName: field(formData, "ownerName"),
+    contractBasis: field(formData, "contractBasis"),
     weight: field(formData, "weight"),
     commissioning: field(formData, "commissioning"),
+    offsetDays: field(formData, "offsetDays"),
     docNo: field(formData, "docNo"),
     note: field(formData, "note"),
   });
@@ -213,15 +294,23 @@ export async function restoreProjectAction(id: string) {
   revalidatePath("/");
 }
 
-export async function deleteMilestoneAction(id: string, projectId: string) {
+export async function deleteObligationAction(id: string, projectId: string) {
   if (!(await canEdit())) return;
-  await projectService.deleteMilestone(id);
+  await projectService.deleteObligation(id);
   refreshProject(projectId);
 }
-export async function restoreMilestoneAction(id: string, projectId: string) {
+export async function restoreObligationAction(id: string, projectId: string) {
   if (!(await canEdit())) return;
-  await projectService.restoreMilestone(id);
+  await projectService.restoreObligation(id);
   refreshProject(projectId);
+}
+
+/** 表格上的「完成」動作：寫入實際完成日並轉為 DONE。 */
+export async function completeObligationAction(id: string, projectId: string) {
+  if (!(await canEdit())) return;
+  await projectService.completeObligation(id);
+  refreshProject(projectId);
+  revalidatePath("/obligations");
 }
 
 export async function deleteContractChangeAction(id: string, projectId: string) {
@@ -247,4 +336,36 @@ export async function restoreDocumentAction(id: string, projectId: string) {
   if (!(await canEdit())) return;
   await projectService.restoreDocument(id);
   refreshProject(projectId);
+}
+
+/**
+ * 把使用者選取的「未指派」費思上傳檔案歸入指定專案。
+ *
+ * 用於專案建立後的提示：使用者可能在建置前就用一般對話上傳過相關文件。
+ * 安全性沿用 assignToProject 的 where 守則（僅本人上傳且尚未指派），
+ * 因此即使傳入他人或已歸屬的 id 也不會生效。
+ */
+export async function assignUploadsToProjectAction(
+  projectId: string,
+  uploadIds: string[],
+): Promise<{ ok: boolean; assigned: number; error?: string }> {
+  if (!(await canEdit())) {
+    return { ok: false, assigned: 0, error: "權限不足。" };
+  }
+  const me = await actor();
+
+  // 確認使用者確實能存取該專案，避免把檔案塞進看不到的案子
+  const project = await projectService.getProject(projectId, me);
+  if (!project) {
+    return { ok: false, assigned: 0, error: "找不到專案或無權存取。" };
+  }
+
+  const assigned = await faithUpload.assignToProject(
+    uploadIds,
+    projectId,
+    me.id,
+  );
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath("/documents");
+  return { ok: true, assigned };
 }

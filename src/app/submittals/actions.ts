@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import * as approval from "@/service/approval.service";
-import * as ai from "@/service/ai.service";
+import * as faith from "@/service/faith.service";
 import type { StepDecision } from "@/generated/prisma/enums";
 import { currentUserCanEdit } from "@/service/access.service";
 
@@ -54,7 +54,7 @@ export async function analyzeAttachmentAction(
   attachmentId: string,
 ): Promise<{ text?: string; error?: string }> {
   try {
-    const text = await ai.analyzeAttachment(attachmentId);
+    const text = await faith.analyzeAttachment(attachmentId);
     return { text };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "AI 分析失敗" };

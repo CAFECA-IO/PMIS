@@ -1,13 +1,13 @@
 /**
  * PMIS 進度 S-Curve 計算（純函式，無 I/O，可單元測試）。
  *
- * 以「里程碑」為進度單位，依權重（weight）累計，產出每月的：
- *  - planned  預定累計 %：以里程碑「預定完成日」到當月為止的權重占比。
- *  - actual   實際累計 %：以里程碑「實際完成日」到當月為止的權重占比（僅計到今日所在月）。
+ * 以「履約事項」為進度單位，依權重（weight）累計，產出每月的：
+ *  - planned  預定累計 %：以履約事項「期限」到當月為止的權重占比。
+ *  - actual   實際累計 %：以履約事項「實際完成日」到當月為止的權重占比（僅計到今日所在月）。
  *  - forecast 預測趨勢 %：自目前實際值線性外推至工期末月達 100%。
  *
  * 因此 planned 受「預定日 + 權重」影響、actual 受「實際完成日 + 權重」影響——
- * 修改任一里程碑資料都會即時改變曲線。
+ * 修改任一履約事項資料都會即時改變曲線。
  */
 
 export type SCurveInput = {
@@ -23,7 +23,7 @@ export type SCurvePoint = {
   forecast: number | null;
 };
 
-export type SCurveBasis = "MILESTONE" | "WORKITEM";
+export type SCurveBasis = "OBLIGATION" | "WORKITEM";
 
 /**
  * 由 S-Curve 取「目前」的實際/預定累計與落差（供進度環圈、落差警示與 S-Curve 卡共用，
@@ -145,9 +145,9 @@ export function buildSCurve(
 }
 
 /**
- * 以「分項工程（WorkItem）」為基準的 S-Curve。
+ * 以「工程分項（WorkItem）」為基準的 S-Curve。
  *
- * 與里程碑（事件式、以完成日計）不同，工項為「期間式」：
+ * 與履約事項（事件式、以完成日計）不同，工程分項為「期間式」：
  *  - 權重（weight）採**預定工期天數**（越長貢獻越大；無預定日則權重 1）。
  *  - planned：各工項在其預定期間 [plannedStart, plannedEnd] 內**線性展開**累計。
  *  - actual：以工項目前 `progress`(%) 為終值，自 actualStart（無則 plannedStart）到今日**線性分佈**；

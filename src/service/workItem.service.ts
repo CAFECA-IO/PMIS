@@ -1,6 +1,6 @@
 import * as workItemRepo from "@/repository/workItem.repository";
 import * as memberRepo from "@/repository/projectMember.repository";
-import * as milestoneRepo from "@/repository/milestone.repository";
+import * as obligationRepo from "@/repository/obligation.repository";
 import { canSeeAllProjects } from "@/lib/auth";
 import { workItemStatusMeta } from "@/constant/pmis";
 import type { AccountRole, WorkItemStatus } from "@/generated/prisma/enums";
@@ -30,19 +30,19 @@ function parseStatus(v: string | undefined): WorkItemStatus | undefined {
     : undefined;
 }
 
-/** 驗證里程碑屬於該專案，回傳有效 id 或 null。 */
-async function resolveMilestone(
-  milestoneId: string | undefined,
+/** 驗證履約事項屬於該專案，回傳有效 id 或 null。 */
+async function resolveObligation(
+  obligationId: string | undefined,
   projectId: string,
 ): Promise<string | null> {
-  if (!milestoneId) return null;
-  const m = await milestoneRepo.findById(milestoneId);
+  if (!obligationId) return null;
+  const m = await obligationRepo.findById(obligationId);
   return m && m.projectId === projectId ? m.id : null;
 }
 
 export type WorkItemInput = {
   projectId: string;
-  milestoneId?: string;
+  obligationId?: string;
   code?: string;
   name?: string;
   category?: string;
@@ -59,7 +59,7 @@ export async function addWorkItem(input: WorkItemInput, actor: Actor) {
   if (!input.projectId || !name) return false;
   if (!(await canAccess(input.projectId, actor))) return false;
 
-  const created = await workItemRepo.create({
+  await workItemRepo.create({
     projectId: input.projectId,
     code: input.code?.trim() || null,
     name,
@@ -70,9 +70,8 @@ export async function addWorkItem(input: WorkItemInput, actor: Actor) {
     actualEnd: parseDate(input.actualEnd) ?? undefined,
     progress: parseProgress(input.progress) ?? 0,
     status: parseStatus(input.status) ?? "NOT_STARTED",
+    obligationId: await resolveObligation(input.obligationId, input.projectId),
   });
-  const milestoneId = await resolveMilestone(input.milestoneId, input.projectId);
-  if (milestoneId) await workItemRepo.setMilestone(created.id, milestoneId);
   return true;
 }
 
@@ -97,11 +96,11 @@ export async function updateWorkItem(
     progress: parseProgress(input.progress),
     status: parseStatus(input.status),
   });
-  // milestoneId 一律依表單設定（空值＝取消歸屬）
-  if (input.milestoneId !== undefined) {
-    await workItemRepo.setMilestone(
+  // obligationId 一律依表單設定（空值＝取消歸屬）
+  if (input.obligationId !== undefined) {
+    await workItemRepo.setObligation(
       id,
-      await resolveMilestone(input.milestoneId, existing.projectId),
+      await resolveObligation(input.obligationId, existing.projectId),
     );
   }
   return true;

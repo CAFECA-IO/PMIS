@@ -26,6 +26,7 @@ export default async function MonitoringPage({
   return (
     <>
       <PageHeader
+        section="05 空間與現場資訊"
         title="智能監測"
         description="AIoT 感測與攝影機影像即時監測、事件標注與時間軸回溯（PMIS-09）"
         action={

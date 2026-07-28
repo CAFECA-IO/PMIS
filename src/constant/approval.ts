@@ -1,15 +1,6 @@
 import type { ApprovalStatus, StepDecision } from "@/generated/prisma/enums";
 
-type BadgeVariant =
-  | "default"
-  | "secondary"
-  | "destructive"
-  | "outline"
-  | "success"
-  | "warning"
-  | "muted";
-
-type Meta = { label: string; variant: BadgeVariant };
+import type { BadgeMeta as Meta } from "@/constant/badge";
 
 export const approvalStatusMeta: Record<ApprovalStatus, Meta> = {
   PENDING: { label: "簽核中", variant: "warning" },

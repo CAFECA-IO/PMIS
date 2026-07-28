@@ -36,6 +36,7 @@ export default async function SchedulePage({
   return (
     <>
       <PageHeader
+        section="02 契約與時程管理"
         title="時程進度管理"
         description="PMIS-04 · 工程進度、預定/實際與落後預警"
         action={

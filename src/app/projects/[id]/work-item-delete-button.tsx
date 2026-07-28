@@ -29,12 +29,12 @@ export function WorkItemDeleteButton({
       onClick={async () => {
         if (
           await confirm({
-            title: "刪除分項工程？",
+            title: "刪除工程分項？",
             description: `「${name}」將一併移除其查驗/缺失的關聯，且無法復原。`,
           })
         ) {
           await deleteWorkItemAction(id, projectId);
-          notify({ title: "已刪除分項工程", description: name });
+          notify({ title: "已刪除工程分項", description: name });
           router.refresh();
         }
       }}

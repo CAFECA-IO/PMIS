@@ -18,7 +18,7 @@ export function StepFlow({
         const isCurrent = status === "PENDING" && s.order === currentStep;
         const color =
           s.decision === "APPROVED"
-            ? "bg-emerald-500"
+            ? "bg-success"
             : s.decision === "REJECTED"
               ? "bg-destructive"
               : isCurrent

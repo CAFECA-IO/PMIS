@@ -4,6 +4,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useRef,
   useState,
   type ReactNode,
@@ -43,12 +44,25 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const settle = (value: boolean) => {
+  const settle = useCallback((value: boolean) => {
     resolver.current?.(value);
     resolver.current = null;
     setOptions(null);
     setPending(false);
-  };
+  }, []);
+
+  // Esc 取消：破壞性操作的對話框若只能點背景關閉，鍵盤操作者會被困住
+  useEffect(() => {
+    if (!options) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        settle(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [options, settle]);
 
   return (
     <ConfirmContext.Provider value={{ confirm }}>
@@ -64,7 +78,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             onClick={() => settle(false)}
             aria-hidden
           />
-          <div className="relative z-10 w-full max-w-sm rounded-lg border bg-card p-6 shadow-xl">
+          <div className="relative z-10 w-full max-w-sm rounded-lg border bg-card p-6 shadow-overlay">
             <h2 className="text-base font-semibold">{options.title}</h2>
             {options.description ? (
               <div className="mt-2 text-sm text-muted-foreground">
@@ -82,6 +96,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
               </Button>
               <Button
                 type="button"
+                autoFocus
                 variant={options.danger ? "destructive" : "default"}
                 disabled={pending}
                 onClick={() => {

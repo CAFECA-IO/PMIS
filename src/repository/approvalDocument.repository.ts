@@ -88,11 +88,22 @@ export function updateDocument(
   return prisma.approvalDocument.update({ where: { id }, data });
 }
 
+/** 取附件並帶出權限判定所需的申請人與關卡職位。 */
 export function findAttachment(id: string) {
-  return prisma.approvalAttachment.findUnique({ where: { id } });
+  return prisma.approvalAttachment.findUnique({
+    where: { id },
+    include: {
+      document: {
+        select: {
+          applicantId: true,
+          steps: { select: { positionId: true } },
+        },
+      },
+    },
+  });
 }
 
-/** 全部簽核文件上傳檔案（含所屬文件），供資料庫彙整。 */
+/** 全部簽核文件上傳檔案（含所屬文件），供檔案管理彙整。 */
 export function listAllAttachments() {
   return prisma.approvalAttachment.findMany({
     orderBy: { createdAt: "desc" },

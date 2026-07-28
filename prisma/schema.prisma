@@ -41,11 +41,13 @@ model Project {
   inspections       Inspection[]
   defects           Defect[]
   contractChanges   ContractChange[]
-  milestones        Milestone[]
+  obligations       ContractObligation[]
   paymentNodes      PaymentNode[]
   documents         ProjectDocument[]
   reminders         ReminderEvent[]
-  todos             TodoItem[]
+  notifications     Notification[]
+  alertRules        AlertRule[]
+  devices           MonitoringDevice[]
   ehsAudits         EhsAudit[]
   submittals        Submittal[]
   mediaAssets       MediaAsset[]
@@ -54,6 +56,9 @@ model Project {
   carbonInventories CarbonInventory[]
   vouchers          FinancialVoucher[]
   gisFeatures       GisFeature[]
+  faithUploads      FaithUpload[]
+  fileFolders       FileFolder[]
+  projectFiles      ProjectFile[]
 }
 
 /// Staffing — links an account to a project with a project-scoped role (配置人力).
@@ -268,11 +273,11 @@ enum VoucherStatus {
 // PMIS-04 時程進度管理
 // ─────────────────────────────────────────────────────────────
 
-/// A work item / sub-work within a project (分項工程).
+/// 工程分項：專案下的施工項目，歸屬於某一履約事項。
 model WorkItem {
   id           String         @id @default(cuid())
   projectId    String
-  milestoneId  String? // 歸屬里程碑（PMIS-04→里程碑上捲，選填）
+  obligationId String? // 歸屬履約事項（工程分項→履約事項上捲，選填）
   code         String?
   name         String
   category     String?
@@ -286,13 +291,13 @@ model WorkItem {
   updatedAt    DateTime       @updatedAt
 
   project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  milestone    Milestone?    @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+  obligation   ContractObligation? @relation(fields: [obligationId], references: [id], onDelete: SetNull)
   inspections  Inspection[]
   defects      Defect[]
   carbonEntries CarbonEntry[]
 
   @@index([projectId])
-  @@index([milestoneId])
+  @@index([obligationId])
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -347,7 +352,7 @@ model Defect {
 }
 
 // ─────────────────────────────────────────────────────────────
-// PMIS-03 契約履約管理 (變更 / 里程碑 / 付款節點)
+// PMIS-03 契約履約管理 (變更 / 履約事項 / 付款節點)
 // ─────────────────────────────────────────────────────────────
 
 /// Contract change record (契約變更).
@@ -386,25 +391,86 @@ model ProjectDocument {
   @@index([projectId])
 }
 
-/// Schedule milestone or extension (工期里程碑 / 展延).
-model Milestone {
-  id          String        @id @default(cuid())
-  projectId   String
-  name          String
-  type          MilestoneType @default(MILESTONE)
-  plannedDate   DateTime?
-  actualDate    DateTime?
-  weight        Int           @default(1) // 進度權重
-  commissioning Boolean       @default(false) // 計入試運轉就緒度
-  docNo         String? // 核准文號 (展延)
-  note          String?
-  createdAt     DateTime      @default(now())
-  deletedAt     DateTime?
+/// 履約事項：契約應辦事項的統一管制單位。
+/// 同時承接進度權重角色——工程分項上捲至此，據以計算全案進度。
+model ContractObligation {
+  id        String @id @default(cuid())
+  projectId String
+
+  code  String // 管制編號，如 WURI-C-001
+  title String // 履約事項名稱
+
+  stage       ObligationStage // 階段：概念設計／統包招標／施工監造…
+  risk        ObligationRisk    @default(GREEN) // 風險燈號
+  triggerType ObligationTrigger @default(FIXED_DATE) // 觸發方式
+  status      ObligationStatus  @default(NOT_STARTED)
+
+  dueDate    DateTime? // 期限
+  actualDate DateTime? // 實際完成日（進度計算用）
+
+  ownerUnit     String? // 責任單位
+  ownerName     String? // 責任人
+  contractBasis String? // 契約依據，如 契約第二條第八款
+
+  /// 進度權重；工程分項上捲後依此加權計算全案進度
+  weight Int @default(1)
+  /// 計入試運轉就緒度
+  commissioning Boolean @default(false)
+
+  /// RELATIVE_DUE 用：相對基準日的提前／延後天數
+  offsetDays Int?
+  docNo      String? // 核准文號（展延）
+  note       String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  workItems WorkItem[] // 歸屬此里程碑的分項工程（PMIS-04→里程碑 上捲）
+  workItems WorkItem[] // 歸屬此履約事項的工程分項
 
+  @@unique([projectId, code])
   @@index([projectId])
+  @@index([status])
+  @@index([stage])
+}
+
+/// 履約事項所屬階段
+enum ObligationStage {
+  CONCEPT_DESIGN // 概念設計
+  DETAIL_DESIGN // 細部設計
+  TENDER // 統包招標
+  CONSTRUCTION // 施工監造
+  COMMISSIONING // 試運轉
+  HANDOVER // 竣工移交
+  OTHER // 其他
+}
+
+/// 風險燈號。PURPLE 用於受外部機關進度牽制者。
+enum ObligationRisk {
+  GREEN // 低
+  YELLOW // 中
+  ORANGE // 偏高
+  RED // 高
+  PURPLE // 外部依賴
+}
+
+/// 觸發方式
+enum ObligationTrigger {
+  FIXED_DATE // 固定日期
+  RELATIVE_DUE // 相對期限
+  PREDECESSOR // 前置事項完成後起算
+  CONDITION // 條件觸發
+}
+
+/// 辦理狀態
+enum ObligationStatus {
+  NOT_STARTED // 未起算
+  IN_PROGRESS // 辦理中
+  PENDING_REVIEW // 待審
+  PENDING_EXTERNAL // 待機關（外部）
+  OVERDUE // 逾期
+  DONE // 完成
 }
 
 /// Payment / valuation node (付款節點 / 計價).
@@ -445,20 +511,23 @@ model ReminderEvent {
 }
 
 // ─────────────────────────────────────────────────────────────
-// PMIS-02 待辦事項追蹤
+// PMIS-02 系統通知
 // ─────────────────────────────────────────────────────────────
 
-/// Cross-unit to-do / follow-up item (待辦事項).
-model TodoItem {
+/// 系統通知。以鈴鐺與未讀數呈現，可展開細節、釘選並前往對應模組。
+model Notification {
   id        String     @id @default(cuid())
   projectId String
   title     String
+  detail    String? // 通知細節（展開後顯示）
+  link      String? // 前往對應功能的路由，如 /quality?project=xxx
   unit      String? // 負責單位
   assignee  String?
   source    String? // 來源 (缺失 / 退件 / 待簽核…)
   dueDate   DateTime?
-  status    TodoStatus @default(PENDING)
+  status    NotificationStatus @default(PENDING)
   readAt    DateTime? // 已讀時間
+  pinnedAt  DateTime? // 釘選時間；非 null 表示固定顯示於釘選區
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
@@ -466,6 +535,7 @@ model TodoItem {
 
   @@index([projectId])
   @@index([status])
+  @@index([pinnedAt])
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -492,6 +562,90 @@ model EhsAudit {
 
   @@index([projectId])
   @@index([type])
+}
+
+/// 檔案管理（PMIS-13）的資料夾。以專案為根目錄，parentId 為 null 即位於根層。
+/// 既有模組的附件（環安衛、簽核、費思）不進此表，於讀取時以唯讀虛擬資料夾呈現，
+/// 因為那些檔案被稽核與簽核紀錄引用，不應被自由搬移或刪除。
+model FileFolder {
+  id        String  @id @default(cuid())
+  projectId String
+  parentId  String?
+  name      String
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  project  Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent   FileFolder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children FileFolder[] @relation("FolderTree")
+  files    ProjectFile[]
+
+  /// 同一層不得同名；上傳時的重名由服務層自動加序號後才寫入。
+  @@unique([projectId, parentId, name])
+  @@index([projectId])
+  @@index([parentId])
+}
+
+/// 直接上傳到檔案管理的檔案。位元組存於儲存區（storage.service），此處僅中繼資料。
+model ProjectFile {
+  id        String  @id @default(cuid())
+  projectId String
+  /// null 表示位於專案根目錄。
+  folderId  String?
+
+  fileName   String
+  storedName String
+  mimeType   String
+  size       Int
+
+  uploadedById String?
+  uploadedBy   String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  project Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  folder  FileFolder? @relation(fields: [folderId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([folderId])
+}
+
+/// 費思 AI 對話中上傳的檔案歸檔。
+/// 位元組存於本機儲存區（見 storage.service），此處僅保存中繼資料，
+/// 欄位刻意與 SavedFile 對齊（fileName/storedName/mimeType/size）。
+/// projectId 可為 null —— 對話未鎖定專案時歸入「未指派」，事後可補指派。
+model FaithUpload {
+  id        String  @id @default(cuid())
+  projectId String?
+
+  fileName   String // 使用者原始檔名
+  storedName String // 儲存區內的不透明檔名
+  mimeType   String
+  size       Int
+
+  /// 來源任務 id（如 project-wizard）；一般對話為 null。
+  taskId    String?
+  /// 來源任務名稱，供資料庫頁顯示來源脈絡。
+  taskTitle String?
+  /// 上傳時附帶的使用者訊息（截斷保存），用以回溯當時的意圖。
+  prompt String?
+
+  /// 上傳者。保留 id 以便「未指派專案」時仍能判定存取權。
+  uploadedById String?
+  uploadedBy   String?
+
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([uploadedById])
+  @@index([createdAt])
 }
 
 /// 環安衛稽核之上傳／拍攝文件。
@@ -640,11 +794,6 @@ enum DefectStatus {
   CLOSED
 }
 
-enum MilestoneType {
-  MILESTONE
-  EXTENSION
-}
-
 enum ProjectDocumentCategory {
   CONTRACT
   AMENDMENT
@@ -676,7 +825,7 @@ enum ReminderStatus {
   DONE
 }
 
-enum TodoStatus {
+enum NotificationStatus {
   PENDING
   IN_PROGRESS
   DONE
@@ -951,4 +1100,120 @@ enum GisFeatureType {
   MARKER // 地標（點）
   ROUTE // 路線圖（線）
   AREA // 圈定範圍（面）
+}
+
+// ─────────────────────────────────────────────────────────────
+// 行事曆與預警：預警規則（固定日期 / 相對日期 / 條件觸發）
+// ─────────────────────────────────────────────────────────────
+
+/// 預警規則。projectId 為 null 代表適用於所有專案。
+model AlertRule {
+  id          String        @id @default(cuid())
+  projectId   String?
+  name        String
+  description String?
+  kind        AlertRuleKind
+  /// 綁定的功能模組路由，如 /schedule、/submittals、/quality、/monitoring
+  module      String
+  severity    AlertSeverity @default(WARNING)
+  enabled     Boolean       @default(true)
+
+  /// FIXED_DATE：觸發日期
+  fixedDate DateTime?
+
+  /// RELATIVE_DATE：相對於哪個基準日、提前幾天
+  anchor    AlertAnchor?
+  offsetDays Int?
+
+  /// CONDITION：比較的度量、運算子與門檻值
+  metric    AlertMetric?
+  operator  AlertOperator?
+  threshold Float?
+  /// 門檻單位（顯示用），如 %、分鐘、次
+  unit      String?
+
+  /// 命中後要採取的行動描述（如 建立趕工計畫與每週檢討會）
+  action String?
+  /// 通知對象，逗號分隔（如 承辦,專案經理）
+  notify String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([enabled])
+}
+
+enum AlertRuleKind {
+  FIXED_DATE // 固定日期
+  RELATIVE_DATE // 相對日期
+  CONDITION // 條件觸發
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+/// 相對日期的基準點
+enum AlertAnchor {
+  CONTRACT_END // 履約完工日
+  OBLIGATION_DUE // 履約事項期限
+  DOCUMENT_DUE // 文件／送審期限
+  INSPECTION_DATE // 查驗預定日
+  DEFECT_DUE // 缺失改善期限
+}
+
+/// 條件觸發可比較的度量
+enum AlertMetric {
+  SCHEDULE_LAG // 進度落後百分比
+  INSPECTION_FAILED // 查驗不合格件數
+  DEFECT_OVERDUE // 逾期未改善缺失件數
+  SUBMITTAL_PENDING // 待審送審件數
+  DEVICE_OFFLINE_MINUTES // 設備離線分鐘數
+  BUDGET_USAGE // 預算使用率
+}
+
+enum AlertOperator {
+  GTE // >=
+  LTE // <=
+  GT // >
+  LT // <
+  EQ // ==
+}
+
+/// 現地監測設備（CCTV／感測器）與心跳狀態，供 DEVICE_OFFLINE_MINUTES 條件評估。
+model MonitoringDevice {
+  id            String       @id @default(cuid())
+  projectId     String
+  code          String       @unique
+  name          String
+  type          DeviceType   @default(CCTV)
+  location      String?
+  status        DeviceStatus @default(ONLINE)
+  /// 最後一次心跳時間，離線分鐘數由此推算
+  lastHeartbeat DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  deletedAt     DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+enum DeviceType {
+  CCTV
+  SENSOR
+  GATEWAY
+}
+
+enum DeviceStatus {
+  ONLINE
+  OFFLINE
+  MAINTENANCE
 }

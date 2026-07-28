@@ -38,7 +38,7 @@ export function DeleteProjectButton({
       triggerIcon={<Trash2 className="size-4" />}
       triggerVariant="destructive"
       title="刪除專案"
-      description={`確定要刪除「${name}」嗎？此動作會一併刪除其工項、查驗、缺失、文件、里程碑與變更紀錄，可於 90 天內復原。`}
+      description={`確定要刪除「${name}」嗎？此動作會一併刪除其工程分項、查驗、缺失、文件、履約事項與變更紀錄，可於 90 天內復原。`}
       confirmLabel="刪除"
       confirmVariant="destructive"
       requireText="DELETE"

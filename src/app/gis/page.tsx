@@ -41,6 +41,7 @@ export default async function GisPage({
   return (
     <>
       <PageHeader
+        section="05 空間與現場資訊"
         title="GIS 地圖"
         description="PMIS-12 · 政府圖資套疊 OSM 白底底圖，工地周邊風險判讀與專案空間管理"
         action={
@@ -84,9 +85,9 @@ export default async function GisPage({
                         className="flex items-start gap-2 rounded-md border p-2.5 text-sm"
                       >
                         {z.status === "hit" ? (
-                          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-600" />
+                          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
                         ) : z.status === "clear" ? (
-                          <ShieldCheck className="mt-0.5 size-4 shrink-0 text-emerald-600" />
+                          <ShieldCheck className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                         ) : (
                           <HelpCircle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                         )}

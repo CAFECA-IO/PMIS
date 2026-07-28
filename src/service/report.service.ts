@@ -2,9 +2,9 @@ import * as reportRepo from "@/repository/report.repository";
 import * as supervisionRepo from "@/repository/supervisionReport.repository";
 import * as memberRepo from "@/repository/projectMember.repository";
 import { getWorkItemDetails } from "@/service/project.service";
-import { rolledUpProgress } from "@/service/milestone-rollup";
+import { rolledUpProgress } from "@/service/obligation-rollup";
 import * as calc from "@/service/carbon.calc";
-import * as aiService from "@/service/ai.service";
+import * as faith from "@/service/faith.service";
 import { canSeeAllProjects } from "@/lib/auth";
 import {
   defectSeverityMeta,
@@ -142,7 +142,7 @@ export async function generateReport(
     ]);
 
   const wiDetails = await getWorkItemDetails(projectId);
-  const progress = rolledUpProgress(project.milestones, wiDetails);
+  const progress = rolledUpProgress(project.obligations, wiDetails);
 
   const insByResult = countBy(inspections, (i) => i.result);
   const passRate = (() => {
@@ -169,8 +169,8 @@ export async function generateReport(
 
   const inRange = (d: Date | null) =>
     d != null && new Date(d) >= start && new Date(d) <= end;
-  const msDue = project.milestones.filter((m) => inRange(m.plannedDate));
-  const msDone = project.milestones.filter((m) => inRange(m.actualDate));
+  const msDue = project.obligations.filter((m) => inRange(m.dueDate));
+  const msDone = project.obligations.filter((m) => inRange(m.actualDate));
 
   // Info: 監造日報（人工填報）彙整——供 AI 週/月/季/年報以實際填報內容為依據
   const dailyDigest = dailyReports
@@ -192,12 +192,12 @@ export async function generateReport(
     `本期送審 ${submittals.length} 件`,
     `本期環安衛稽核 ${ehs.length} 件`,
     `碳排累計 ${carbon.totalTonnes} tCO₂e`,
-    `本期預定里程碑 ${msDue.length} 項、達成 ${msDone.length} 項`,
+    `本期預定履約事項 ${msDue.length} 項、達成 ${msDone.length} 項`,
     `本期監造日報 ${dailyReports.length} 篇${
       dailyDigest ? `，內容如下（請據此彙整重點）：\n${dailyDigest}` : ""
     }`,
   ].join("\n");
-  const narrative = await aiService.generateReportNarrative(
+  const narrative = await faith.generateReportNarrative(
     factsText,
     typeLabel,
   );
@@ -243,7 +243,7 @@ export async function generateReport(
   md.push("");
   md.push(
     pie(
-      "分項工程狀態",
+      "工程分項狀態",
       Object.entries(wiByStatus).map(([k, v]) => [
         workItemStatusMeta[k as keyof typeof workItemStatusMeta]?.label ?? k,
         v,
@@ -296,16 +296,16 @@ export async function generateReport(
   md.push("");
   md.push(pie("碳排放範疇分布 (tCO₂e)", scopeEntries));
 
-  md.push("## 里程碑");
+  md.push("## 履約事項");
   md.push(`- 本期預定 ${msDue.length} 項、達成 ${msDone.length} 項`);
   if (msDue.length > 0 || msDone.length > 0) {
     md.push("");
-    md.push("| 里程碑 | 預定日 | 實際達成 |");
+    md.push("| 履約事項 | 期限 | 實際達成 |");
     md.push("| --- | --- | --- |");
     const shown = [...new Set([...msDue, ...msDone])].slice(0, 12);
     for (const m of shown) {
       md.push(
-        `| ${m.name} | ${formatDate(m.plannedDate)} | ${m.actualDate ? formatDate(m.actualDate) : "—"} |`,
+        `| ${m.title} | ${formatDate(m.dueDate)} | ${m.actualDate ? formatDate(m.actualDate) : "—"} |`,
       );
     }
   }

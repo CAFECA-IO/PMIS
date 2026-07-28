@@ -42,6 +42,8 @@ export function EhsDialogFields({
   const [analyzing, setAnalyzing] = useState(false);
   const [aiNote, setAiNote] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // 影像歸檔需知道所屬專案；預設與表單的專案下拉一致
+  const [projectId, setProjectId] = useState(projects[0]?.id ?? "");
 
   async function analyze() {
     const file = fileRef.current?.files?.[0];
@@ -56,7 +58,12 @@ export function EhsDialogFields({
       const res = await fetch("/api/ehs/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mimeType: file.type, data }),
+        body: JSON.stringify({
+          mimeType: file.type,
+          data,
+          fileName: file.name,
+          projectId: projectId || null,
+        }),
       });
       const json = (await res.json()) as {
         fields?: { type: string; result: string; findings: string };
@@ -131,7 +138,12 @@ export function EhsDialogFields({
 
       <div className="space-y-1.5">
         <Label htmlFor="ehs-project">專案</Label>
-        <Select id="ehs-project" name="projectId" defaultValue={projects[0]?.id}>
+        <Select
+          id="ehs-project"
+          name="projectId"
+          value={projectId}
+          onChange={(e) => setProjectId(e.target.value)}
+        >
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}

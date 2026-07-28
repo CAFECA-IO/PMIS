@@ -45,6 +45,7 @@ export default async function LogsPage({
     return (
       <>
         <PageHeader
+          section="03 文件與協作"
           title="工程日誌"
           description="日報由監造人員填報；週/月/季/年報由費思 AI 彙整（PMIS-11）"
         />
@@ -67,7 +68,8 @@ export default async function LogsPage({
   return (
     <>
       <PageHeader
-        title="工程日誌"
+        section="03 文件與協作"
+          title="工程日誌"
         description="日報由監造人員填報（監造報表）；週/月/季/年報由費思 AI 彙整（PMIS-11）"
         action={
           <ProjectSwitcher

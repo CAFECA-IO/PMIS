@@ -18,11 +18,11 @@ export const CALENDAR_MODES: { key: CalendarMode; label: string }[] = [
 ];
 
 export const CATEGORY_COLOR: Record<ReminderCategory, string> = {
-  DEADLINE: "bg-red-500",
-  MEETING: "bg-sky-500",
-  SUBMITTAL: "bg-violet-500",
-  AUDIT: "bg-amber-500",
-  IMPROVEMENT: "bg-orange-500",
+  DEADLINE: "bg-risk-red",
+  MEETING: "bg-info",
+  SUBMITTAL: "bg-risk-purple",
+  AUDIT: "bg-risk-yellow",
+  IMPROVEMENT: "bg-risk-orange",
   OTHER: "bg-zinc-400",
 };
 

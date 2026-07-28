@@ -16,6 +16,7 @@ export type CreateWorkItemData = {
   actualEnd?: Date | null;
   progress?: number;
   status?: WorkItemStatus;
+  obligationId?: string | null;
 };
 
 /** Partial update — only provided keys are written; null clears the field. */
@@ -29,6 +30,7 @@ export type UpdateWorkItemData = {
   actualEnd?: Date | null;
   progress?: number;
   status?: WorkItemStatus;
+  obligationId?: string | null;
 };
 
 export function findById(id: string) {
@@ -44,64 +46,66 @@ export function listByProject(projectId: string) {
   });
 }
 
-// Info: milestoneId 於此沙箱無法重新產生 Prisma Client，故以 raw SQL 讀寫該欄位。
-export type WorkItemDetailRow = {
-  id: string;
-  name: string;
-  status: string;
-  progress: number;
-  plannedStart: string | null;
-  plannedEnd: string | null;
-  actualStart: string | null;
-  actualEnd: string | null;
-  milestoneId: string | null;
-};
+/** 工程分項明細（含所屬履約事項），供畫面與上捲計算共用。 */
+const detailSelect = {
+  id: true,
+  name: true,
+  status: true,
+  progress: true,
+  plannedStart: true,
+  plannedEnd: true,
+  actualStart: true,
+  actualEnd: true,
+  obligationId: true,
+} as const;
+
+const metricSelect = {
+  projectId: true,
+  progress: true,
+  plannedStart: true,
+  plannedEnd: true,
+  actualStart: true,
+  actualEnd: true,
+  obligationId: true,
+} as const;
 
 export function listDetailByProject(projectId: string) {
-  return prisma.$queryRawUnsafe<WorkItemDetailRow[]>(
-    `SELECT "id","name","status","progress","plannedStart","plannedEnd","actualStart","actualEnd","milestoneId"
-     FROM "WorkItem" WHERE "projectId" = ? ORDER BY "createdAt" ASC`,
-    projectId,
-  );
+  return prisma.workItem.findMany({
+    where: { projectId },
+    orderBy: { createdAt: "asc" },
+    select: detailSelect,
+  });
 }
 
-export type WorkItemMetricRow = {
-  projectId: string;
-  progress: number;
-  plannedStart: string | null;
-  plannedEnd: string | null;
-  actualStart: string | null;
-  actualEnd: string | null;
-  milestoneId: string | null;
-};
-
-/** 批次讀取多專案工項明細（供專案列表逐案上捲進度）。 */
-export async function listDetailByProjectIds(projectIds: string[]) {
-  if (projectIds.length === 0) return [] as WorkItemMetricRow[];
-  const placeholders = projectIds.map(() => "?").join(",");
-  return prisma.$queryRawUnsafe<WorkItemMetricRow[]>(
-    `SELECT "projectId","progress","plannedStart","plannedEnd","actualStart","actualEnd","milestoneId"
-     FROM "WorkItem" WHERE "projectId" IN (${placeholders})`,
-    ...projectIds,
-  );
+/** 批次讀取多專案工程分項明細（供專案列表逐案上捲進度）。 */
+export function listDetailByProjectIds(projectIds: string[]) {
+  if (projectIds.length === 0) {
+    return Promise.resolve([] as Awaited<ReturnType<typeof listAllDetailForMetrics>>);
+  }
+  return prisma.workItem.findMany({
+    where: { projectId: { in: projectIds } },
+    select: metricSelect,
+  });
 }
 
-/** 全體（未刪除專案）工項明細，供儀表板 S-Curve 上捲。 */
+/** 全體（未刪除專案）工程分項明細，供儀表板 S-Curve 上捲。 */
 export function listAllDetailForMetrics() {
-  return prisma.$queryRawUnsafe<WorkItemMetricRow[]>(
-    `SELECT w."projectId", w."progress", w."plannedStart", w."plannedEnd",
-            w."actualStart", w."actualEnd", w."milestoneId"
-     FROM "WorkItem" w JOIN "Project" p ON w."projectId" = p."id"
-     WHERE p."deletedAt" IS NULL`,
-  );
+  return prisma.workItem.findMany({
+    where: { project: { deletedAt: null } },
+    select: metricSelect,
+  });
 }
 
-export async function setMilestone(id: string, milestoneId: string | null) {
-  await prisma.$executeRawUnsafe(
-    `UPDATE "WorkItem" SET "milestoneId" = ?, "updatedAt" = datetime('now') WHERE "id" = ?`,
-    milestoneId,
-    id,
-  );
+export type WorkItemDetailRow = Awaited<
+  ReturnType<typeof listDetailByProject>
+>[number];
+export type WorkItemMetricRow = Awaited<
+  ReturnType<typeof listAllDetailForMetrics>
+>[number];
+
+/** 掛載／解除工程分項所屬的履約事項。 */
+export async function setObligation(id: string, obligationId: string | null) {
+  await prisma.workItem.update({ where: { id }, data: { obligationId } });
 }
 
 export function create(data: CreateWorkItemData) {

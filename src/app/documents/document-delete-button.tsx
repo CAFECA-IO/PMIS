@@ -29,7 +29,7 @@ export function DocumentDeleteButton({
         if (
           await confirm({
             title: "刪除文件？",
-            description: `「${title}」的資料庫記錄將被移除。`,
+            description: `「${title}」的檔案記錄將被移除。`,
           })
         ) {
           await deleteDocumentAction(id);

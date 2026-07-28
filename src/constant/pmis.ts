@@ -5,12 +5,11 @@ import type {
   InspectionResult,
   DefectSeverity,
   DefectStatus,
-  MilestoneType,
   ProjectDocumentCategory,
   PaymentStatus,
   ReminderCategory,
   ReminderStatus,
-  TodoStatus,
+  NotificationStatus,
   EhsType,
   EhsResult,
   SubmittalCategory,
@@ -26,27 +25,18 @@ import type {
   VoucherStatus,
 } from "@/generated/prisma/enums";
 
-type BadgeVariant =
-  | "default"
-  | "secondary"
-  | "destructive"
-  | "outline"
-  | "success"
-  | "warning"
-  | "muted";
-
-type Meta = { label: string; variant: BadgeVariant };
+import type { BadgeMeta as Meta } from "@/constant/badge";
 
 export const projectStatusMeta: Record<ProjectStatus, Meta> = {
   PLANNING: { label: "規劃中", variant: "muted" },
   ACTIVE: { label: "施工中", variant: "default" },
   ON_HOLD: { label: "暫停", variant: "warning" },
   COMPLETED: { label: "已完工", variant: "success" },
-  CANCELLED: { label: "已取消", variant: "destructive" },
+  CANCELLED: { label: "已取消", variant: "muted" },
 };
 
 export const projectMemberRoleMeta: Record<ProjectMemberRole, Meta> = {
-  MANAGER: { label: "專案經理", variant: "default" },
+  MANAGER: { label: "專案經理", variant: "secondary" },
   SUPERVISOR: { label: "監造", variant: "secondary" },
   INSPECTOR: { label: "查驗", variant: "warning" },
   MEMBER: { label: "成員", variant: "muted" },
@@ -58,7 +48,7 @@ export const projectMemberRoleOptions = Object.entries(
 
 // ── PMIS-10 碳盤查 ──────────────────────────────────────────
 export const carbonScopeMeta: Record<CarbonScope, Meta> = {
-  SCOPE_1: { label: "範疇一 直接排放", variant: "destructive" },
+  SCOPE_1: { label: "範疇一 直接排放", variant: "outline" },
   SCOPE_2: { label: "範疇二 外購電力", variant: "warning" },
   SCOPE_3: { label: "範疇三 上下游", variant: "secondary" },
 };
@@ -76,7 +66,7 @@ export const carbonScopeOptions = Object.entries(carbonScopeMeta).map(
 
 export const carbonEntryStatusMeta: Record<CarbonEntryStatus, Meta> = {
   DRAFT: { label: "草稿", variant: "muted" },
-  CONFIRMED: { label: "已確認", variant: "default" },
+  CONFIRMED: { label: "已確認", variant: "secondary" },
   VERIFIED: { label: "已查證", variant: "success" },
 };
 
@@ -93,12 +83,12 @@ export const carbonIntensityBasisOptions = Object.entries(
 // ── PMIS-08 財務管理 ────────────────────────────────────────
 export const financialDirectionMeta: Record<FinancialDirection, Meta> = {
   INCOME: { label: "收入", variant: "success" },
-  EXPENSE: { label: "支出", variant: "destructive" },
+  EXPENSE: { label: "支出", variant: "outline" },
 };
 
 export const voucherStatusMeta: Record<VoucherStatus, Meta> = {
   DRAFT: { label: "草稿", variant: "muted" },
-  CONFIRMED: { label: "已確認", variant: "default" },
+  CONFIRMED: { label: "已確認", variant: "secondary" },
 };
 
 export const financeCategoryOptions = [
@@ -143,22 +133,17 @@ export const defectSeverityMeta: Record<DefectSeverity, Meta> = {
 };
 
 export const defectStatusMeta: Record<DefectStatus, Meta> = {
-  OPEN: { label: "待處理", variant: "destructive" },
+  OPEN: { label: "待處理", variant: "warning" },
   IN_PROGRESS: { label: "處理中", variant: "warning" },
   RESOLVED: { label: "已改善", variant: "success" },
   CLOSED: { label: "結案", variant: "muted" },
-};
-
-export const milestoneTypeMeta: Record<MilestoneType, Meta> = {
-  MILESTONE: { label: "里程碑", variant: "secondary" },
-  EXTENSION: { label: "工期展延", variant: "warning" },
 };
 
 export const projectDocumentCategoryMeta: Record<
   ProjectDocumentCategory,
   Meta
 > = {
-  CONTRACT: { label: "契約", variant: "default" },
+  CONTRACT: { label: "契約", variant: "outline" },
   AMENDMENT: { label: "契約變更", variant: "warning" },
   DRAWING: { label: "圖說", variant: "secondary" },
   PERMIT: { label: "許可證照", variant: "secondary" },
@@ -170,11 +155,6 @@ export const projectDocumentCategoryOptions = Object.entries(
   projectDocumentCategoryMeta,
 ).map(([value, meta]) => ({ value, label: meta.label }));
 
-export const milestoneTypeOptions: { value: MilestoneType; label: string }[] = [
-  { value: "MILESTONE", label: "里程碑" },
-  { value: "EXTENSION", label: "工期展延" },
-];
-
 export const paymentStatusMeta: Record<PaymentStatus, Meta> = {
   PENDING: { label: "待計價", variant: "muted" },
   INVOICED: { label: "已請款", variant: "warning" },
@@ -182,9 +162,9 @@ export const paymentStatusMeta: Record<PaymentStatus, Meta> = {
 };
 
 export const reminderCategoryMeta: Record<ReminderCategory, Meta> = {
-  DEADLINE: { label: "履約期限", variant: "destructive" },
+  DEADLINE: { label: "履約期限", variant: "outline" },
   MEETING: { label: "會議", variant: "secondary" },
-  SUBMITTAL: { label: "送審", variant: "default" },
+  SUBMITTAL: { label: "送審", variant: "outline" },
   AUDIT: { label: "查核", variant: "warning" },
   IMPROVEMENT: { label: "改善期限", variant: "warning" },
   OTHER: { label: "其他", variant: "muted" },
@@ -197,7 +177,7 @@ export const reminderStatusMeta: Record<ReminderStatus, Meta> = {
   DONE: { label: "已完成", variant: "success" },
 };
 
-export const todoStatusMeta: Record<TodoStatus, Meta> = {
+export const notificationStatusMeta: Record<NotificationStatus, Meta> = {
   PENDING: { label: "待處理", variant: "muted" },
   IN_PROGRESS: { label: "處理中", variant: "warning" },
   DONE: { label: "已完成", variant: "success" },
@@ -234,7 +214,7 @@ export const submittalCategoryMeta: Record<SubmittalCategory, Meta> = {
 
 export const submittalStatusMeta: Record<SubmittalStatus, Meta> = {
   DRAFT: { label: "草稿", variant: "muted" },
-  SUBMITTED: { label: "已送審", variant: "default" },
+  SUBMITTED: { label: "已送審", variant: "info" },
   UNDER_REVIEW: { label: "審查中", variant: "warning" },
   RETURNED: { label: "退件", variant: "destructive" },
   APPROVED: { label: "審查通過", variant: "success" },
@@ -257,7 +237,7 @@ export const mediaTypeMeta: Record<MediaType, Meta> = {
 
 export const reportStatusMeta: Record<ReportStatus, Meta> = {
   DRAFT: { label: "草稿", variant: "muted" },
-  SUBMITTED: { label: "已提送", variant: "default" },
+  SUBMITTED: { label: "已提送", variant: "info" },
   APPROVED: { label: "已核備", variant: "success" },
 };
 

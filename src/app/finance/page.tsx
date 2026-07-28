@@ -56,7 +56,7 @@ function KpiCard({
         <div
           className={cn(
             "mt-2 text-xl font-semibold tabular-nums",
-            tone === "pos" && "text-emerald-600",
+            tone === "pos" && "text-success",
             tone === "neg" && "text-destructive",
           )}
         >
@@ -83,7 +83,8 @@ export default async function FinancePage({
 
   const header = (
     <PageHeader
-      title="財務管理"
+      section="02 契約與時程管理"
+        title="財務管理"
       description="專案損益、收支與現金水位；上傳憑證由費思自動轉會計傳票（PMIS-08）"
       action={
         <ProjectSwitcher
@@ -254,7 +255,7 @@ export default async function FinancePage({
                         </TableCell>
                         <TableCell className="text-right tabular-nums">{formatCurrency(p.income)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatCurrency(p.expense)}</TableCell>
-                        <TableCell className={cn("text-right tabular-nums", p.profit >= 0 ? "text-emerald-600" : "text-destructive")}>
+                        <TableCell className={cn("text-right tabular-nums", p.profit >= 0 ? "text-success" : "text-destructive")}>
                           {formatCurrency(p.profit)}
                         </TableCell>
                       </TableRow>

@@ -40,14 +40,16 @@ async function main() {
   await prisma.ehsNote.deleteMany();
   await prisma.ehsAttachment.deleteMany();
   await prisma.ehsAudit.deleteMany();
-  await prisma.todoItem.deleteMany();
+  await prisma.notification.deleteMany();
   await prisma.reminderEvent.deleteMany();
   await prisma.paymentNode.deleteMany();
-  await prisma.milestone.deleteMany();
+  await prisma.contractObligation.deleteMany();
   await prisma.contractChange.deleteMany();
   await prisma.defect.deleteMany();
   await prisma.inspection.deleteMany();
   await prisma.workItem.deleteMany();
+  await prisma.alertRule.deleteMany();
+  await prisma.monitoringDevice.deleteMany();
   await prisma.project.deleteMany();
 
   const metro = await prisma.project.create({
@@ -133,46 +135,48 @@ async function main() {
     ],
   });
 
-  // PMIS-03 Contract changes / milestones / payment nodes
+  // PMIS-03 Contract changes / contract obligations / payment nodes
   await prisma.contractChange.createMany({
     data: [
       { projectId: metro.id, sequence: 1, description: "增設連續壁監測井", amountAfter: 4_920_000_000, daysChanged: 30, approvedDate: new Date("2025-11-10"), docNo: "捷工字第1140012號" },
       { projectId: bridge.id, sequence: 1, description: "主塔鋼構介面變更", amountAfter: 2_360_000_000, daysChanged: 45, approvedDate: new Date("2025-08-22"), docNo: "公路字第1140338號" },
     ],
   });
-  await prisma.milestone.createMany({
+  await prisma.contractObligation.createMany({
     data: [
-      // 捷運：權重型里程碑（部分已達成，用於整體進度/差距）
-      { projectId: metro.id, name: "開工", type: "MILESTONE", weight: 10, plannedDate: new Date("2025-03-01"), actualDate: new Date("2025-03-01") },
-      { projectId: metro.id, name: "供電系統試送電", type: "MILESTONE", weight: 5, plannedDate: new Date("2026-07-01"), actualDate: new Date("2026-07-05"), commissioning: true },
-      { projectId: metro.id, name: "連續壁完成", type: "MILESTONE", weight: 25, plannedDate: new Date("2026-06-30"), actualDate: new Date("2026-07-10") },
-      { projectId: metro.id, name: "潛盾隧道貫通", type: "MILESTONE", weight: 25, plannedDate: new Date("2026-07-15") },
-      { projectId: metro.id, name: "車站主體結構完成", type: "MILESTONE", weight: 20, plannedDate: new Date("2028-06-30") },
-      { projectId: metro.id, name: "機電設備安裝完成", type: "MILESTONE", weight: 15, plannedDate: new Date("2029-06-30"), commissioning: true },
-      { projectId: metro.id, name: "試運轉完成", type: "MILESTONE", weight: 5, plannedDate: new Date("2029-12-31"), commissioning: true },
-      // 淡江大橋
-      { projectId: bridge.id, name: "主塔基礎完成", type: "MILESTONE", weight: 20, plannedDate: new Date("2025-05-20"), actualDate: new Date("2025-05-20") },
-      { projectId: bridge.id, name: "主塔柱身完成", type: "MILESTONE", weight: 30, plannedDate: new Date("2026-06-30") },
-      { projectId: bridge.id, name: "橋面版吊裝完成", type: "MILESTONE", weight: 30, plannedDate: new Date("2027-03-31") },
-      { projectId: bridge.id, name: "通車前試運轉", type: "MILESTONE", weight: 20, plannedDate: new Date("2027-08-15"), commissioning: true },
-      { projectId: bridge.id, name: "颱風災損展延", type: "EXTENSION", plannedDate: new Date("2027-10-15"), docNo: "公路字第1150087號", note: "因梅花颱風停工 45 天展延。" },
+      // 捷運：權重型履約事項（部分已達成，用於整體進度/差距）
+      { projectId: metro.id, code: "MRT-C-001", title: "開工", stage: "CONSTRUCTION", risk: "GREEN", status: "DONE", weight: 10, dueDate: new Date("2025-03-01"), actualDate: new Date("2025-03-01"), ownerUnit: "工務組", ownerName: "林監造", contractBasis: "契約第五條" },
+      { projectId: metro.id, code: "MRT-M-001", title: "供電系統試送電", stage: "COMMISSIONING", risk: "YELLOW", status: "DONE", weight: 5, dueDate: new Date("2026-07-01"), actualDate: new Date("2026-07-05"), commissioning: true, ownerUnit: "機電組", ownerName: "黃技師", contractBasis: "契約第十二條第三款" },
+      { projectId: metro.id, code: "MRT-C-002", title: "連續壁完成", stage: "CONSTRUCTION", risk: "ORANGE", status: "DONE", weight: 25, dueDate: new Date("2026-06-30"), actualDate: new Date("2026-07-10"), ownerUnit: "工務組", ownerName: "林監造", contractBasis: "契約第五條第二款" },
+      { projectId: metro.id, code: "MRT-C-003", title: "潛盾隧道貫通", stage: "CONSTRUCTION", risk: "RED", status: "OVERDUE", weight: 25, dueDate: new Date("2026-07-15"), ownerUnit: "隧道組", ownerName: "張工程師", contractBasis: "契約第五條第三款" },
+      { projectId: metro.id, code: "MRT-C-004", title: "車站主體結構完成", stage: "CONSTRUCTION", risk: "YELLOW", status: "IN_PROGRESS", weight: 20, dueDate: new Date("2028-06-30"), ownerUnit: "工務組", ownerName: "林監造", contractBasis: "契約第五條第四款" },
+      { projectId: metro.id, code: "MRT-M-002", title: "機電設備安裝完成", stage: "COMMISSIONING", risk: "GREEN", status: "NOT_STARTED", weight: 15, dueDate: new Date("2029-06-30"), commissioning: true, ownerUnit: "機電組", ownerName: "黃技師", contractBasis: "契約第十二條" },
+      { projectId: metro.id, code: "MRT-H-001", title: "試運轉完成", stage: "HANDOVER", risk: "PURPLE", triggerType: "CONDITION", status: "PENDING_EXTERNAL", weight: 5, dueDate: new Date("2029-12-31"), commissioning: true, ownerUnit: "營運籌備處", ownerName: "王專案經理", contractBasis: "契約第十八條", note: "須待主管機關履勘通過。" },
+
+      { projectId: bridge.id, code: "BRG-C-001", title: "主塔基礎完成", stage: "CONSTRUCTION", risk: "GREEN", status: "DONE", weight: 20, dueDate: new Date("2025-05-20"), actualDate: new Date("2025-05-20"), ownerUnit: "橋梁組", ownerName: "陳監造", contractBasis: "契約第四條" },
+      { projectId: bridge.id, code: "BRG-C-002", title: "主塔柱身完成", stage: "CONSTRUCTION", risk: "ORANGE", status: "IN_PROGRESS", weight: 30, dueDate: new Date("2026-06-30"), ownerUnit: "橋梁組", ownerName: "陳監造", contractBasis: "契約第四條第二款" },
+      { projectId: bridge.id, code: "BRG-C-003", title: "橋面版吊裝完成", stage: "CONSTRUCTION", risk: "YELLOW", status: "NOT_STARTED", weight: 30, dueDate: new Date("2027-03-31"), ownerUnit: "橋梁組", ownerName: "陳監造", contractBasis: "契約第四條第三款" },
+      { projectId: bridge.id, code: "BRG-H-001", title: "通車前試運轉", stage: "HANDOVER", risk: "GREEN", status: "NOT_STARTED", weight: 20, dueDate: new Date("2027-08-15"), commissioning: true, ownerUnit: "營運組", ownerName: "李副理", contractBasis: "契約第十七條" },
+      // 工期展延事項（以「其他」階段管制）
+      { projectId: bridge.id, code: "BRG-O-001", title: "颱風災損展延", stage: "OTHER", risk: "YELLOW", triggerType: "RELATIVE_DUE", status: "PENDING_REVIEW", weight: 1, offsetDays: 45, dueDate: new Date("2027-10-15"), docNo: "公路字第1150087號", ownerUnit: "工務組", contractBasis: "契約第二十二條", note: "因梅花颱風停工 45 天展延。" },
     ],
   });
-  // PMIS-04→里程碑 上捲：示範把捷運工項掛到對應里程碑（milestoneId 以 raw SQL 寫入）
-  const wiMilestonePairs: [string, string][] = [
-    ["連續壁施工", "連續壁完成"],
-    ["潛盾隧道推進", "潛盾隧道貫通"],
-    ["車站主體結構", "車站主體結構完成"],
+  // PMIS-04→履約事項 上捲：示範把捷運工程分項掛到對應履約事項
+  const wiObligationPairs: [string, string][] = [
+    ["連續壁施工", "MRT-C-002"],
+    ["潛盾隧道推進", "MRT-C-003"],
+    ["車站主體結構", "MRT-C-004"],
   ];
-  for (const [wiName, msName] of wiMilestonePairs) {
-    await prisma.$executeRawUnsafe(
-      `UPDATE "WorkItem" SET "milestoneId" = (SELECT "id" FROM "Milestone" WHERE "projectId" = ? AND "name" = ? LIMIT 1)
-       WHERE "projectId" = ? AND "name" = ?`,
-      metro.id,
-      msName,
-      metro.id,
-      wiName,
-    );
+  for (const [wiName, obCode] of wiObligationPairs) {
+    const ob = await prisma.contractObligation.findUnique({
+      where: { projectId_code: { projectId: metro.id, code: obCode } },
+      select: { id: true },
+    });
+    if (!ob) continue;
+    await prisma.workItem.updateMany({
+      where: { projectId: metro.id, name: wiName },
+      data: { obligationId: ob.id },
+    });
   }
 
   await prisma.paymentNode.createMany({
@@ -239,7 +243,7 @@ async function main() {
     ["bridge", "橋面版預鑄件送審", "2026-09-22", "SUBMITTAL"],
     ["metro", "第 7 期估驗計價", "2026-09-25", "DEADLINE"],
     // Q4 2026
-    ["metro", "連續壁里程碑期限", "2026-10-31", "DEADLINE"],
+    ["metro", "連續壁履約期限", "2026-10-31", "DEADLINE"],
     ["bridge", "主塔柱身完成查核", "2026-10-15", "AUDIT"],
     ["metro", "車站主體結構開工", "2026-11-01", "DEADLINE"],
     ["bridge", "年度履約檢討會議", "2026-11-20", "MEETING"],
@@ -248,12 +252,12 @@ async function main() {
     ["bridge", "年終工程查核", "2026-12-28", "AUDIT"],
     // 明年（year 視圖）
     ["bridge", "橋面版吊裝送審", "2027-01-15", "SUBMITTAL"],
-    ["metro", "潛盾隧道貫通里程碑", "2027-02-20", "DEADLINE"],
+    ["metro", "潛盾隧道貫通履約事項", "2027-02-20", "DEADLINE"],
     ["bridge", "主橋段合龍會議", "2027-03-10", "MEETING"],
     ["metro", "第 1 季安衛稽核", "2027-03-28", "AUDIT"],
     ["bridge", "橋面鋪裝送審", "2027-04-18", "SUBMITTAL"],
     ["bridge", "淡江大橋完工查驗", "2027-08-15", "AUDIT"],
-    ["metro", "捷運藍線全案完工里程碑", "2027-12-31", "DEADLINE"],
+    ["metro", "捷運藍線全案完工履約事項", "2027-12-31", "DEADLINE"],
   ];
 
   await prisma.reminderEvent.createMany({
@@ -270,12 +274,67 @@ async function main() {
   });
 
   // PMIS-02 Todos
-  await prisma.todoItem.createMany({
+  // 系統通知：含細節、前往連結與釘選
+  await prisma.notification.createMany({
     data: [
-      { projectId: bridge.id, title: "提送混凝土複驗計畫", unit: "麗明營造", assignee: "工地主任", source: "缺失改善", dueDate: new Date("2026-07-16"), status: "OVERDUE" },
-      { projectId: metro.id, title: "補送環片止水材型錄", unit: "施工廠商", source: "送審退件", dueDate: new Date("2026-07-24"), status: "IN_PROGRESS" },
-      { projectId: metro.id, title: "通風量複測並回報", unit: "監造單位", assignee: "李工程師", source: "查驗待複核", dueDate: new Date("2026-07-20"), status: "PENDING" },
-      { projectId: metro.id, title: "圍籬修復完成確認", unit: "施工廠商", source: "缺失改善", status: "DONE" },
+      {
+        projectId: bridge.id,
+        title: "主塔混凝土強度不足，需提送複驗計畫",
+        detail:
+          "第 8 節柱身試體 28 天強度僅達設計值 85%，已開立 NCR。請於期限前提送複驗計畫與補強方案，並安排監造會同取樣。",
+        link: "/quality",
+        unit: "麗明營造",
+        assignee: "工地主任",
+        source: "缺失改善",
+        dueDate: new Date("2026-07-16"),
+        status: "OVERDUE",
+        // 逾期且影響結構安全，預設釘選
+        pinnedAt: new Date("2026-07-17"),
+      },
+      {
+        projectId: metro.id,
+        title: "止水膨脹材送審退件，請補送型錄",
+        detail:
+          "送審文件缺少材料型錄與試驗報告，經審查退件。請補齊後重新提送，避免影響環片安裝進度。",
+        link: "/submittals",
+        unit: "施工廠商",
+        source: "送審退件",
+        dueDate: new Date("2026-07-24"),
+        status: "IN_PROGRESS",
+      },
+      {
+        projectId: metro.id,
+        title: "隧道通風量複測並回報",
+        detail:
+          "K12 段查驗結果為有條件通過，需複測通風量並回報數值；未達標準前不得進行後續作業。",
+        link: "/quality",
+        unit: "監造單位",
+        assignee: "李工程師",
+        source: "查驗待複核",
+        dueDate: new Date("2026-07-20"),
+        status: "PENDING",
+      },
+      {
+        projectId: metro.id,
+        title: "CAM-02 料場攝影機離線",
+        detail:
+          "現地攝影機離線超過 10 分鐘，已觸發預警規則。請派員檢查供電與網路，必要時報修。",
+        link: "/monitoring",
+        unit: "資訊",
+        source: "設備異常",
+        status: "PENDING",
+      },
+      {
+        projectId: metro.id,
+        title: "圍籬修復完成確認",
+        detail: "工區北側圍籬受風災損壞已修復完成，經巡查確認符合要求。",
+        link: "/ehs",
+        unit: "施工廠商",
+        source: "缺失改善",
+        status: "DONE",
+        // 已處理完成，設為已讀
+        readAt: new Date("2026-07-13"),
+      },
     ],
   });
 
@@ -362,7 +421,7 @@ async function main() {
 
   // 職位模組權限（PMIS-14）：主管全可編輯、其餘檢視、人員管理僅高階可編輯（raw SQL）
   const ALL_MODULES = [
-    "/calendar", "/todos", "/projects", "/schedule", "/ehs", "/submittals",
+    "/calendar", "/notifications", "/projects", "/schedule", "/ehs", "/submittals",
     "/quality", "/finance", "/carbon", "/monitoring", "/logs", "/gis",
     "/documents", "/people",
   ];
@@ -748,17 +807,157 @@ async function main() {
     );
   }
 
+  // ── 行事曆與預警：監測設備與預警規則 ───────────────────────────
+  const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000);
+  await prisma.monitoringDevice.createMany({
+    data: [
+      {
+        projectId: metro.id,
+        code: "CAM-01",
+        name: "東側大門",
+        type: "CCTV",
+        location: "工區入口",
+        status: "ONLINE",
+        lastHeartbeat: minutesAgo(1),
+      },
+      {
+        projectId: metro.id,
+        code: "CAM-02",
+        name: "料場全景",
+        type: "CCTV",
+        location: "材料堆置區",
+        status: "OFFLINE",
+        // 離線 25 分鐘 → 會觸發「離線超過 10 分鐘」規則
+        lastHeartbeat: minutesAgo(25),
+      },
+      {
+        projectId: metro.id,
+        code: "SEN-01",
+        name: "沉陷觀測點",
+        type: "SENSOR",
+        location: "連續壁 A 區",
+        status: "ONLINE",
+        lastHeartbeat: minutesAgo(2),
+      },
+      {
+        projectId: bridge.id,
+        code: "CAM-11",
+        name: "橋台施工面",
+        type: "CCTV",
+        location: "P1 橋台",
+        status: "MAINTENANCE",
+        lastHeartbeat: minutesAgo(600),
+      },
+    ],
+  });
+
+  await prisma.alertRule.createMany({
+    data: [
+      {
+        name: "進度落後預警",
+        description: "全案上捲進度落後預定達 5% 時，啟動趕工機制。",
+        kind: "CONDITION",
+        module: "/schedule",
+        severity: "CRITICAL",
+        metric: "SCHEDULE_LAG",
+        operator: "GTE",
+        threshold: 5,
+        unit: "%",
+        action: "建立趕工計畫與每週檢討會",
+        notify: "專案經理,監造單位",
+        enabled: true,
+      },
+      {
+        name: "文件期限預警",
+        description: "送審文件預定提送日前 7 天提醒承辦與專案經理。",
+        kind: "RELATIVE_DATE",
+        module: "/submittals",
+        severity: "WARNING",
+        anchor: "DOCUMENT_DUE",
+        offsetDays: 7,
+        action: "確認文件備齊並如期提送",
+        notify: "承辦,專案經理",
+        enabled: true,
+      },
+      {
+        name: "材料試驗不合格",
+        description: "查驗結果為不合格時，開立 NCR 並追蹤複查。",
+        kind: "CONDITION",
+        module: "/quality",
+        severity: "CRITICAL",
+        metric: "INSPECTION_FAILED",
+        operator: "GTE",
+        threshold: 1,
+        unit: "件",
+        action: "建立 NCR 及複查追蹤",
+        notify: "品管,監造單位",
+        enabled: true,
+      },
+      {
+        name: "CCTV 離線預警",
+        description: "現地攝影機離線超過 10 分鐘，通知資訊與現場人員排除。",
+        kind: "CONDITION",
+        module: "/monitoring",
+        severity: "WARNING",
+        metric: "DEVICE_OFFLINE_MINUTES",
+        operator: "GT",
+        threshold: 10,
+        unit: "分鐘",
+        action: "派員檢查供電與網路，必要時報修",
+        notify: "資訊,現場人員",
+        enabled: true,
+      },
+      {
+        name: "缺失改善期限預警",
+        description: "缺失改善期限前 3 天提醒，逾期一併列出。",
+        kind: "RELATIVE_DATE",
+        module: "/quality",
+        severity: "WARNING",
+        anchor: "DEFECT_DUE",
+        offsetDays: 3,
+        action: "追蹤改善進度並回報",
+        notify: "工地主任",
+        enabled: true,
+      },
+      {
+        name: "履約期限屆至",
+        description: "契約完工日前 30 天提醒辦理竣工與驗收準備。",
+        kind: "RELATIVE_DATE",
+        module: "/projects",
+        severity: "INFO",
+        anchor: "CONTRACT_END",
+        offsetDays: 30,
+        action: "確認竣工文件與驗收排程",
+        notify: "專案經理",
+        enabled: true,
+      },
+      {
+        name: "年度稽核日",
+        description: "範例：固定日期規則，預設停用。",
+        kind: "FIXED_DATE",
+        module: "/calendar",
+        severity: "INFO",
+        fixedDate: new Date(`${new Date().getFullYear()}-12-15`),
+        action: "準備年度稽核資料",
+        notify: "專案經理",
+        enabled: false,
+      },
+    ],
+  });
+
   const counts = {
     專案: await prisma.project.count(),
-    工項: await prisma.workItem.count(),
+    預警規則: await prisma.alertRule.count(),
+    監測設備: await prisma.monitoringDevice.count(),
+    工程分項: await prisma.workItem.count(),
     查驗: await prisma.inspection.count(),
     缺失: await prisma.defect.count(),
     契約變更: await prisma.contractChange.count(),
     專案文件: await prisma.projectDocument.count(),
-    里程碑: await prisma.milestone.count(),
+    履約事項: await prisma.contractObligation.count(),
     付款節點: await prisma.paymentNode.count(),
     行事曆: await prisma.reminderEvent.count(),
-    待辦: await prisma.todoItem.count(),
+    系統通知: await prisma.notification.count(),
     環安衛: await prisma.ehsAudit.count(),
     送審: await prisma.submittal.count(),
     媒體: await prisma.mediaAsset.count(),

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import * as screenFocus from "@/service/screenFocus.service";
-import * as aiService from "@/service/ai.service";
+import * as faith from "@/service/faith.service";
 import { getCurrentUser } from "@/service/auth.service";
 
 export const runtime = "nodejs";
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
       id: user.id,
       role: user.role,
     });
-    const text = await aiService.summarizeScreenFocus(focus.label, focus.facts);
+    const text = await faith.summarizeScreenFocus(focus.label, focus.facts);
     return NextResponse.json({ label: focus.label, facts: focus.facts, text });
   } catch (error) {
     const message =

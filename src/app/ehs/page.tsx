@@ -31,6 +31,7 @@ export default async function EhsPage({
   return (
     <>
       <PageHeader
+        section="04 工程執行與查核"
         title="環安衛管理"
         description="PMIS-05 · 環境、職安衛、交通維持督導與稽核紀錄"
         action={

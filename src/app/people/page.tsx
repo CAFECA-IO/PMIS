@@ -50,8 +50,8 @@ const TABS = [
 
 const PERM_OVERVIEW: Record<string, { label: string; className: string }> = {
   NONE: { label: "無", className: "text-muted-foreground" },
-  VIEW: { label: "檢視", className: "bg-blue-50 text-blue-700" },
-  EDIT: { label: "編輯", className: "bg-emerald-50 text-emerald-700" },
+  VIEW: { label: "檢視", className: "bg-info-soft text-info" },
+  EDIT: { label: "編輯", className: "bg-success-soft text-success" },
 };
 
 export default async function PeoplePage({
@@ -76,6 +76,7 @@ export default async function PeoplePage({
   return (
     <>
       <PageHeader
+        section="06 專案與系統設定"
         title="組織管理"
         description="設定組織、職位與帳號，並檢視組織架構"
       />

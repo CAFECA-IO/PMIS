@@ -1,12 +1,12 @@
 /**
- * PMIS-04→里程碑 上捲（輕量版 A）：由分項工程進度推算里程碑達成度。
+ * 工程分項 → 履約事項 上捲：由工程分項進度推算履約事項達成度。
  *
- * - derivedProgress：其下工項以「預定工期天數」加權的平均進度（無預定日則等權）。
- * - effectiveActual：里程碑的「實際完成日」計算原則——
- *     1) 里程碑本身有手動 actualDate → 以手動為準（合約認定優先）。
- *     2) 否則若工項加權進度達 100% → 取工項最後的實際完工日（無則取最後預定完工日）。
+ * - derivedProgress：其下工程分項以「預定工期天數」加權的平均進度（無預定日則等權）。
+ * - effectiveActual：履約事項的「實際完成日」計算原則——
+ *     1) 履約事項本身有手動 actualDate → 以手動為準（合約認定優先）。
+ *     2) 否則若工程分項加權進度達 100% → 取其最後的實際完工日（無則取最後預定完工日）。
  *     3) 否則視為尚未達成（null）。
- *   無任何關聯工項時，回退為里程碑原本的手動 actualDate。
+ *   無任何關聯工程分項時，回退為履約事項原本的手動 actualDate。
  */
 
 export type RollupItem = {
@@ -44,8 +44,8 @@ function maxDate(dates: (Date | null)[]): Date | null {
   return ts.length ? new Date(Math.max(...ts)) : null;
 }
 
-/** 里程碑的有效實際完成日（見檔頭原則）。 */
-export function effectiveMilestoneActual(
+/** 履約事項的有效實際完成日（見檔頭原則）。 */
+export function effectiveObligationActual(
   manualActual: Date | null,
   items: RollupItem[],
 ): Date | null {
@@ -60,41 +60,38 @@ export function effectiveMilestoneActual(
   return null;
 }
 
-// ── 全系統統一的「專案進度」定義（上捲：工項→里程碑→加權%）──────
+// ── 全系統統一的「專案進度」定義（上捲：工程分項→履約事項→加權%）──────
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-export type ProgressMilestone = {
+export type ProgressObligation = {
   id?: string | null;
-  type?: string; // 未提供時視為已篩選之 MILESTONE
   weight: number;
-  plannedDate: Date | null;
+  /** 期限 */
+  dueDate: Date | null;
   actualDate: Date | null;
 };
-export type ProgressWorkItem = RollupItem & { milestoneId: string | null };
+export type ProgressWorkItem = RollupItem & { obligationId: string | null };
 
 /**
- * 專案進度（截至 now）＝以里程碑權重加權的達成度，達成與否由工項上捲後的
- * 有效實際完成日判定（見 effectiveMilestoneActual）。回傳 overall / planned / gap。
- * 此為全系統單一定義：專案列表、專案總覽、里程碑分頁、費思摘要、報表、儀表板皆共用。
+ * 專案進度（截至 now）＝以履約事項權重加權的達成度，達成與否由工程分項上捲後的
+ * 有效實際完成日判定（見 effectiveObligationActual）。回傳 overall / planned / gap。
+ * 此為全系統單一定義：專案列表、專案總覽、履約事項分頁、費思摘要、報表、儀表板皆共用。
  */
 export function rolledUpProgress(
-  milestones: ProgressMilestone[],
+  obligations: ProgressObligation[],
   workItems: ProgressWorkItem[],
   now: number = Date.now(),
 ): { overall: number; planned: number; gap: number } {
-  const ms = milestones.filter(
-    (m) => m.type === undefined || m.type === "MILESTONE",
-  );
-  const total = ms.reduce((s, m) => s + m.weight, 0);
+  const total = obligations.reduce((s, m) => s + m.weight, 0);
   if (total === 0) return { overall: 0, planned: 0, gap: 0 };
 
   let achieved = 0;
   let planned = 0;
-  for (const m of ms) {
-    const items = m.id ? workItems.filter((w) => w.milestoneId === m.id) : [];
-    const eff = effectiveMilestoneActual(m.actualDate, items);
+  for (const m of obligations) {
+    const items = m.id ? workItems.filter((w) => w.obligationId === m.id) : [];
+    const eff = effectiveObligationActual(m.actualDate, items);
     if (eff && eff.getTime() <= now) achieved += m.weight;
-    if (m.plannedDate && m.plannedDate.getTime() <= now) planned += m.weight;
+    if (m.dueDate && m.dueDate.getTime() <= now) planned += m.weight;
   }
   const overall = round2((achieved / total) * 100);
   const plannedPct = round2((planned / total) * 100);

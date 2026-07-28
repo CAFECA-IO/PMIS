@@ -1,22 +1,22 @@
 import * as focusRepo from "@/repository/screenFocus.repository";
 import * as projectService from "@/service/project.service";
-import { rolledUpProgress } from "@/service/milestone-rollup";
+import { rolledUpProgress } from "@/service/obligation-rollup";
 import { canSeeAllProjects } from "@/lib/auth";
 import type { Viewer } from "@/service/project.service";
 
 export type ScreenFocus = { label: string; facts: string[] };
 
 const MODULE_LABELS: Record<string, string> = {
-  "/": "儀表板",
-  "/calendar": "行事曆預警",
-  "/todos": "待辦追蹤",
+  "/": "專案戰情室",
+  "/calendar": "行事曆與預警",
+  "/notifications": "系統通知",
   "/projects": "工程專案",
   "/schedule": "時程進度",
   "/ehs": "環安衛管理",
   "/submittals": "簽核管理",
   "/quality": "品質稽核",
   "/gis": "GIS 地圖",
-  "/documents": "資料庫",
+  "/documents": "檔案管理",
   "/people": "組織管理",
   "/docs": "功能說明",
 };
@@ -25,10 +25,10 @@ const round = (n: number) => Math.round(n * 100) / 100;
 const pct = (part: number, whole: number) =>
   whole > 0 ? round((part / whole) * 100) : 0;
 
-function milestoneMetrics(
+function obligationMetrics(
   rows: {
     weight: number;
-    plannedDate: Date | null;
+    dueDate: Date | null;
     actualDate: Date | null;
     commissioning: boolean;
   }[],
@@ -42,7 +42,7 @@ function milestoneMetrics(
   for (const m of rows) {
     total += m.weight;
     if (m.actualDate) actual += m.weight;
-    if (m.plannedDate && m.plannedDate.getTime() <= now) planned += m.weight;
+    if (m.dueDate && m.dueDate.getTime() <= now) planned += m.weight;
     if (m.commissioning) {
       comm += m.weight;
       if (m.actualDate) commDone += m.weight;
@@ -72,7 +72,7 @@ export async function getScreenFocus(
     if (!project) return { label: "工程專案", facts: [] };
     const o = projectService.computeProjectOverview(project);
     const wi = await projectService.getWorkItemDetails(project.id);
-    const prog = rolledUpProgress(project.milestones, wi);
+    const prog = rolledUpProgress(project.obligations, wi);
     const facts: string[] = [];
     facts.push(
       prog.gap < 0
@@ -93,15 +93,15 @@ export async function getScreenFocus(
 
   switch (route) {
     case "/": {
-      const [openDefects, overdueTodos, pendingSubmittals, failed, milestones] =
+      const [openDefects, overdueTodos, pendingSubmittals, failed, obligations] =
         await Promise.all([
           focusRepo.countOpenDefects(ids),
           focusRepo.countOverdueTodos(ids),
           focusRepo.countPendingSubmittals(ids),
           focusRepo.countInspectionsByResult("FAILED", ids),
-          focusRepo.listMilestonesForMetrics(ids),
+          focusRepo.listObligationsForMetrics(ids),
         ]);
-      const m = milestoneMetrics(milestones);
+      const m = obligationMetrics(obligations);
       const facts: string[] = [];
       facts.push(
         m.gap < 0 ? `整體進度落後 ${Math.abs(m.gap)}%` : `整體進度 ${m.overall}%`,
@@ -121,13 +121,13 @@ export async function getScreenFocus(
       return { label, facts };
     }
 
-    case "/todos": {
+    case "/notifications": {
       const [total, overdue] = await Promise.all([
         focusRepo.countTodos(ids),
         focusRepo.countOverdueTodos(ids),
       ]);
-      const facts = [`待辦共 ${total} 項`];
-      if (overdue > 0) facts.push(`${overdue} 項已逾期`);
+      const facts = [`通知共 ${total} 則`];
+      if (overdue > 0) facts.push(`${overdue} 則已逾期`);
       return { label, facts };
     }
 
@@ -161,8 +161,8 @@ export async function getScreenFocus(
     }
 
     case "/schedule": {
-      const milestones = await focusRepo.listMilestonesForMetrics(ids);
-      const m = milestoneMetrics(milestones);
+      const obligations = await focusRepo.listObligationsForMetrics(ids);
+      const m = obligationMetrics(obligations);
       const facts = [
         m.gap < 0
           ? `整體進度落後預定 ${Math.abs(m.gap)}%`
@@ -179,7 +179,7 @@ export async function getScreenFocus(
 
     case "/documents": {
       const n = await focusRepo.countMedia(ids);
-      return { label, facts: [`資料庫共 ${n} 筆影像/文件`] };
+      return { label, facts: [`檔案管理共 ${n} 筆影像/文件`] };
     }
 
     default:

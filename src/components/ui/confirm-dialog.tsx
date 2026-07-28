@@ -79,7 +79,7 @@ export function ConfirmForm({
             onClick={close}
             aria-hidden
           />
-          <div className="relative z-10 w-full max-w-md rounded-lg border bg-card p-6 shadow-xl">
+          <div className="relative z-10 w-full max-w-md rounded-lg border bg-card p-6 shadow-overlay">
             <h2 className="text-lg font-semibold">{title}</h2>
             {description ? (
               <div className="mt-2 text-sm text-muted-foreground">

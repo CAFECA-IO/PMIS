@@ -85,7 +85,7 @@ export function CityCombobox({
       <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" />
 
       {open && matches.length > 0 ? (
-        <ul className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-lg">
+        <ul className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-overlay">
           {matches.map((c, i) => (
             <li key={c.code}>
               <button

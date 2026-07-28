@@ -62,11 +62,15 @@ export function addAttachment(
   return prisma.ehsAttachment.create({ data: { auditId, ...a } });
 }
 
+/** 取附件並帶出所屬專案，供專案層級權限判定。 */
 export function findAttachment(id: string) {
-  return prisma.ehsAttachment.findUnique({ where: { id } });
+  return prisma.ehsAttachment.findUnique({
+    where: { id },
+    include: { audit: { select: { projectId: true } } },
+  });
 }
 
-/** 全部環安衛上傳檔案（含所屬稽核與專案），供資料庫彙整。 */
+/** 全部環安衛上傳檔案（含所屬稽核與專案），供檔案管理彙整。 */
 export function listAllAttachments() {
   return prisma.ehsAttachment.findMany({
     where: { audit: { project: { deletedAt: null } } },

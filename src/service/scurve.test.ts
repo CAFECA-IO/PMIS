@@ -47,7 +47,7 @@ test("planned 依預定日累計、actual 僅計到今日所在月", () => {
   );
 });
 
-test("提高某里程碑權重會改變累計占比（資料連動）", () => {
+test("提高某履約事項權重會改變累計占比（資料連動）", () => {
   const heavier = base.map((m, i) =>
     i === 0 ? { ...m, weight: 3 } : m,
   );
@@ -63,7 +63,7 @@ test("延後實際完成日會降低當期 actual", () => {
     i === 1 ? { ...m, actualDate: new Date("2026-05-01") } : m,
   );
   const pts = buildSCurve(delayed, NOW);
-  // 第二個里程碑延到 5 月才完成 → 2、3 月 actual 只剩 25%
+  // 第二個履約事項延到 5 月才完成 → 2、3 月 actual 只剩 25%
   assert.equal(pts[1].actual, 25);
   assert.equal(pts[2].actual, 25);
 });
@@ -74,7 +74,7 @@ test("forecast 自目前實際外推至末月 100%", () => {
   assert.equal(last.forecast, 100);
 });
 
-// ── 分項工程（WorkItem）基準 ───────────────────────────────
+// ── 工程分項（WorkItem）基準 ───────────────────────────────
 const WI_NOW = new Date("2026-03-31T00:00:00").getTime();
 const workItems: WorkItemInput[] = [
   {

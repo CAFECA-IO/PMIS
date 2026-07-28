@@ -145,7 +145,7 @@ export function CreateRecordDialog({
             className="absolute inset-0 bg-black/40"
             onClick={() => void attemptClose()}
           />
-          <div className="relative z-10 flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border bg-card shadow-xl">
+          <div className="relative z-10 flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border bg-card shadow-overlay">
             <div className="flex items-center justify-between border-b px-5 py-3">
               <h2 className="text-base font-semibold">{title}</h2>
               <button

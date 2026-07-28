@@ -1,7 +1,7 @@
 import Link from "next/link";
 import {
   FolderKanban,
-  ListTodo,
+  Bell,
   FileCheck,
   TriangleAlert,
   CalendarClock,
@@ -89,13 +89,13 @@ export default async function DashboardPage({
 
   const healthStyle = {
     good: {
-      className: "border-emerald-500/40 bg-emerald-500/5",
-      text: "text-emerald-600",
+      className: "border-success/40",
+      text: "text-success",
       Icon: CheckCircle2,
     },
     warn: {
-      className: "border-amber-500/50 bg-amber-500/5",
-      text: "text-amber-600",
+      className: "border-warning/40",
+      text: "text-warning",
       Icon: AlertTriangle,
     },
     bad: {
@@ -107,7 +107,7 @@ export default async function DashboardPage({
 
   const statCards = [
     { label: "工程專案", value: stats.projectCount, hint: `${stats.activeProjects} 件施工中`, icon: FolderKanban },
-    { label: "逾期待辦", value: stats.overdueTodos, hint: "需即刻處理", icon: ListTodo },
+    { label: "未讀通知", value: stats.overdueTodos, hint: "需即刻處理", icon: Bell },
     { label: "送審待處理", value: stats.pendingSubmittals, hint: "審查中 / 退件", icon: FileCheck },
     { label: "未結案缺失", value: stats.openDefects, hint: "待處理 / 處理中", icon: TriangleAlert },
   ];
@@ -119,24 +119,28 @@ export default async function DashboardPage({
     count: number;
     icon: LucideIcon;
   }[] = [
-    { href: "/calendar", code: "PMIS-01", label: "行事曆預警", count: moduleCounts.reminder, icon: CalendarClock },
-    { href: "/todos", code: "PMIS-02", label: "待辦追蹤", count: moduleCounts.todo, icon: ListTodo },
+    { href: "/calendar", code: "PMIS-01", label: "行事曆與預警", count: moduleCounts.reminder, icon: CalendarClock },
+    { href: "/notifications", code: "PMIS-02", label: "系統通知", count: moduleCounts.notification, icon: Bell },
     { href: "/projects", code: "PMIS-03", label: "工程專案", count: moduleCounts.project, icon: FileText },
     { href: "/schedule", code: "PMIS-04", label: "時程進度", count: moduleCounts.workItem, icon: Activity },
     { href: "/ehs", code: "PMIS-05", label: "環安衛管理", count: moduleCounts.ehs, icon: ShieldCheck },
     { href: "/submittals", code: "PMIS-06", label: "簽核管理", count: moduleCounts.submittal, icon: FileCheck },
     { href: "/quality", code: "PMIS-07", label: "品質稽核", count: moduleCounts.inspection, icon: ClipboardCheck },
-    { href: "/documents", code: "PMIS-08", label: "資料庫", count: moduleCounts.media, icon: FolderArchive },
+    { href: "/documents", code: "PMIS-08", label: "檔案管理", count: moduleCounts.media, icon: FolderArchive },
   ];
 
   return (
     <>
-      <PageHeader title="儀表板" description="工程監造整體概況與預警" />
+      <PageHeader
+        section="01 總覽與決策"
+        title="專案戰情室"
+        description="工程監造整體概況與預警"
+      />
       <div className="space-y-8 p-8">
         {/* 全案累計（不受資料範圍影響） */}
         <section className="space-y-4">
           <h2 className="text-sm font-medium text-muted-foreground">
-            全案累計進度（依里程碑）
+            全案累計進度（依履約事項）
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Card>
@@ -158,7 +162,7 @@ export default async function DashboardPage({
                     "flex size-[104px] shrink-0 flex-col items-center justify-center rounded-full " +
                     (behind
                       ? "bg-destructive/10 text-destructive"
-                      : "bg-emerald-500/10 text-emerald-600")
+                      : "bg-success-soft text-success")
                   }
                 >
                   {behind ? (
@@ -192,7 +196,7 @@ export default async function DashboardPage({
                     試運轉就緒度
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    以里程碑試運轉項目計算
+                    以履約事項試運轉項目計算
                   </div>
                 </div>
               </CardContent>

@@ -27,10 +27,10 @@ export function countOpenDefects(ids: string[]) {
 }
 
 export function countTodos(ids: string[]) {
-  return prisma.todoItem.count({ where: scope(ids) });
+  return prisma.notification.count({ where: scope(ids) });
 }
 export function countOverdueTodos(ids: string[]) {
-  return prisma.todoItem.count({ where: { status: "OVERDUE", ...scope(ids) } });
+  return prisma.notification.count({ where: { status: "OVERDUE", ...scope(ids) } });
 }
 
 export function countSubmittals(ids: string[]) {
@@ -63,12 +63,12 @@ export function countInspectionsByResult(result: InspectionResult, ids: string[]
   return prisma.inspection.count({ where: { result, ...scope(ids) } });
 }
 
-export function listMilestonesForMetrics(ids: string[]) {
-  return prisma.milestone.findMany({
-    where: { deletedAt: null, type: "MILESTONE", projectId: { in: ids } },
+export function listObligationsForMetrics(ids: string[]) {
+  return prisma.contractObligation.findMany({
+    where: { deletedAt: null, projectId: { in: ids } },
     select: {
       weight: true,
-      plannedDate: true,
+      dueDate: true,
       actualDate: true,
       commissioning: true,
     },

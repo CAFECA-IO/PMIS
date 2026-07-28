@@ -77,9 +77,9 @@ const SEV: Record<Severity, { label: string; badge: string; dot: string; box: st
   },
   warning: {
     label: "注意",
-    badge: "bg-amber-500 text-white",
-    dot: "bg-amber-500",
-    box: "border-amber-400",
+    badge: "bg-warning-soft text-warning",
+    dot: "bg-warning",
+    box: "border-warning",
   },
   info: {
     label: "提示",
@@ -265,7 +265,7 @@ export function MonitoringBoard({ projectName }: { projectName?: string }) {
             危急 {criticalCount}
           </span>
           <span className="inline-flex items-center gap-1">
-            <AlertTriangle className="size-4 text-amber-500" />
+            <AlertTriangle className="size-4 text-warning" />
             需注意 {attention.length}
           </span>
         </div>
@@ -299,7 +299,7 @@ export function MonitoringBoard({ projectName }: { projectName?: string }) {
                       <span
                         className={cn(
                           "size-1.5 rounded-full",
-                          reviewing ? "bg-neutral-400" : "animate-pulse bg-red-500",
+                          reviewing ? "bg-muted-foreground" : "animate-pulse bg-destructive",
                         )}
                       />
                       {reviewing ? "回溯" : "LIVE"}

@@ -48,6 +48,7 @@ export default function DocsPage() {
   return (
     <>
       <PageHeader
+        section="06 專案與系統設定"
         title="功能說明"
         description="系統功能總覽、模組詳解與 AI 流程優化設計"
       />
