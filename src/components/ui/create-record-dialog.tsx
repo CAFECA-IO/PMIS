@@ -74,7 +74,8 @@ export function CreateRecordDialog({
   const router = useRouter();
   const confirm = useConfirm();
   const { notify } = useNotification();
-  const { task, startTask, endTask, working } = useAiAssistant();
+  const { task, startTask, endTask, working, registerOffer } =
+    useAiAssistant();
   const [open, setOpen] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -205,6 +206,22 @@ export function CreateRecordDialog({
     });
   }
 
+  /*
+    對話框開啟期間，向右下角的費思註冊協助入口 ——
+    點費思等同啟動這張表單的代填，而不是開啟無關的一般問答。
+    關閉時解除註冊，費思即回到一般待命。
+  */
+  useEffect(() => {
+    if (!open || !spec || !aiTaskId) return;
+    return registerOffer({
+      taskId: aiTaskId,
+      title: spec.title,
+      start: () => handToFaith(),
+    });
+    // handToFaith 在本元件生命週期內穩定
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, spec?.id, aiTaskId, registerOffer]);
+
   /**
    * 開啟表單時主動詢問是否需要協助。
    *
@@ -214,6 +231,8 @@ export function CreateRecordDialog({
    */
   useEffect(() => {
     if (!open || !spec) return;
+    // 費思已開啟而自動接手時不必再問
+    if (assisting) return;
     if (asked.has(spec.id)) return;
     asked.add(spec.id);
 
@@ -230,7 +249,7 @@ export function CreateRecordDialog({
     });
     // handToFaith 與 notify 在本元件生命週期內穩定，僅需在開啟時觸發一次
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, spec?.id]);
+  }, [open, spec?.id, assisting]);
 
   /** 關閉表單時一併結束助手任務，費思不該停在一張已消失的表單上。 */
   useEffect(() => {

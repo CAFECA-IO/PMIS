@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import * as faith from "@/service/faith.service";
 import { getCurrentUser } from "@/service/auth.service";
 import { archiveAttachment } from "@/service/faithArchive";
+import { toFaithError } from "@/service/faith-error";
 
 export const runtime = "nodejs";
 
@@ -40,7 +41,7 @@ export async function POST(request: Request) {
     );
     return NextResponse.json({ fields, archived, archiveError });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "憑證判讀失敗";
+    const message = toFaithError(error).message;
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

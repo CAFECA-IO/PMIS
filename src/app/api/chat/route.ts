@@ -5,6 +5,7 @@ import type { FaithMessage, FaithAttachment } from "@/service/faith.service";
 import { getCurrentUser } from "@/service/auth.service";
 import { archiveAttachment, lastUserText } from "@/service/faithArchive";
 import { withLogContext } from "@/service/faithLog.service";
+import { toFaithError } from "@/service/faith-error";
 
 export const runtime = "nodejs";
 
@@ -44,7 +45,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ text, archived, archiveError });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "AI 服務發生未預期錯誤。";
+      toFaithError(error).message;
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -8,6 +8,7 @@ import { archiveAttachment, lastUserText } from "@/service/faithArchive";
 import { withLogContext } from "@/service/faithLog.service";
 import { findAssistSpec } from "@/constant/form-assist";
 import { sanitizePatch, validateSpec } from "@/service/form-assist";
+import { toFaithError } from "@/service/faith-error";
 
 export const runtime = "nodejs";
 
@@ -118,7 +119,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "表單判讀發生未預期錯誤。";
+      toFaithError(error).message;
     return NextResponse.json({ error: message, archived }, { status: 500 });
   }
 }

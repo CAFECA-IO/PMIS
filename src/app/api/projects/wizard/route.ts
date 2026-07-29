@@ -13,6 +13,7 @@ import type { WizardStepId } from "@/service/wizard-steps";
 import { withLogContext } from "@/service/faithLog.service";
 import * as faithUpload from "@/service/faithUpload.service";
 import type { AccountRole } from "@/generated/prisma/enums";
+import { toFaithError } from "@/service/faith-error";
 
 export const runtime = "nodejs";
 
@@ -180,7 +181,7 @@ export async function POST(request: Request) {
         // 編排層本身的例外（非單段失敗）也以事件形式送出，
         // 前端才能顯示原因而不是靜默中斷
         const message =
-          error instanceof Error ? error.message : "專案建置判讀失敗";
+          toFaithError(error).message;
         controller.enqueue(line({ type: "error", error: message }));
       } finally {
         controller.close();

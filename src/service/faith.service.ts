@@ -25,6 +25,11 @@ import {
 import * as docRepo from "@/repository/approvalDocument.repository";
 import * as storage from "@/service/storage.service";
 import { logInteraction } from "@/service/faithLog.service";
+import {
+  FaithError,
+  classifyStatus,
+  looksBusy,
+} from "@/service/faith-error";
 
 /**
  * 費思（Faith）——全系統唯一的 AI 溝通閘道。
@@ -49,7 +54,11 @@ type GeminiContent = { role: "user" | "model"; parts: Part[] };
 function getConfig() {
   const apiKey = process.env.AI_KEY;
   if (!apiKey) {
-    throw new Error("尚未設定 AI_KEY，請於 .env 填入 Gemini API 金鑰。");
+    // 不把環境變數名稱丟到畫面；細節留在紀錄與伺服器日誌
+    throw new FaithError("failed", {
+      hint: "AI 服務尚未完成設定，請聯絡系統管理者。",
+      detail: "尚未設定 AI_KEY",
+    });
   }
   return { apiKey, model: process.env.AI_MODEL || DEFAULT_AI_MODEL };
 }
@@ -202,15 +211,24 @@ async function callGemini(
     generationConfig.responseSchema = safeSchema;
   }
 
-  const response = await fetch(`${GEMINI_ENDPOINT}/${model}:generateContent`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents,
-      generationConfig,
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${GEMINI_ENDPOINT}/${model}:generateContent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents,
+        generationConfig,
+      }),
+    });
+  } catch (error) {
+    // 連不上通常是暫時性的，且使用者能做的也只有稍後再試；
+    // 說成「處理異常」會誤導他以為是自己的資料有問題
+    const detail = error instanceof Error ? error.message : String(error);
+    record(false, undefined, `連線失敗：${detail}`);
+    throw new FaithError("busy", { detail: `連線失敗：${detail}` });
+  }
 
   if (!response.ok) {
     let detail = "";
@@ -220,9 +238,12 @@ async function callGemini(
     } catch {
       // Info: (20260721 - Luphia) 忽略解析錯誤
     }
-    const message = `Gemini API 錯誤（${response.status}）${detail ? `：${detail}` : ""}`;
-    record(false, undefined, message);
-    throw new Error(message);
+    // 原始訊息只寫進紀錄；對外只留「忙線」或「異常」兩種語意，
+    // 避免 HTTP 狀態碼、Gemini 英文錯誤字串與 schema 欄位名外流到畫面
+    const raw = `Gemini API 錯誤（${response.status}）${detail ? `：${detail}` : ""}`;
+    record(false, undefined, raw);
+    const kind = looksBusy(detail) ? "busy" : classifyStatus(response.status);
+    throw new FaithError(kind, { detail: raw });
   }
 
   const data = (await response.json()) as {
@@ -264,9 +285,13 @@ async function callGemini(
     const spent = usage.thoughts
       ? `（思考用了 ${usage.thoughts} tokens，輸出上限 ${maxOutputTokens}）`
       : `（輸出上限 ${maxOutputTokens}）`;
-    const message = `模型輸出超過長度上限而被截斷${spent}，結果不完整。請重試，或縮減文件範圍後再試。`;
-    record(false, text, message, { reason: finishReason, usage });
-    throw new Error(message);
+    const raw = `模型輸出超過長度上限而被截斷${spent}，結果不完整。`;
+    record(false, text, raw, { reason: finishReason, usage });
+    // 截斷屬於處理異常，但補上可行動的建議 —— 使用者確實有辦法改善
+    throw new FaithError("failed", {
+      hint: "輸出過長而被截斷，請重試或縮減文件範圍。",
+      detail: raw,
+    });
   }
 
   const out = text || "（AI 沒有回覆內容）";
@@ -434,7 +459,7 @@ export async function chat(
   attachment?: FaithAttachment,
 ): Promise<string> {
   if (messages.every((m) => !m.text.trim()) && !attachment?.data) {
-    throw new Error("訊息內容為空。");
+    throw new FaithError("failed", { hint: "訊息內容為空，請輸入問題或附上檔案。" });
   }
   return ask({
     instruction: AI_SYSTEM_PROMPT,
@@ -504,9 +529,9 @@ export async function generateReportNarrative(
 // Info: (20260721 - Luphia) 判讀簽核附件（PDF/影像）並回傳 Markdown 摘要
 export async function analyzeAttachment(attachmentId: string): Promise<string> {
   const att = await docRepo.findAttachment(attachmentId);
-  if (!att) throw new Error("找不到附件。");
+  if (!att) throw new FaithError("failed", { hint: "找不到附件。" });
   const buffer = await storage.read(att.storedName);
-  if (!buffer) throw new Error("找不到檔案內容。");
+  if (!buffer) throw new FaithError("failed", { hint: "找不到檔案內容。" });
 
   return ask({
     instruction: AI_DOC_ANALYSIS_PROMPT,
@@ -559,7 +584,10 @@ export async function extractVoucher(
     maxOutputTokens: 512,
     schema: VOUCHER_SCHEMA,
   });
-  if (!raw) throw new Error("無法從憑證擷取結構化資料。");
+  if (!raw) throw new FaithError("failed", {
+      hint: "未能判讀這張憑證，請確認影像清晰後重試。",
+      detail: "憑證判讀失敗",
+    });
 
   return {
     date: typeof raw.date === "string" ? raw.date : "",
@@ -612,7 +640,10 @@ export async function extractEhsFinding(
     maxOutputTokens: 512,
     schema: EHS_SCHEMA,
   });
-  if (!raw) throw new Error("無法從照片擷取稽核資料。");
+  if (!raw) throw new FaithError("failed", {
+      hint: "未能判讀這張照片，請確認影像清晰後重試。",
+      detail: "照片判讀失敗",
+    });
   const types = ["SAFETY", "ENVIRONMENT", "TRAFFIC", "HEALTH"];
   const results = ["PASS", "FAIL", "IMPROVING", "PENDING"];
   return {
@@ -1123,7 +1154,10 @@ export async function extractProjectFields(
       4096,
       "project-build:profile",
     ));
-  if (!raw) throw new Error("回覆格式不正確，未能擷取基本資料。");
+  if (!raw) throw new FaithError("failed", {
+      hint: "未能判讀專案基本資料，請重試。",
+      detail: "回覆格式不正確：基本資料",
+    });
 
   const rf = raw.fields ?? {};
   const fields: ProjectProfileFields = {
@@ -1199,7 +1233,10 @@ export async function extractScopeItems(
       "project-build:scope",
     ),
   );
-  if (!raw) throw new Error("回覆格式不正確，未能擷取契約履約標的。");
+  if (!raw) throw new FaithError("failed", {
+      hint: "未能讀出契約履約標的，請重試。",
+      detail: "回覆格式不正確：履約標的",
+    });
 
   const out: WizardScopeItem[] = [];
   const seen = new Set<string>();
@@ -1283,7 +1320,10 @@ export async function planWorkPackages(
       "project-build:packages",
     ),
   );
-  if (!raw) throw new Error("回覆格式不正確，未能規劃工程項目。");
+  if (!raw) throw new FaithError("failed", {
+      hint: "未能規劃工程項目，請重試。",
+      detail: "回覆格式不正確：工程項目",
+    });
 
   const validScope = new Set(scopeItems.map((s) => s.title));
   const out: WizardWorkPackage[] = [];
@@ -1373,7 +1413,10 @@ export async function extractObligations(
       "project-build:obligations",
     ),
   );
-  if (!raw) throw new Error("回覆格式不正確，未能擷取履約事項。");
+  if (!raw) throw new FaithError("failed", {
+      hint: "未能推導履約事項，請重試。",
+      detail: "回覆格式不正確：履約事項",
+    });
 
   const validScope = new Set(scopeItems.map((x) => x.title));
   const list = Array.isArray(raw.obligations) ? raw.obligations : [];
@@ -1442,7 +1485,10 @@ export async function extractFormFields(
       `form-assist:${spec.id}`,
     ),
   );
-  if (!raw) throw new Error("回覆格式不正確，未能判讀表單欄位。");
+  if (!raw) throw new FaithError("failed", {
+      hint: "未能判讀表單欄位，請重試。",
+      detail: "回覆格式不正確：表單欄位",
+    });
 
   const values =
     raw.values && typeof raw.values === "object"
@@ -1505,7 +1551,10 @@ export async function extractObligationOwners(
       "project-build:owners",
     ),
   );
-  if (!raw) throw new Error("回覆格式不正確，未能擷取責任分工。");
+  if (!raw) throw new FaithError("failed", {
+      hint: "未能判讀責任分工，請重試。",
+      detail: "回覆格式不正確：責任分工",
+    });
 
   const valid = new Set(titles.map((t) => t.trim()));
   const list = Array.isArray(raw.owners) ? raw.owners : [];
@@ -1600,7 +1649,10 @@ export async function extractWorkItems(
       "project-build:workItems",
     ),
   );
-  if (!raw) throw new Error("回覆格式不正確，未能擷取工程分項。");
+  if (!raw) throw new FaithError("failed", {
+      hint: "未能細分工程分項，請重試。",
+      detail: "回覆格式不正確：工程分項",
+    });
 
   const valid = new Set(obligationTitles.map((t) => t.trim()));
   // 工程項目 → 履約標的的對照，供分項繼承來源（可溯源到契約哪一條）
@@ -1801,7 +1853,7 @@ export async function analyzeImage(
   mimeType: string,
 ): Promise<string> {
   if (!storage.isAllowed(mimeType) || mimeType === "application/pdf") {
-    throw new Error("僅支援 PNG / JPG 影像判讀。");
+    throw new FaithError("failed", { hint: "僅支援 PNG / JPG 影像判讀。" });
   }
   return ask({
     instruction: AI_IMAGE_ANALYSIS_PROMPT,

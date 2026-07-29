@@ -8,6 +8,7 @@ import {
   thinkingBudgetFor,
 } from "@/service/faith.service";
 import { runExtraction } from "@/service/wizardExtract.service";
+import type { FaithError } from "@/service/faith-error";
 
 /**
  * 重現 2026-07-28 的真實故障。
@@ -76,7 +77,7 @@ test("輸出被長度上限截斷時拋錯，不得回報為「成功但沒資�
   try {
     await assert.rejects(
       () => faith.extractObligations({ messages: [{ role: "user", text: "解析" }] }),
-      /截斷/,
+      /費思處理異常/,
       "必須因截斷而失敗",
     );
   } finally {
@@ -84,16 +85,21 @@ test("輸出被長度上限截斷時拋錯，不得回報為「成功但沒資�
   }
 });
 
-test("錯誤訊息點出思考用量與輸出上限，讓人能判斷該調哪個值", async () => {
+test("對外只說處理異常並附可行動建議，token 細節不外流", async () => {
   const s = stub({ text: TRUNCATED, finishReason: "MAX_TOKENS", thoughts: 7600 });
   try {
     await faith.extractObligations({ messages: [] });
     assert.fail("應該拋錯");
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    assert.match(msg, /思考用了 7600 tokens/);
-    assert.match(msg, /輸出上限/);
-    assert.match(msg, /請重試/, "應告知可重試");
+    const err = e as FaithError;
+    assert.equal(err.kind, "failed", "截斷非暫時性，重試同一份文件多半仍會截斷");
+    assert.match(err.message, /費思處理異常/);
+    assert.match(err.message, /截斷/, "應說明發生什麼事");
+    assert.match(err.message, /縮減文件範圍/, "應給可行動的建議");
+    // 內部細節不得出現在對外訊息，只留在 detail 供紀錄
+    assert.doesNotMatch(err.message, /7600/);
+    assert.doesNotMatch(err.message, /token/i);
+    assert.match(err.detail ?? "", /7600/, "細節仍需寫進紀錄");
   } finally {
     s.restore();
   }
@@ -114,7 +120,7 @@ test("階段一被截斷時標為 failed，且下游不會被誤報為「沒有�
         e.state === "failed",
     ) as { error?: string } | undefined;
     assert.ok(scope, "階段一應標為 failed");
-    assert.match(scope!.error ?? "", /截斷/);
+    assert.match(scope!.error ?? "", /費思處理異常/);
 
     // 關鍵：任何段落都不得出現「成功但 0 項」
     const doneAny = events.find(

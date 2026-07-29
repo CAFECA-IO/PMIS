@@ -4,10 +4,14 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
+
+import { shouldAutoAssist } from "@/service/faith-status";
 
 /**
  * Info: (20260721 - Luphia)
@@ -101,6 +105,25 @@ type Ctx = {
    */
   working: boolean;
   setWorking: (v: boolean) => void;
+  /**
+   * 目前畫面上的建置表單提供的協助入口。
+   *
+   * 讓右下角的費思在建置畫面上「點下去就等於啟動 AI 協助」，
+   * 而不是開啟一個與眼前表單無關的一般問答。
+   */
+  offer: AiAssistOffer | null;
+  /** 註冊協助入口，回傳解除註冊的函式（供元件卸載時呼叫）。 */
+  registerOffer: (offer: AiAssistOffer) => () => void;
+};
+
+/** 建置表單交給費思的協助入口。 */
+export type AiAssistOffer = {
+  /** 對應的任務 id，用於判斷是否已在進行中。 */
+  taskId: string;
+  /** 表單標題，顯示於右下角。 */
+  title: string;
+  /** 啟動協助。 */
+  start: () => void;
 };
 
 const AiAssistantContext = createContext<Ctx | null>(null);
@@ -117,6 +140,47 @@ export function AiAssistantProvider({ children }: { children: ReactNode }) {
   const [expanded, setExpanded] = useState(false);
   const [task, setTask] = useState<AiTask | null>(null);
   const [working, setWorking] = useState(false);
+  const [offer, setOffer] = useState<AiAssistOffer | null>(null);
+
+  /*
+    以 ref 讀取當下狀態，讓 registerOffer 的識別保持穩定 ——
+    否則它每次改變都會使各表單的註冊 effect 重跑。
+  */
+  const expandedRef = useRef(expanded);
+  const taskRef = useRef<AiTask | null>(task);
+  const workingRef = useRef(working);
+  useEffect(() => {
+    expandedRef.current = expanded;
+  }, [expanded]);
+  useEffect(() => {
+    taskRef.current = task;
+  }, [task]);
+  useEffect(() => {
+    workingRef.current = working;
+  }, [working]);
+
+  /*
+    後註冊者覆蓋先前者：同一時間畫面上通常只有一張建置表單，
+    解除時只清掉自己註冊的那一份，避免後開的表單被先關的表單清掉。
+  */
+  const registerOffer = useCallback((next: AiAssistOffer) => {
+    setOffer(next);
+
+    // 費思已開啟＝使用者已表態要 AI 參與，此時直接接手（判準見 shouldAutoAssist）
+    if (
+      shouldAutoAssist({
+        expanded: expandedRef.current,
+        hasTask: taskRef.current != null,
+        working: workingRef.current,
+      })
+    ) {
+      next.start();
+    }
+
+    return () => {
+      setOffer((current) => (current?.taskId === next.taskId ? null : current));
+    };
+  }, []);
 
   const startTask = useCallback((next: AiTask) => {
     setTask(next);
@@ -138,8 +202,10 @@ export function AiAssistantProvider({ children }: { children: ReactNode }) {
       endTask,
       working,
       setWorking,
+      offer,
+      registerOffer,
     }),
-    [expanded, task, startTask, endTask, working],
+    [expanded, task, startTask, endTask, working, offer, registerOffer],
   );
 
   return (

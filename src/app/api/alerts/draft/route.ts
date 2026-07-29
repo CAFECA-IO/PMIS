@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import * as faith from "@/service/faith.service";
 import { getCurrentUser } from "@/service/auth.service";
+import { toFaithError } from "@/service/faith-error";
 
 export const runtime = "nodejs";
 
@@ -18,7 +19,7 @@ export async function POST(request: Request) {
     const result = await faith.draftAlertRule(instruction);
     return NextResponse.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "規則草擬失敗";
+    const message = toFaithError(error).message;
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

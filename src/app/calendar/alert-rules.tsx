@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlarmClock,
@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useConfirm } from "@/components/ui/confirm-provider";
+import { useNotification } from "@/components/ui/notification";
 import { useAiAssistant } from "@/components/ai-assistant-context";
 import { cn } from "@/lib/utils";
 import {
@@ -293,6 +294,12 @@ function initialDraft(rule: RuleRow | null): DraftState {
   };
 }
 
+/**
+ * 本次瀏覽期間已詢問過要不要費思協助的任務。
+ * 用 Set 而非 let：重新指派模組層級變數會被視為 render 期間的副作用。
+ */
+const assistAsked = new Set<string>();
+
 const AI_TASK_ID = "alert-rule-draft";
 
 const AI_EXAMPLES = [
@@ -312,7 +319,8 @@ function RuleDialog({
   onClose: () => void;
 }) {
   const router = useRouter();
-  const { task, startTask, endTask, expanded: aiOpen } = useAiAssistant();
+  const { task, startTask, endTask, expanded: aiOpen, registerOffer } =
+    useAiAssistant();
   const [draft, setDraft] = useState<DraftState>(() => initialDraft(rule));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -321,6 +329,7 @@ function RuleDialog({
     setDraft((d) => ({ ...d, [key]: value }));
 
   const aiActive = task?.id === AI_TASK_ID;
+  const { notify } = useNotification();
 
   /** 把「協助制定規則」交給費思執行，結果回填本表單。 */
   function askFase() {
@@ -351,6 +360,40 @@ function RuleDialog({
   }
 
   // 關閉表單時一併結束費思任務，避免任務殘留
+  /* 對話框開啟期間，點右下角費思等同啟動 AI 協助制定。 */
+  useEffect(() => {
+    return registerOffer({
+      taskId: AI_TASK_ID,
+      title: rule ? "編輯預警規則" : "新增預警規則",
+      start: () => askFase(),
+    });
+    // askFase 在本元件生命週期內穩定
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registerOffer, rule]);
+
+  /*
+    開啟規則對話框時主動詢問是否要費思協助。
+    取代原本的按鈕：入口統一為右下角的狀態顯示，這裡只負責提出邀請。
+    本次瀏覽期間只問一次，避免反覆開關對話框被打擾。
+  */
+  useEffect(() => {
+    // 費思已開啟而自動接手時不必再問
+    if (aiActive) return;
+    if (assistAsked.has(AI_TASK_ID)) return;
+    assistAsked.add(AI_TASK_ID);
+    notify({
+      title: "需要費思協助制定預警規則嗎？",
+      description: "用一句話描述你想要的預警，我來轉成規則設定。",
+      variant: "info",
+      actionLabel: "好，交給費思",
+      actionIcon: "sparkles",
+      onAction: () => askFase(),
+      duration: 12000,
+    });
+    // askFase 與 notify 在本元件生命週期內穩定，僅需於開啟時觸發一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiActive]);
+
   function close() {
     if (aiActive) endTask();
     onClose();
@@ -639,16 +682,15 @@ function RuleDialog({
           ) : null}
 
           <div className="flex items-center justify-between gap-2 border-t px-5 py-3">
-            {/* 左下角：交給費思協助制定 */}
-            <Button
-              type="button"
-              variant={aiActive ? "secondary" : "outline"}
-              onClick={aiActive ? endTask : askFase}
-              disabled={saving}
-            >
-              <Sparkles className="size-4" />
-              {aiActive ? "結束費思協助" : "AI 協助制定"}
-            </Button>
+            {/*
+              不放「AI 協助制定」按鈕：費思的狀態與入口統一在右下角的狀態顯示，
+              與專案建置及各建置對話框一致，避免同一件事有兩個入口。
+            */}
+            <span className="text-xs text-muted-foreground">
+              {aiActive
+                ? "費思正在協助制定，可於右下角查看狀態"
+                : "點右下角的費思即可請它協助制定規則"}
+            </span>
             <div className="flex items-center gap-2">
               <Button
                 type="button"

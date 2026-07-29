@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { faithStatus, isExpandedStatus } from "@/service/faith-status";
 import { shouldSendOnEnter } from "@/lib/ime";
 import { Markdown } from "@/components/markdown";
 import { useAiAssistant } from "@/components/ai-assistant-context";
@@ -100,6 +101,7 @@ export function AiPanel() {
     // 工作中狀態放在 context：交出表單的功能端需據此淡化並鎖定表單
     working,
     setWorking,
+    offer,
   } = useAiAssistant();
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -127,6 +129,17 @@ export function AiPanel() {
   const turnRef = useRef<string | null>(null);
 
   const busy = loading || typing !== null || working;
+
+  // 右下角狀態顯示：全站唯一的費思狀態來源
+  // 已在進行中的任務不再視為「可協助」，避免同時顯示兩種語意
+  const pendingOffer = task ? null : offer;
+  const status = faithStatus({
+    taskTitle: task?.title ?? null,
+    working,
+    activity,
+    offerTitle: pendingOffer?.title ?? null,
+  });
+  const expandedStatus = isExpandedStatus(status.state);
   const suggestions = task?.suggestions ?? SUGGESTIONS;
 
   // 進入／離開任務時重置對話並換上任務開場白
@@ -465,15 +478,63 @@ export function AiPanel() {
 
   return (
     <>
-      {/* 收合時的浮動按鈕，錨定視窗右下 */}
+      {/*
+        收合時的費思狀態顯示，錨定視窗右下。
+        這是全站唯一的費思狀態來源與入口 —— 各功能頁不再各放一顆
+        「AI 協助…」按鈕，避免同一件事有兩個入口、兩種說法。
+        待命時收合為圓鈕；接手任務或工作中則展開為長條並說明現況。
+      */}
       {!open ? (
         <button
           type="button"
-          onClick={() => setOpen(true)}
-          aria-label="開啟費思 AI 助理"
-          className="animate-fab-in fixed bottom-6 right-6 z-40 flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-overlay transition-transform hover:scale-105"
+          onClick={() => {
+            /*
+              建置畫面上，點右下角等同啟動該表單的 AI 協助 ——
+              否則使用者按下去只會得到一個與眼前表單無關的一般問答。
+              start() 內部會 startTask，面板隨之展開，不需再 setOpen。
+            */
+            if (pendingOffer) pendingOffer.start();
+            else setOpen(true);
+          }}
+          aria-label={status.ariaLabel}
+          aria-live="polite"
+          className={cn(
+            "animate-fab-in fixed bottom-6 right-6 flex items-center rounded-full bg-primary text-primary-foreground shadow-overlay transition-all hover:scale-105",
+            /*
+              有建置表單可協助時必須浮到對話框之上。
+              建置對話框為 z-[60]、預警規則對話框為 z-[80]，
+              費思原本的 z-40 會被遮罩蓋住而點不到 ——
+              「點右下角即啟動協助」在對話框裡會完全失效。
+            */
+            pendingOffer ? "z-[90]" : "z-40",
+            expandedStatus
+              ? "max-w-[min(20rem,calc(100vw-3rem))] gap-2.5 py-2 pl-3 pr-4"
+              : "size-12 justify-center",
+          )}
         >
-          <Bot className="size-5" />
+          {status.state === "working" ? (
+            <Loader2 className="size-5 shrink-0 animate-spin" />
+          ) : (
+            <span className="relative flex shrink-0">
+              <Bot className="size-5" />
+              {status.state === "task" ? (
+                // 有任務在身時加一個標記，收合狀態下仍能一眼看出
+                <span className="absolute -right-1 -top-1 size-2 rounded-full bg-primary-foreground" />
+              ) : null}
+            </span>
+          )}
+          {expandedStatus ? (
+            <span className="min-w-0 text-left leading-tight">
+              <span className="block truncate text-xs font-semibold">
+                {status.label}
+              </span>
+              {status.detail ? (
+                <span className="block truncate text-[11px] opacity-80">
+                  {status.detail}
+                </span>
+              ) : null}
+            </span>
+          ) : null}
         </button>
       ) : null}
 

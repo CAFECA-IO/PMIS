@@ -8,6 +8,7 @@ import type {
   WizardWorkItem,
   WizardWorkPackage,
 } from "@/service/faith.service";
+import { toFaithError } from "@/service/faith-error";
 import {
   hasPriorRun,
   requiresScope,
@@ -123,8 +124,13 @@ function withKnownContext(
   ];
 }
 
-const errText = (e: unknown) =>
-  e instanceof Error ? e.message : "解析時發生未預期錯誤";
+/**
+ * 單段失敗的對外原因。
+ *
+ * 一律經 toFaithError 收斂為「忙線中」或「處理異常」，
+ * 原始訊息（HTTP 狀態、Gemini 英文錯誤字串）只留在互動紀錄中。
+ */
+const errText = (e: unknown) => toFaithError(e).message;
 
 /**
  * 依序執行四段解析並產出事件。

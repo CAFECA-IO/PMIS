@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import * as reportService from "@/service/report.service";
 import type { ReportType } from "@/service/report.service";
 import { getCurrentUser } from "@/service/auth.service";
+import { toFaithError } from "@/service/faith-error";
 
 export const runtime = "nodejs";
 
@@ -36,7 +37,7 @@ export async function POST(request: Request) {
     }
     return NextResponse.json(report);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "報告生成失敗";
+    const message = toFaithError(error).message;
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

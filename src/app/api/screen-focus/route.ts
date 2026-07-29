@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import * as screenFocus from "@/service/screenFocus.service";
 import * as faith from "@/service/faith.service";
 import { getCurrentUser } from "@/service/auth.service";
+import { toFaithError } from "@/service/faith-error";
 
 export const runtime = "nodejs";
 
@@ -22,7 +23,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ label: focus.label, facts: focus.facts, text });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "畫面重點載入失敗。";
+      toFaithError(error).message;
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

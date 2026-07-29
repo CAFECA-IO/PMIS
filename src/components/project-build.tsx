@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   X,
@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useNotification } from "@/components/ui/notification";
 import { cn } from "@/lib/utils";
 import {
   useAiAssistant,
@@ -81,6 +82,15 @@ type WorkItemRow = {
 };
 
 const AI_TASK_ID = "project-wizard";
+
+/**
+ * 本次瀏覽期間已詢問過要不要費思協助的頁面。
+ *
+ * 放模組層級：元件卸載即重置的話，來回切換頁面會被反覆詢問。
+ * 用 Set 而非 let：重新指派模組層級變數會被視為 render 期間的副作用，
+ * 集合的變更則不受此限（與各建置對話框採同一作法）。
+ */
+const assistAsked = new Set<string>();
 
 const AI_SUGGESTIONS = [
   "請依工程類型建議常見的履約事項與工程分項",
@@ -179,7 +189,8 @@ function displayValue(key: keyof Fields, value: unknown): string {
  */
 export function ProjectBuild() {
   const router = useRouter();
-  const { task, startTask, endTask } = useAiAssistant();
+  const { task, startTask, endTask, registerOffer } = useAiAssistant();
+  const { notify } = useNotification();
   const [step, setStep] = useState<1 | 2>(1);
   const [fields, setFields] = useState<Fields>({});
   const [obligations, setObligations] = useState<ObligationRow[]>([]);
@@ -581,6 +592,46 @@ export function ProjectBuild() {
       setCreating(false);
     }
   }
+
+  /*
+    向右下角的費思註冊協助入口：在本頁點擊費思等同啟動 AI 協助建置，
+    而不是開啟一個與眼前表單無關的一般問答。離開頁面時解除註冊。
+  */
+  useEffect(() => {
+    return registerOffer({
+      taskId: AI_TASK_ID,
+      title: "專案建置",
+      start: () => askFase(),
+    });
+    // askFase 在本元件生命週期內穩定
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registerOffer]);
+
+  /*
+    開啟建置頁時主動詢問是否要費思協助。
+    取代原本的「AI 協助建置」按鈕：入口統一為右下角的狀態顯示，
+    這裡只負責提出邀請。與各建置對話框的行為一致。
+    本次瀏覽期間只問一次，避免來回切換頁面被反覆打擾。
+  */
+  useEffect(() => {
+    // 費思已開啟而自動接手時不必再問，否則會在剛接手後立刻跳出邀請
+    if (aiActive) return;
+    if (assistAsked.has(AI_TASK_ID)) return;
+    assistAsked.add(AI_TASK_ID);
+    notify({
+      title: "需要費思協助建立此專案嗎？",
+      description:
+        "上傳契約書或決標公告，我會分階段判讀並填入左側表單。",
+      variant: "info",
+      actionLabel: "好，交給費思",
+      actionIcon: "sparkles",
+      onAction: () => askFase(),
+      duration: 12000,
+    });
+    // askFase 與 notify 在本元件生命週期內穩定，僅需於進入頁面時觸發一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiActive]);
+
 
   return (
     /*
@@ -1174,18 +1225,17 @@ export function ProjectBuild() {
                   </div>
                 ) : null}
 
-                {/* Footer */}
+                {/*
+                  Footer
+                  不再放「AI 協助建置」按鈕：費思的狀態與入口統一在右下角的
+                  狀態顯示，避免同一件事有兩個入口、兩種說法。
+                */}
                 <div className="flex items-center justify-between gap-2 border-t px-4 py-3">
-                  {/* 左下角：交給費思協助 */}
-                  <Button
-                    type="button"
-                    variant={aiActive ? "secondary" : "outline"}
-                    onClick={() => (aiActive ? endTask() : askFase())}
-                    disabled={creating}
-                  >
-                    <Sparkles className="size-4" />
-                    {aiActive ? "結束費思協助" : "AI 協助建置"}
-                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    {aiActive
+                      ? "費思正在協助此專案，可於右下角查看狀態"
+                      : "點右下角的費思即可開始 AI 協助建置"}
+                  </span>
 
                   {step === 1 ? (
                     <div className="flex items-center gap-3">

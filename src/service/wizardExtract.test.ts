@@ -421,7 +421,7 @@ test("單段失敗不影響其他段：其餘資料完整保留", async () => {
       (e) => e.type === "status" && e.state === "failed",
     ) as { step: string; error: string };
     assert.equal(failedEvent.step, "owners");
-    assert.match(failedEvent.error, /Gemini API 錯誤|模擬失敗/);
+    assert.match(failedEvent.error, /費思忙線中/);
 
     // 履約事項與工程分項仍有資料
     const obData = events.filter(
