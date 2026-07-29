@@ -7,7 +7,15 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { CheckCircle2, AlertCircle, Info, Loader2, Undo2, X } from "lucide-react";
+import {
+  CheckCircle2,
+  AlertCircle,
+  Info,
+  Loader2,
+  Sparkles,
+  Undo2,
+  X,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { useAiAssistant } from "@/components/ai-assistant-context";
@@ -19,6 +27,11 @@ type NotifyOptions = {
   description?: string;
   actionLabel?: string;
   onAction?: () => void | Promise<void>;
+  /**
+   * 動作按鈕的圖示。預設 undo（復原語意）；
+   * 主動提議協助這類「往前一步」的動作應用 sparkles，否則語意相反。
+   */
+  actionIcon?: "undo" | "sparkles";
   variant?: Variant;
   duration?: number;
 };
@@ -196,7 +209,11 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
                       }}
                       className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
                     >
-                      <Undo2 className="size-3.5" />
+                      {t.actionIcon === "sparkles" ? (
+                        <Sparkles className="size-3.5" />
+                      ) : (
+                        <Undo2 className="size-3.5" />
+                      )}
                       {t.actionLabel}
                     </button>
                   ) : null}

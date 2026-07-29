@@ -19,6 +19,7 @@ export function DocumentForm({
   return (
     <CreateRecordDialog
       title="建立簽核文件"
+      assistId="approval-document"
       triggerLabel="新建簽核文件"
       action={(fd) => createDocumentAction({}, fd)}
       submitLabel="建立"

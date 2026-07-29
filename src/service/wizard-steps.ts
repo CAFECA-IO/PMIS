@@ -12,14 +12,31 @@ import type {
  * 各自帶較小的 responseSchema，單段失敗也不影響其他段已取得的資料。
  */
 
-export type WizardStepId = "profile" | "obligations" | "owners" | "workItems";
+export type WizardStepId =
+  | "profile"
+  | "scope"
+  | "obligations"
+  | "owners"
+  | "packages"
+  | "workItems";
 
+/**
+ * 解析階段。
+ *
+ * 分成這幾段的理由不只是輸出長度，更是「每段只做一件事」：
+ *  - 合約標的是照抄，不需推理；
+ *  - 履約事項是從標的推導期限；
+ *  - 工程項目是規劃（把標的轉成可執行的工作）；
+ *  - 工程分項是細分（把工程項目拆成可排程、可查驗的單元）。
+ * 先前把「讀契約、推期限、規劃、細分」壓在兩次呼叫裡，
+ * 模型既要抄又要想，輸出品質與完整度都不穩。
+ */
 export const WIZARD_STEPS: {
   id: WizardStepId;
   label: string;
   /** 進行中顯示的描述。 */
   running: string;
-  /** 依賴的前置步驟（履約事項名稱是後兩段的對應鍵）。 */
+  /** 依賴的前置步驟。 */
   dependsOn?: WizardStepId;
 }[] = [
   {
@@ -28,9 +45,15 @@ export const WIZARD_STEPS: {
     running: "擷取專案編號、名稱、業主、工期與預算…",
   },
   {
+    id: "scope",
+    label: "契約履約標的",
+    running: "逐條讀出契約「履約標的」所列的工作…",
+  },
+  {
     id: "obligations",
     label: "履約事項",
-    running: "盤點契約應辦事項、階段與期限…",
+    running: "由履約標的推導應辦事項與期限…",
+    dependsOn: "scope",
   },
   {
     id: "owners",
@@ -39,10 +62,16 @@ export const WIZARD_STEPS: {
     dependsOn: "obligations",
   },
   {
+    id: "packages",
+    label: "工程項目",
+    running: "依契約內文與履約標的規劃具體工程項目…",
+    dependsOn: "scope",
+  },
+  {
     id: "workItems",
     label: "工程分項",
-    running: "整理工程分項與所屬履約事項…",
-    dependsOn: "obligations",
+    running: "將各工程項目細分為可排程的工程分項…",
+    dependsOn: "packages",
   },
 ];
 
@@ -204,6 +233,36 @@ export function countWithOwner(obligations: WizardObligation[]): number {
   return obligations.filter(
     (o) => o.ownerUnit?.trim() || o.ownerName?.trim(),
   ).length;
+}
+
+/**
+ * 履約事項那一段的進度說明。
+ *
+ * 會特別點出「讀到幾項履約標的」，因為這一段的正確性完全取決於
+ * 有沒有真的讀到契約的履約標的條。若模型沒抄出履約標的就直接生出應辦事項，
+ * 那些事項很可能是憑常識編的，使用者必須看得出這件事。
+ */
+export function scopeNote(
+  scopeCount: number,
+  obligationCount: number,
+  reply: string | undefined,
+): string {
+  const tail = reply?.trim() ? ` ${reply.trim()}` : "";
+
+  if (scopeCount === 0) {
+    return obligationCount > 0
+      ? `未能從契約讀出「履約標的」條，以下 ${obligationCount} 項應辦事項請逐項核對契約。${tail}`
+      : `未能從契約讀出「履約標的」條，因此沒有可推導的應辦事項。${tail}`;
+  }
+
+  const head = `讀出履約標的 ${scopeCount} 項工作`;
+  if (obligationCount === 0) {
+    return `${head}，但其中沒有訂明期限的事項。${tail}`;
+  }
+  if (obligationCount < scopeCount) {
+    return `${head}，推導出 ${obligationCount} 項應辦事項（少於履約標的項數，可能仍有未訂期限或漏讀的工作）。${tail}`;
+  }
+  return `${head}，推導出 ${obligationCount} 項應辦事項。${tail}`;
 }
 
 /**

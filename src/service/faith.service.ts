@@ -11,10 +11,17 @@ import {
   AI_PROJECT_WIZARD_PROMPT,
   AI_WIZARD_PROFILE_PROMPT,
   AI_WIZARD_OBLIGATIONS_PROMPT,
+  AI_WIZARD_SCOPE_PROMPT,
+  AI_WIZARD_PACKAGES_PROMPT,
   AI_WIZARD_OWNERS_PROMPT,
   AI_WIZARD_WORKITEMS_PROMPT,
   AI_ALERT_RULE_PROMPT,
 } from "@/constant/ai";
+import {
+  buildFieldSchema,
+  describeFields,
+  type FormAssistSpec,
+} from "@/service/form-assist";
 import * as docRepo from "@/repository/approvalDocument.repository";
 import * as storage from "@/service/storage.service";
 import { logInteraction } from "@/service/faithLog.service";
@@ -90,6 +97,37 @@ export function sanitizeSchema(schema: ResponseSchema): ResponseSchema | null {
   return cleaned;
 }
 
+/** 模型回報的 token 用量；thoughts 佔用 maxOutputTokens，是診斷截斷的關鍵。 */
+export type TokenUsage = {
+  prompt?: number;
+  candidates?: number;
+  thoughts?: number;
+  total?: number;
+};
+
+/**
+ * 四段解析的輸出上限。
+ *
+ * 8192 曾造成真實故障：思考 token 與輸出共用此預算，複雜契約的
+ * 「履約事項」與「工程分項」兩段思考完就沒有額度輸出，JSON 在中途被切斷
+ * （見 storage/faith 2026-07-28 紀錄）。gemini-2.5-flash 上限為 65536，
+ * 提高到 24576 後思考預算 6144、輸出仍有約 18000 tokens。
+ */
+export const WIZARD_MAX_TOKENS = 24576;
+
+/** 思考預算下限：低於此值模型幾乎無法推理，反而降低判讀品質。 */
+export const MIN_THINKING_BUDGET = 512;
+
+/**
+ * 由輸出上限推算思考預算。
+ *
+ * 取四分之一並設下限：思考與輸出共用同一個 maxOutputTokens，
+ * 不設上限時複雜文件會讓思考吃光預算，輸出中途被切斷。
+ */
+export function thinkingBudgetFor(maxOutputTokens: number): number {
+  return Math.max(MIN_THINKING_BUDGET, Math.floor(maxOutputTokens / 4));
+}
+
 async function callGemini(
   contents: GeminiContent[],
   systemPrompt: string,
@@ -106,13 +144,28 @@ async function callGemini(
     不必在五條路由與四段解析各寫一份。識別資訊由 AsyncLocalStorage 取得。
     紀錄失敗不影響回傳。
   */
-  const record = (ok: boolean, responseText?: string, error?: string) => {
+  const record = (
+    ok: boolean,
+    responseText?: string,
+    error?: string,
+    /**
+     * 模型為何停止與 token 用量。
+     *
+     * 一定要記：輸出被截斷時（finishReason MAX_TOKENS）回傳的 JSON 仍會被
+     * parseJsonLoose 修補成合法物件，看起來像「成功但沒資料」。
+     * 沒有這兩個欄位，事後無法從紀錄判斷是文件沒寫，還是輸出被切斷。
+     * thoughtsTokenCount 尤其關鍵 —— 思考 token 會佔用 maxOutputTokens。
+     */
+    finish?: { reason?: string; usage?: TokenUsage },
+  ) => {
     void logInteraction({
       task,
       model,
       latencyMs: Date.now() - startedAt,
       ok,
       error,
+      finishReason: finish?.reason,
+      usage: finish?.usage,
       // contents 已含對話與文字上下文；附件僅記中繼資料，不存 base64
       messages: contents.map((c) => ({
         role: c.role === "model" ? "assistant" : "user",
@@ -131,6 +184,17 @@ async function callGemini(
   const generationConfig: Record<string, unknown> = {
     temperature: 0.4,
     maxOutputTokens,
+    /*
+      思考預算必須明確設上限。
+      gemini-2.5 系列預設開啟思考，且思考 token 與輸出 token 共用
+      maxOutputTokens。實測（storage/faith 紀錄 2026-07-28）：契約解析的
+      「履約事項」與「工程分項」兩段各花約 30 秒卻只吐出不到 600 字且 JSON
+      不完整 —— 8192 的預算幾乎全被思考吃掉，真正要的資料一個字都沒輸出。
+      設為 maxOutputTokens 的四分之一，保留四分之三給實際輸出。
+    */
+    thinkingConfig: {
+      thinkingBudget: thinkingBudgetFor(maxOutputTokens),
+    },
   };
   const safeSchema = responseSchema ? sanitizeSchema(responseSchema) : null;
   if (safeSchema) {
@@ -162,15 +226,51 @@ async function callGemini(
   }
 
   const data = (await response.json()) as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
+    candidates?: {
+      content?: { parts?: { text?: string }[] };
+      finishReason?: string;
+    }[];
+    usageMetadata?: {
+      promptTokenCount?: number;
+      candidatesTokenCount?: number;
+      thoughtsTokenCount?: number;
+      totalTokenCount?: number;
+    };
   };
+  const candidate = data.candidates?.[0];
   const text =
-    data.candidates?.[0]?.content?.parts
+    candidate?.content?.parts
       ?.map((p) => p.text ?? "")
       .join("")
       .trim() ?? "";
+
+  const finishReason = candidate?.finishReason;
+  const usage: TokenUsage = {
+    prompt: data.usageMetadata?.promptTokenCount,
+    candidates: data.usageMetadata?.candidatesTokenCount,
+    thoughts: data.usageMetadata?.thoughtsTokenCount,
+    total: data.usageMetadata?.totalTokenCount,
+  };
+
+  /*
+    輸出被長度上限切斷時必須明確失敗。
+
+    先前只要 HTTP 200 就當成功，而 parseJsonLoose 會把截斷的 JSON 補成合法
+    物件，於是「輸出中途被切斷」被呈現為「成功解析，但沒有任何履約事項」——
+    使用者據此誤以為契約沒寫期限。這是最糟的失敗模式：錯的結論比沒有結論危險。
+    改為拋出可重試的錯誤，讓該段標為失敗並提供重試。
+  */
+  if (finishReason === "MAX_TOKENS") {
+    const spent = usage.thoughts
+      ? `（思考用了 ${usage.thoughts} tokens，輸出上限 ${maxOutputTokens}）`
+      : `（輸出上限 ${maxOutputTokens}）`;
+    const message = `模型輸出超過長度上限而被截斷${spent}，結果不完整。請重試，或縮減文件範圍後再試。`;
+    record(false, text, message, { reason: finishReason, usage });
+    throw new Error(message);
+  }
+
   const out = text || "（AI 沒有回覆內容）";
-  record(true, out);
+  record(true, out, undefined, { reason: finishReason, usage });
   return out;
 }
 
@@ -549,6 +649,8 @@ export type WizardObligation = {
   contractBasis?: string;
   weight?: number;
   commissioning?: boolean;
+  /** 源自哪一項履約標的（名稱）。 */
+  scopeRef?: string;
 };
 
 export type WizardWorkItem = {
@@ -558,6 +660,10 @@ export type WizardWorkItem = {
   obligation?: string;
   plannedStart?: string;
   plannedEnd?: string;
+  /** 所屬工程項目名稱（規劃階段的分群，非獨立層級）。 */
+  workPackage?: string;
+  /** 源自哪一項履約標的（名稱），由所屬工程項目繼承。 */
+  scopeRef?: string;
 };
 
 export type ProjectWizardResult = {
@@ -667,6 +773,7 @@ const PROJECT_WIZARD_SCHEMA: ResponseSchema = {
         propertyOrdering: [
           "code",
           "title",
+          "scopeRef",
           "stage",
           "risk",
           "triggerType",
@@ -697,6 +804,7 @@ const PROJECT_WIZARD_SCHEMA: ResponseSchema = {
           "code",
           "name",
           "category",
+          "workPackage",
           "obligation",
           "plannedStart",
           "plannedEnd",
@@ -1006,7 +1114,15 @@ export async function extractProjectFields(
   const raw = await askStructured<{
     reply?: unknown;
     fields?: Record<string, unknown>;
-  }>(passRequest(AI_WIZARD_PROFILE_PROMPT, input, PROFILE_SCHEMA, undefined, 2048, "project-build:profile"));
+  }>(passRequest(
+      AI_WIZARD_PROFILE_PROMPT,
+      input,
+      PROFILE_SCHEMA,
+      undefined,
+      // 11 個欄位不多，但思考仍佔四分之一預算
+      4096,
+      "project-build:profile",
+    ));
   if (!raw) throw new Error("回覆格式不正確，未能擷取基本資料。");
 
   const rf = raw.fields ?? {};
@@ -1032,7 +1148,173 @@ export async function extractProjectFields(
   return { reply: str(raw.reply), data: fields };
 }
 
-// 第二段：履約事項（不含責任分工與契約依據）
+// 階段一：契約履約標的（照抄，不推導）
+const SCOPE_SCHEMA: ResponseSchema = {
+  type: "OBJECT",
+  properties: {
+    scopeItems: {
+      type: "ARRAY",
+      description: "契約「履約標的」條所列的工作，依契約順序逐項照抄",
+      items: {
+        type: "OBJECT",
+        properties: {
+          code: S("項次編號，如 (一)1、1.2；契約無編號則空字串"),
+          title: S("工作項目名稱，照抄契約用語"),
+          sourceClause: S("出處條次，如 第二條 履約標的"),
+        },
+        required: ["title"],
+        propertyOrdering: ["code", "title", "sourceClause"],
+      },
+    },
+    reply: S("一兩句繁體中文說明依據哪一條、抄出幾項"),
+  },
+  required: ["scopeItems"],
+  propertyOrdering: ["scopeItems", "reply"],
+};
+
+/** 契約「履約標的」條列的一項工作。 */
+export type WizardScopeItem = {
+  code?: string;
+  title: string;
+  sourceClause?: string;
+};
+
+/**
+ * 階段一：逐項讀出契約的履約標的。
+ *
+ * 獨立成一段的理由：這一段是「抄」，不是「想」。
+ * 先前與履約事項的推導混在同一次呼叫，模型既要抄又要推導，
+ * 抄到一半就開始編，且輸出長度容易觸頂。
+ */
+export async function extractScopeItems(
+  input: WizardPassInput,
+): Promise<PassResult<WizardScopeItem[]>> {
+  const raw = await askStructured<{ reply?: unknown; scopeItems?: unknown }>(
+    passRequest(
+      AI_WIZARD_SCOPE_PROMPT,
+      input,
+      SCOPE_SCHEMA,
+      undefined,
+      WIZARD_MAX_TOKENS,
+      "project-build:scope",
+    ),
+  );
+  if (!raw) throw new Error("回覆格式不正確，未能擷取契約履約標的。");
+
+  const out: WizardScopeItem[] = [];
+  const seen = new Set<string>();
+  for (const item of Array.isArray(raw.scopeItems) ? raw.scopeItems : []) {
+    if (!item || typeof item !== "object") continue;
+    const m = item as Record<string, unknown>;
+    const title = str(m.title);
+    if (!title || seen.has(title)) continue; // 重複抄錄會讓下游跟著重複
+    seen.add(title);
+    out.push({
+      code: str(m.code),
+      title,
+      sourceClause: str(m.sourceClause),
+    });
+  }
+  return { reply: str(raw.reply), data: out };
+}
+
+// 階段二：工程項目（由契約內文與履約標的規劃）
+const PACKAGES_SCHEMA: ResponseSchema = {
+  type: "OBJECT",
+  properties: {
+    packages: {
+      type: "ARRAY",
+      description: "具體工程項目，依執行順序排序",
+      items: {
+        type: "OBJECT",
+        properties: {
+          name: S("工程項目名稱"),
+          category: S("類別／工種"),
+          description: S("一句話說明範圍"),
+          scopeRefs: {
+            type: "ARRAY",
+            description: "對應的履約標的名稱，須與清單完全一致",
+            items: { type: "STRING" },
+          },
+        },
+        required: ["name"],
+        propertyOrdering: ["name", "category", "description", "scopeRefs"],
+      },
+    },
+    reply: S("一兩句繁體中文說明規劃依據"),
+  },
+  required: ["packages"],
+  propertyOrdering: ["packages", "reply"],
+};
+
+export type WizardWorkPackage = {
+  name: string;
+  category?: string;
+  description?: string;
+  /** 對應的履約標的名稱。 */
+  scopeRefs: string[];
+};
+
+/** 把履約標的清單整理成提示詞用的段落。 */
+function scopeListing(scopeItems: WizardScopeItem[]): string | undefined {
+  if (scopeItems.length === 0) return undefined;
+  return `契約「履約標的」清單（共 ${scopeItems.length} 項）：\n${scopeItems
+    .map((s, i) => `${s.code ? `${s.code} ` : `${i + 1}. `}${s.title}`)
+    .join("\n")}`;
+}
+
+/**
+ * 階段二：由契約內文與履約標的規劃具體工程項目。
+ *
+ * 這一段是「規劃」而非照抄：數條同性質的標的可合併，
+ * 一條涵蓋多種工作的標的則拆開，也補上內文提到但標的未明列的必要工作。
+ */
+export async function planWorkPackages(
+  input: WizardPassInput,
+  scopeItems: WizardScopeItem[],
+): Promise<PassResult<WizardWorkPackage[]>> {
+  const raw = await askStructured<{ reply?: unknown; packages?: unknown }>(
+    passRequest(
+      AI_WIZARD_PACKAGES_PROMPT,
+      input,
+      PACKAGES_SCHEMA,
+      scopeListing(scopeItems),
+      WIZARD_MAX_TOKENS,
+      "project-build:packages",
+    ),
+  );
+  if (!raw) throw new Error("回覆格式不正確，未能規劃工程項目。");
+
+  const validScope = new Set(scopeItems.map((s) => s.title));
+  const out: WizardWorkPackage[] = [];
+  const seen = new Set<string>();
+  for (const item of Array.isArray(raw.packages) ? raw.packages : []) {
+    if (!item || typeof item !== "object") continue;
+    const m = item as Record<string, unknown>;
+    const name = str(m.name);
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    // 對應不到清單的參照直接丟棄，避免產生指向不存在標的的關聯
+    const refs = Array.isArray(m.scopeRefs)
+      ? m.scopeRefs
+          .map((r) => str(r))
+          .filter((r): r is string => Boolean(r && validScope.has(r)))
+      : [];
+    out.push({
+      name,
+      category: str(m.category),
+      description: str(m.description),
+      scopeRefs: refs,
+    });
+  }
+  return { reply: str(raw.reply), data: out };
+}
+
+// 第二段：履約標的 → 履約事項（不含責任分工與契約依據）
+//
+// scopeItems 刻意排在 obligations 之前：結構化輸出是逐欄生成的，
+// 先要模型把「履約標的」條的工作逐項抄出來，再據以推導應辦事項，
+// 等於強制它先讀完那一條再作答，而不是憑印象直接產出應辦事項。
 const OBLIGATIONS_SCHEMA: ResponseSchema = {
   type: "OBJECT",
   properties: {
@@ -1045,6 +1327,7 @@ const OBLIGATIONS_SCHEMA: ResponseSchema = {
         properties: {
           code: S("管制編號，無則空字串"),
           title: S("履約事項名稱"),
+          scopeRef: S("源自哪一項履約標的，須與清單完全一致；無法對應留空"),
           stage: { type: "STRING", enum: OBLIGATION_STAGES },
           triggerType: { type: "STRING", enum: OBLIGATION_TRIGGERS },
           risk: { type: "STRING", enum: OBLIGATION_RISKS },
@@ -1067,18 +1350,32 @@ const OBLIGATIONS_SCHEMA: ResponseSchema = {
     },
   },
   required: ["obligations"],
-  propertyOrdering: ["reply", "obligations"],
+  propertyOrdering: ["obligations", "reply"],
 };
 
 export async function extractObligations(
   input: WizardPassInput,
+  /** 階段一讀出的履約標的；履約事項一律由此推導。 */
+  scopeItems: WizardScopeItem[] = [],
 ): Promise<PassResult<WizardObligation[]>> {
-  // 委託服務契約常有 15-40 項應辦事項，輸出上限需放寬，否則後段會被截斷
-  const raw = await askStructured<{ reply?: unknown; obligations?: unknown }>(
-    passRequest(AI_WIZARD_OBLIGATIONS_PROMPT, input, OBLIGATIONS_SCHEMA, undefined, 8192, "project-build:obligations"),
+  // 委託服務契約常有 15-40 項應辦事項，加上履約標的清單，輸出上限需放寬
+  const raw = await askStructured<{
+    reply?: unknown;
+    obligations?: unknown;
+  }>(
+    passRequest(
+      AI_WIZARD_OBLIGATIONS_PROMPT,
+      input,
+      OBLIGATIONS_SCHEMA,
+      scopeListing(scopeItems),
+      // 履約標的清單＋15-40 項應辦事項，加上思考佔用的四分之一預算
+      WIZARD_MAX_TOKENS,
+      "project-build:obligations",
+    ),
   );
   if (!raw) throw new Error("回覆格式不正確，未能擷取履約事項。");
 
+  const validScope = new Set(scopeItems.map((x) => x.title));
   const list = Array.isArray(raw.obligations) ? raw.obligations : [];
   const out: WizardObligation[] = [];
   for (const item of list) {
@@ -1098,9 +1395,60 @@ export async function extractObligations(
           ? Math.max(1, Math.round(Number(m.weight)))
           : undefined,
       commissioning: m.commissioning === true,
+      // 對應不到清單的參照丟棄，避免產生指向不存在標的的關聯
+      scopeRef: validScope.has(str(m.scopeRef) ?? "") ? str(m.scopeRef) : undefined,
     });
   }
   return { reply: str(raw.reply), data: out };
+}
+
+// ── 通用表單助手 ────────────────────────────────────────────
+
+/**
+ * 依表單規格代填欄位。
+ *
+ * 與四段式專案建置不同，這裡是通用的單次判讀：schema 由欄位規格產生，
+ * 因此新增一張表單只要寫規格，不必再加一支 API 與一段提示詞。
+ * 值一律以字串回傳、全部選填，判讀不到就省略 —— 逼模型填 0 或 false
+ * 會產出看似有值的假資料，比留空更糟。
+ */
+export async function extractFormFields(
+  spec: FormAssistSpec,
+  input: WizardPassInput,
+): Promise<PassResult<Record<string, unknown>>> {
+  const instruction = [
+    `你是「PMIS 智慧監造管理系統」的表單助手，正在協助使用者填寫「${spec.title}」。`,
+    spec.purpose,
+    "",
+    "系統已強制以 JSON 結構回覆。請把判讀到的值放進 values，欄位如下：",
+    describeFields(spec.fields),
+    "",
+    "規則：",
+    "- 只填你在使用者提供的文件或描述中確實看到的內容，判讀不到的欄位一律省略。",
+    "- 不要為了填滿欄位而推測。填錯的值比留空更難發現。",
+    "- 限定選項的欄位只能回傳列出的可選值之一。",
+    "- 日期一律 YYYY-MM-DD；文件只寫民國年時請換算為西元年。",
+    "- 數字欄位只回數字本身，不含逗號、單位或幣別。",
+    "reply 欄位只放給人看的一兩句說明，不要把欄位值重複寫在 reply 裡。",
+  ].join("\n");
+
+  const raw = await askStructured<{ reply?: unknown; values?: unknown }>(
+    passRequest(
+      instruction,
+      input,
+      buildFieldSchema(spec.fields) as ResponseSchema,
+      undefined,
+      2048,
+      `form-assist:${spec.id}`,
+    ),
+  );
+  if (!raw) throw new Error("回覆格式不正確，未能判讀表單欄位。");
+
+  const values =
+    raw.values && typeof raw.values === "object"
+      ? (raw.values as Record<string, unknown>)
+      : {};
+  return { reply: str(raw.reply), data: values };
 }
 
 // 第三段：責任分工與契約依據（對既有事項回填）
@@ -1153,7 +1501,7 @@ export async function extractObligationOwners(
       input,
       OWNERS_SCHEMA,
       `目前已盤點的履約事項名稱清單（title 必須與此完全一致）：\n${listing}`,
-      8192,
+      WIZARD_MAX_TOKENS,
       "project-build:owners",
     ),
   );
@@ -1192,6 +1540,7 @@ const WORKITEMS_SCHEMA: ResponseSchema = {
           code: S("分項編號，無則空字串"),
           name: S("工程分項名稱"),
           category: S("工種／類別"),
+          workPackage: S("所屬工程項目名稱，須與清單完全一致"),
           obligation: S("所屬履約事項名稱，須與清單一致；無法對應留空"),
           plannedStart: S("預定開始 YYYY-MM-DD"),
           plannedEnd: S("預定完成 YYYY-MM-DD"),
@@ -1215,19 +1564,50 @@ const WORKITEMS_SCHEMA: ResponseSchema = {
 export async function extractWorkItems(
   input: WizardPassInput,
   obligationTitles: string[],
+  /** 階段二規劃的工程項目；工程分項由這些項目細分而來。 */
+  packages: WizardWorkPackage[] = [],
 ): Promise<PassResult<WizardWorkItem[]>> {
-  const listing = obligationTitles.length
-    ? `可歸屬的履約事項名稱清單（obligation 必須與此完全一致，否則留空）：\n${obligationTitles
+  const sections: string[] = [];
+
+  // 工程項目放最前面：這是本段的輸入，不是輔助資訊
+  if (packages.length > 0) {
+    sections.push(
+      `工程項目清單（每一項都必須產生對應的工程分項）：\n${packages
+        .map(
+          (pkg, i) =>
+            `${i + 1}. ${pkg.name}${pkg.category ? `［${pkg.category}］` : ""}` +
+            `${pkg.description ? `：${pkg.description}` : ""}`,
+        )
+        .join("\n")}`,
+    );
+  }
+  if (obligationTitles.length > 0) {
+    sections.push(
+      `可歸屬的履約事項名稱清單（僅供填 obligation 欄位，必須完全一致，否則留空）：\n${obligationTitles
         .map((t, i) => `${i + 1}. ${t}`)
-        .join("\n")}`
-    : undefined;
+        .join("\n")}`,
+    );
+  }
+  const listing = sections.length > 0 ? sections.join("\n\n") : undefined;
 
   const raw = await askStructured<{ reply?: unknown; workItems?: unknown }>(
-    passRequest(AI_WIZARD_WORKITEMS_PROMPT, input, WORKITEMS_SCHEMA, listing, 8192, "project-build:workItems"),
+    passRequest(
+      AI_WIZARD_WORKITEMS_PROMPT,
+      input,
+      WORKITEMS_SCHEMA,
+      listing,
+      WIZARD_MAX_TOKENS,
+      "project-build:workItems",
+    ),
   );
   if (!raw) throw new Error("回覆格式不正確，未能擷取工程分項。");
 
   const valid = new Set(obligationTitles.map((t) => t.trim()));
+  // 工程項目 → 履約標的的對照，供分項繼承來源（可溯源到契約哪一條）
+  const scopeOfPackage = new Map(
+    packages.map((pkg) => [pkg.name, pkg.scopeRefs[0]]),
+  );
+
   const list = Array.isArray(raw.workItems) ? raw.workItems : [];
   const out: WizardWorkItem[] = [];
   for (const item of list) {
@@ -1236,6 +1616,9 @@ export async function extractWorkItems(
     const name = str(w.name);
     if (!name) continue;
     const ob = str(w.obligation);
+    const pkg = str(w.workPackage);
+    // 對應不到清單的工程項目名稱丟棄，避免產生孤兒分群
+    const known = pkg && scopeOfPackage.has(pkg) ? pkg : undefined;
     out.push({
       code: str(w.code),
       name,
@@ -1243,6 +1626,9 @@ export async function extractWorkItems(
       obligation: ob && valid.has(ob) ? ob : undefined,
       plannedStart: str(w.plannedStart),
       plannedEnd: str(w.plannedEnd),
+      workPackage: known,
+      // 來源由所屬工程項目繼承，模型不必也不該自行填
+      scopeRef: known ? scopeOfPackage.get(known) : undefined,
     });
   }
   return { reply: str(raw.reply), data: out };

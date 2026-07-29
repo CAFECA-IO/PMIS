@@ -172,7 +172,7 @@ test("activityLine 顯示目前段落與序號", () => {
       { id: "profile", state: "done" },
       { id: "obligations", state: "running" },
     ]),
-    "（2/4）正在解析履約事項…",
+    "（3/6）正在解析履約事項…",
   );
 });
 

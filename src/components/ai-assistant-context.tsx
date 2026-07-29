@@ -60,8 +60,13 @@ export type AiTask = {
    * 讓面板能再併入通用欄位（如目前鎖定的 projectId）。
    */
   buildBody: (req: AiTaskRequest) => Record<string, unknown>;
-  /** 收到成功回應時交還功能端，用於填入表單 */
-  onResult: (data: AiTaskResponse) => void;
+  /**
+   * 收到成功回應時交還功能端，用於填入表單。
+   *
+   * 可回傳字串以取代顯示於對話中的 reply：功能端才知道實際填了哪些欄位、
+   * 哪些因已填而保留，這份說明比模型自己的 reply 精確得多。
+   */
+  onResult: (data: AiTaskResponse) => void | string;
   /**
    * 以 NDJSON 串流回應（每行一個事件）。
    * 用於分段解析這類耗時工作，讓費思能邊做邊回報，
@@ -88,6 +93,14 @@ type Ctx = {
   startTask: (task: AiTask) => void;
   /** 結束任務，回到一般問答 */
   endTask: () => void;
+  /**
+   * 費思是否正在處理。
+   *
+   * 放在 context 而非面板內部，是為了讓交出表單的功能端也能反應：
+   * 判讀期間表單應淡化並停止輸入，避免使用者與 AI 同時寫入同一欄位。
+   */
+  working: boolean;
+  setWorking: (v: boolean) => void;
 };
 
 const AiAssistantContext = createContext<Ctx | null>(null);
@@ -103,17 +116,30 @@ export function useAiAssistant() {
 export function AiAssistantProvider({ children }: { children: ReactNode }) {
   const [expanded, setExpanded] = useState(false);
   const [task, setTask] = useState<AiTask | null>(null);
+  const [working, setWorking] = useState(false);
 
   const startTask = useCallback((next: AiTask) => {
     setTask(next);
     setExpanded(true);
   }, []);
 
-  const endTask = useCallback(() => setTask(null), []);
+  const endTask = useCallback(() => {
+    setTask(null);
+    // 結束任務時一併解除工作中狀態，否則交出表單的一方會永遠停在鎖定
+    setWorking(false);
+  }, []);
 
   const value = useMemo(
-    () => ({ expanded, setExpanded, task, startTask, endTask }),
-    [expanded, task, startTask, endTask],
+    () => ({
+      expanded,
+      setExpanded,
+      task,
+      startTask,
+      endTask,
+      working,
+      setWorking,
+    }),
+    [expanded, task, startTask, endTask, working],
   );
 
   return (

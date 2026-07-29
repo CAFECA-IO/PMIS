@@ -97,6 +97,9 @@ export function AiPanel() {
     setExpanded: setOpen,
     task,
     endTask,
+    // 工作中狀態放在 context：交出表單的功能端需據此淡化並鎖定表單
+    working,
+    setWorking,
   } = useAiAssistant();
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -108,7 +111,6 @@ export function AiPanel() {
   const [fileError, setFileError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   // 工作指示：暫時性狀態，不進入 messages，結束後清除
-  const [working, setWorking] = useState(false);
   const [activity, setActivity] = useState<string | null>(null);
   // 負評時可補充原因（除錯價值最高的部分）；key 為訊息索引
   const [reasonFor, setReasonFor] = useState<number | null>(null);
@@ -141,7 +143,7 @@ export function AiPanel() {
     setLoading(false);
     setWorking(false);
     setActivity(null);
-  }, [task]);
+  }, [task, setWorking]);
 
   function acceptFile(f: File | null | undefined) {
     if (!f) return;
@@ -359,6 +361,9 @@ export function AiPanel() {
     setFile(null);
     setFileError(null);
     setLoading(true);
+    // 任務模式一律進入工作中：交出表單的功能端據此淡化並鎖定表單，
+    // 非串流任務（如表單助手）同樣需要，否則使用者會邊等邊改到同一欄位
+    if (task) setWorking(true);
     scrollToEnd();
 
     try {
@@ -425,8 +430,12 @@ export function AiPanel() {
 
       let full: string;
       if (task) {
-        task.onResult(data);
-        full = data.reply ?? "（無回應）";
+        // 功能端可回傳說明取代模型的 reply —— 只有它知道實際填入了什麼
+        const override = task.onResult(data);
+        full =
+          (typeof override === "string" && override.trim() ? override : null) ??
+          data.reply ??
+          "（無回應）";
       } else {
         full = data.text ?? "（無回應）";
       }
@@ -447,6 +456,9 @@ export function AiPanel() {
         },
       ]);
     } finally {
+      // 一律解除工作中：非串流任務沒有 consumeStream 的收尾，
+      // 漏掉這行會讓交出表單的一方永遠停在鎖定狀態
+      setWorking(false);
       scrollToEnd();
     }
   }

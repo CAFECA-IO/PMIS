@@ -1,5 +1,6 @@
 import * as projectRepo from "@/repository/project.repository";
 import * as obligationRepo from "@/repository/obligation.repository";
+import * as scopeRepo from "@/repository/scopeItem.repository";
 import * as contractChangeRepo from "@/repository/contractChange.repository";
 import * as documentRepo from "@/repository/projectDocument.repository";
 import * as projectMemberRepo from "@/repository/projectMember.repository";
@@ -377,6 +378,8 @@ export async function createProject(
 
 // ── 專案建置：一次建立專案 + 履約事項 + 工程分項 ─────────────
 export type WizardObligationInput = {
+  /** 源自哪一項履約標的（名稱）。 */
+  scopeRef?: string;
   code?: string;
   title?: string;
   stage?: string;
@@ -391,6 +394,10 @@ export type WizardObligationInput = {
 };
 
 export type WizardWorkItemInput = {
+  /** 所屬工程項目（分群）。 */
+  workPackage?: string;
+  /** 源自哪一項履約標的（名稱）。 */
+  scopeRef?: string;
   code?: string;
   name?: string;
   category?: string;
@@ -412,14 +419,26 @@ const asDate = (v?: string) => {
  * 未提供管制編號時，依專案代號自動編號（如 ABC-001）以滿足唯一性。
  * 專案建立失敗即中止；子項目個別失敗不影響已建立的專案。
  */
+/** 建置時傳入的契約履約標的。 */
+export type WizardScopeItemInput = {
+  code?: string;
+  title: string;
+  sourceClause?: string;
+};
+
 export async function createProjectWithStructure(
   input: CreateProjectInput,
   obligations: WizardObligationInput[] = [],
   workItems: WizardWorkItemInput[] = [],
+  /** 契約履約標的（階段一）。履約事項與工程分項由此推導，存下才能溯源。 */
+  scopeItems: WizardScopeItemInput[] = [],
 ): Promise<CreateProjectResult> {
   const result = await createProject(input);
   if (!result.ok) return result;
   const projectId = result.id;
+
+  // 先建立履約標的，取得「名稱 → id」對照供下游關聯
+  const scopeIdByTitle = await scopeRepo.createMany(projectId, scopeItems);
 
   const prefix = input.code?.trim() || "OB";
   const usedCodes = new Set<string>();
@@ -451,6 +470,7 @@ export async function createProjectWithStructure(
       contractBasis: m.contractBasis?.trim() || undefined,
       weight,
       commissioning: m.commissioning === true,
+      scopeItemId: m.scopeRef ? (scopeIdByTitle.get(m.scopeRef.trim()) ?? null) : null,
     });
     if (!idByName.has(title)) idByName.set(title, created.id);
   }
@@ -470,6 +490,8 @@ export async function createProjectWithStructure(
       obligationId: w.obligation
         ? (idByName.get(w.obligation.trim()) ?? null)
         : null,
+      workPackage: w.workPackage?.trim() || null,
+      scopeItemId: w.scopeRef ? (scopeIdByTitle.get(w.scopeRef.trim()) ?? null) : null,
     });
   }
 

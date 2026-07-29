@@ -933,6 +933,7 @@ export default async function ProjectDetailPage({
                 <div className="flex justify-end">
                   <CreateRecordDialog
                     title="新增契約文件"
+                  assistId="project-document"
                     triggerLabel="新增文件"
                     action={addDocumentAction}
                   >
@@ -1074,6 +1075,7 @@ export default async function ProjectDetailPage({
               <div className="flex justify-end">
                 <CreateRecordDialog
                   title="新增履約事項"
+                  assistId="obligation"
                   triggerLabel="新建履約事項"
                   action={addObligationAction}
                 >
@@ -1196,6 +1198,7 @@ export default async function ProjectDetailPage({
               <div className="flex justify-end">
                 <CreateRecordDialog
                   title="新增契約變更"
+                  assistId="contract-change"
                   triggerLabel="新增變更紀錄"
                   action={addContractChangeAction}
                 >
@@ -1369,6 +1372,7 @@ export default async function ProjectDetailPage({
                 <div className="flex justify-end">
                   <CreateRecordDialog
                     title="新增工程分項"
+                  assistId="work-item"
                     triggerLabel="新建工程分項"
                     action={createWorkItemAction}
                   >

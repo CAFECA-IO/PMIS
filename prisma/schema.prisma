@@ -42,6 +42,7 @@ model Project {
   defects           Defect[]
   contractChanges   ContractChange[]
   obligations       ContractObligation[]
+  scopeItems        ContractScopeItem[]
   paymentNodes      PaymentNode[]
   documents         ProjectDocument[]
   reminders         ReminderEvent[]
@@ -278,6 +279,8 @@ model WorkItem {
   id           String         @id @default(cuid())
   projectId    String
   obligationId String? // 歸屬履約事項（工程分項→履約事項上捲，選填）
+  scopeItemId  String? // 推導來源的契約履約標的（可溯源）
+  workPackage  String? // 所屬工程項目（規劃階段的分群，非獨立層級）
   code         String?
   name         String
   category     String?
@@ -292,12 +295,14 @@ model WorkItem {
 
   project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   obligation   ContractObligation? @relation(fields: [obligationId], references: [id], onDelete: SetNull)
+  scopeItem    ContractScopeItem?  @relation(fields: [scopeItemId], references: [id], onDelete: SetNull)
   inspections  Inspection[]
   defects      Defect[]
   carbonEntries CarbonEntry[]
 
   @@index([projectId])
   @@index([obligationId])
+  @@index([scopeItemId])
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -393,6 +398,35 @@ model ProjectDocument {
 
 /// 履約事項：契約應辦事項的統一管制單位。
 /// 同時承接進度權重角色——工程分項上捲至此，據以計算全案進度。
+/// 契約「履約標的」條所列的工作項目。
+///
+/// 為何獨立成表：履約事項與工程分項都由此推導，存下來才能回答
+/// 「這項工作來自契約哪一條」。先前它只是解析過程的暫存物，
+/// 關掉畫面就消失，也無法分階段重跑而不動上游。
+model ContractScopeItem {
+  id        String @id @default(cuid())
+  projectId String
+
+  /// 契約項次編號，如 (一)1、1.2；契約未編號則留空
+  code  String?
+  /// 工作項目名稱，照抄契約用語
+  title String
+  /// 出處條次，如 第二條 履約標的
+  sourceClause String?
+  /// 契約中的排列順序，用於還原原始清單
+  sortOrder Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  project     Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  obligations ContractObligation[]
+  workItems   WorkItem[]
+
+  @@index([projectId])
+}
+
 model ContractObligation {
   id        String @id @default(cuid())
   projectId String
@@ -426,13 +460,18 @@ model ContractObligation {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
+  /// 推導來源的契約履約標的（可溯源）；來源被刪除時僅解除關聯
+  scopeItemId String?
+
   project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  scopeItem ContractScopeItem? @relation(fields: [scopeItemId], references: [id], onDelete: SetNull)
   workItems WorkItem[] // 歸屬此履約事項的工程分項
 
   @@unique([projectId, code])
   @@index([projectId])
   @@index([status])
   @@index([stage])
+  @@index([scopeItemId])
 }
 
 /// 履約事項所屬階段

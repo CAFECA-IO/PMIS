@@ -39,6 +39,7 @@ export function ProjectCreateDialog() {
   return (
     <CreateRecordDialog
       title="新增專案"
+                  assistId="project"
       triggerLabel="新增專案"
       action={(fd) => createProject({}, fd)}
       submitLabel="建立專案"

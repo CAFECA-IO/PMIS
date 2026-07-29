@@ -70,6 +70,7 @@ export default async function QualityPage({
           <div className="flex flex-wrap justify-end gap-2">
             <CreateRecordDialog
               title="新增查驗"
+                  assistId="inspection"
               triggerLabel="新建查驗"
               action={createInspectionAction}
             >
@@ -125,6 +126,7 @@ export default async function QualityPage({
 
             <CreateRecordDialog
               title="新增缺失"
+                  assistId="defect"
               triggerLabel="新建缺失"
               action={createDefectAction}
             >

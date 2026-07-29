@@ -136,6 +136,8 @@ export async function createProjectViaWizard(
   workItems: projectService.WizardWorkItemInput[] = [],
   /** 建置過程由費思歸檔的檔案 id，建立成功後改歸此專案。 */
   uploadIds: string[] = [],
+  /** 契約履約標的（階段一）；履約事項與工程分項以此溯源。 */
+  scopeItems: projectService.WizardScopeItemInput[] = [],
 ): Promise<CreateWizardResult> {
   if (!(await canEdit())) {
     return { ok: false, error: "權限不足，無法建立專案。" };
@@ -157,6 +159,7 @@ export async function createProjectViaWizard(
     },
     obligations,
     workItems,
+    scopeItems,
   );
   if (!result.ok) return { ok: false, error: result.error };
 

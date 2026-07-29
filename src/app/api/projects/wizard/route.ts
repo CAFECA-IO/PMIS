@@ -11,6 +11,8 @@ import {
 } from "@/service/wizardExtract.service";
 import type { WizardStepId } from "@/service/wizard-steps";
 import { withLogContext } from "@/service/faithLog.service";
+import * as faithUpload from "@/service/faithUpload.service";
+import type { AccountRole } from "@/generated/prisma/enums";
 
 export const runtime = "nodejs";
 
@@ -22,10 +24,53 @@ type Body = {
   projectId?: string | null;
   /** 僅重跑指定段落（單段重試）。 */
   only?: WizardStepId[];
+  /**
+   * 本次建置已歸檔的檔案 id。
+   *
+   * 契約全文只存在於上傳那一次的請求裡；後續送出與單段重試都不帶附件。
+   * 前端把歸檔 id 帶回來，伺服器據以重讀契約再轉文字，
+   * 否則依賴契約的三段會在沒有文件的情況下憑常識編造內容。
+   */
+  documentUploadIds?: string[];
   /** 對話與本次送出的識別，供互動紀錄與評價對應。 */
   conversationId?: string;
   turnId?: string;
 };
+
+/** 一次最多重讀幾份歸檔文件，避免請求被拉長。 */
+const MAX_REREAD = 3;
+
+/**
+ * 由歸檔重新取得契約文字。
+ *
+ * 只取能轉成文字的檔案；PDF 與影像需以 inlineData 交模型原生判讀，
+ * 無法在此重建，故略過（這類情況會由 skipReason 明確告知使用者重新上傳）。
+ */
+async function textFromArchive(
+  ids: string[] | undefined,
+  viewer: { id: string; role: AccountRole },
+): Promise<string | undefined> {
+  if (!ids?.length) return undefined;
+  const parts: string[] = [];
+
+  for (const id of ids.slice(0, MAX_REREAD)) {
+    const file = await faithUpload.getFile(id, viewer);
+    if (!file.ok) continue;
+    const result = extractDocumentText(
+      new Uint8Array(file.buffer),
+      file.mimeType,
+      file.fileName,
+    );
+    if (result.kind !== "text") continue;
+    parts.push(
+      `檔名：${file.fileName}\n` +
+        (result.truncated ? "（內容過長，僅擷取前段）\n" : "") +
+        result.text,
+    );
+  }
+
+  return parts.length ? parts.join("\n\n") : undefined;
+}
 
 /**
  * 專案建置的分段解析。
@@ -87,6 +132,18 @@ export async function POST(request: Request) {
         { status: 415 },
       );
     }
+  }
+
+  /*
+    本次沒有附件時，改由歸檔重讀契約。
+    這是「補一個專案編號卻讓履約事項被重新編造」的根本修正：
+    先前後續送出與單段重試都不帶檔案，模型無文件可讀仍照跑。
+  */
+  if (!att) {
+    documentText = await textFromArchive(body.documentUploadIds, {
+      id: user.id,
+      role: user.role,
+    });
   }
 
   const encoder = new TextEncoder();

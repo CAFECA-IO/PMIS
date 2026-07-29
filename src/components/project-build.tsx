@@ -35,6 +35,10 @@ import {
   obligationTriggerOptions,
 } from "@/constant/obligation";
 import type { ProjectStatus } from "@/generated/prisma/enums";
+import type {
+  WizardScopeItem,
+  WizardWorkPackage,
+} from "@/service/faith.service";
 import {
   WIZARD_STEPS,
   applyProgress,
@@ -197,6 +201,10 @@ export function ProjectBuild() {
     專案建立成功後再一併改歸該專案，使用者不需回檔案管理手動補指派。
   */
   const uploadIdsRef = useRef<string[]>([]);
+  // 契約履約標的（階段一）與工程項目（階段二）：
+  // 各階段的上游輸入，單獨重試下游時必須回傳，否則該段會因缺上游而略過
+  const scopeRef = useRef<WizardScopeItem[]>([]);
+  const packagesRef = useRef<WizardWorkPackage[]>([]);
   const fieldsRef = useRef<Fields>({});
 
   /**
@@ -231,6 +239,8 @@ export function ProjectBuild() {
     fileNameRef.current = null;
     onlyRef.current = undefined;
     uploadIdsRef.current = [];
+    scopeRef.current = [];
+    packagesRef.current = [];
   }
 
   /** 放棄建置：結束費思任務並回到專案列表。 */
@@ -268,7 +278,7 @@ export function ProjectBuild() {
       id: AI_TASK_ID,
       title: "專案建置",
       greeting:
-        "好的，我來協助您建立新專案。您可以：\n\n- 上傳**契約書／決標公告／工期表／預算書**（支援 PDF、Word、Excel、PowerPoint、圖片）\n- 或直接用文字告訴我專案資訊\n\n我會分四段解析並隨時回報進度：**專案基本資料** → **履約事項** → **責任分工與契約依據** → **工程分項**。分段是為了避免一次輸出過長被截斷而漏掉欄位；某一段失敗也不影響其他段已擷取的內容。",
+        "好的，我來協助您建立新專案。您可以：\n\n- 上傳**契約書／決標公告／工期表／預算書**（支援 PDF、Word、Excel、PowerPoint、圖片）\n- 或直接用文字告訴我專案資訊\n\n我會分階段解析並隨時回報進度：**專案基本資料** → **契約履約標的** → **履約事項** → **責任分工與契約依據** → **工程項目** → **工程分項**。\n\n每一段只做一件事：先**照抄**契約履約標的，再由標的**推導**應辦期限、**規劃**具體工程項目，最後把項目**細分**為可排程的工程分項。上游沒有結果時下游會直接略過，不會憑常識自行編造。某一段失敗也不影響其他段已擷取的內容。",
       endpoint: "/api/projects/wizard",
       accept: WIZARD_DOC_ACCEPT,
       suggestions: AI_SUGGESTIONS,
@@ -280,10 +290,20 @@ export function ProjectBuild() {
         messages,
         attachment,
         only,
+        /*
+          帶回本次已歸檔的檔案 id。
+          契約全文只存在於上傳那一次的請求裡；補資料與單段重試都不帶附件，
+          伺服器需據此重讀契約，否則依賴契約的段落會憑空編造內容。
+        */
+        documentUploadIds: uploadIdsRef.current,
         known: {
           fields,
           obligations: obligations.map(toObligationPayload),
           workItems: workItems.map(toWorkItemPayload),
+          // 單獨重試「工程分項」時第二段不會重跑，需回傳同一份履約標的，
+          // 否則分項會失去來源依據而改由模型自行想像
+          scopeItems: scopeRef.current,
+        packages: packagesRef.current,
         },
         };
       },
@@ -334,6 +354,12 @@ export function ProjectBuild() {
     }
 
     if (event.type === "data") {
+      if (Array.isArray(event.scopeItems)) {
+        scopeRef.current = event.scopeItems as WizardScopeItem[];
+      }
+      if (Array.isArray(event.packages)) {
+        packagesRef.current = event.packages as WizardWorkPackage[];
+      }
       applyIncoming(event);
       return { kind: "ignore" };
     }
@@ -528,6 +554,7 @@ export function ProjectBuild() {
         obligations.filter((m) => m.title.trim()).map(toObligationPayload),
         workItems.filter((w) => w.name.trim()).map(toWorkItemPayload),
         uploadIdsRef.current,
+        scopeRef.current,
       );
       if (!result.ok) {
         setError(result.error);

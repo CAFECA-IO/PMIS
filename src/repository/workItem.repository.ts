@@ -6,6 +6,10 @@ export function count() {
 }
 
 export type CreateWorkItemData = {
+  /** 所屬工程項目（規劃階段的分群）。 */
+  workPackage?: string | null;
+  /** 推導來源的契約履約標的。 */
+  scopeItemId?: string | null;
   projectId: string;
   code?: string | null;
   name: string;

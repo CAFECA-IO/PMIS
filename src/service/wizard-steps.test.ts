@@ -7,6 +7,7 @@ import {
   applyProgress,
   countFilled,
   countWithOwner,
+  scopeNote,
   describeStep,
   failedSteps,
   initialProgress,
@@ -24,20 +25,35 @@ const ob = (over: Partial<WizardObligation> & { title: string }): WizardObligati
 
 // ── 步驟定義與進度 ──────────────────────────────────────────
 test("步驟順序：前置資料先於依賴它的段落", () => {
-  assert.deepEqual(STEP_ORDER, ["profile", "obligations", "owners", "workItems"]);
+  assert.deepEqual(STEP_ORDER, [
+      "profile",
+      "scope",
+      "obligations",
+      "owners",
+      "packages",
+      "workItems",
+    ]);
   assert.ok(
     STEP_ORDER.indexOf("obligations") < STEP_ORDER.indexOf("owners"),
     "責任分工需在履約事項之後",
   );
   assert.ok(
-    STEP_ORDER.indexOf("obligations") < STEP_ORDER.indexOf("workItems"),
-    "工程分項需在履約事項之後",
+    STEP_ORDER.indexOf("scope") < STEP_ORDER.indexOf("obligations"),
+    "履約事項由履約標的推導，標的必須先讀出",
+  );
+  assert.ok(
+    STEP_ORDER.indexOf("scope") < STEP_ORDER.indexOf("packages"),
+    "工程項目由履約標的規劃",
+  );
+  assert.ok(
+    STEP_ORDER.indexOf("packages") < STEP_ORDER.indexOf("workItems"),
+    "工程分項由工程項目細分，項目必須先規劃",
   );
 });
 
 test("初始進度為全部待處理", () => {
   const p = initialProgress();
-  assert.equal(p.length, 4);
+  assert.equal(p.length, 6);
   assert.ok(p.every((x) => x.state === "pending"));
 });
 
@@ -199,4 +215,47 @@ test("mergeWorkItems 對應不到履約事項時清空該關聯", () => {
 test("mergeWorkItems 不與既有項目重複", () => {
   const out = mergeWorkItems([wi({ name: "開挖" })], [wi({ name: "開挖" })], []);
   assert.equal(out.length, 1);
+});
+
+// ── scopeNote：履約標的的判讀狀況 ──────────────────────────────
+test("正常情況報出履約標的與應辦事項的項數", () => {
+  const s = scopeNote(12, 23, "已逐條讀完履約標的");
+  assert.match(s, /讀出履約標的 12 項工作/);
+  assert.match(s, /推導出 23 項應辦事項/);
+  assert.match(s, /已逐條讀完履約標的/, "模型說明應接在後面");
+});
+
+test("沒讀到履約標的卻生出事項時，明確要求核對契約", () => {
+  const s = scopeNote(0, 5, undefined);
+  assert.match(s, /未能.*讀出「履約標的」/);
+  assert.match(s, /5 項應辦事項請逐項核對契約/);
+});
+
+test("沒讀到履約標的也沒有事項時，說明因果", () => {
+  const s = scopeNote(0, 0, undefined);
+  assert.match(s, /未能.*讀出「履約標的」/);
+  assert.match(s, /沒有可推導的應辦事項/);
+});
+
+test("應辦事項少於履約標的項數時提醒可能漏讀", () => {
+  const s = scopeNote(20, 6, undefined);
+  assert.match(s, /少於履約標的項數/);
+  assert.match(s, /漏讀/);
+});
+
+test("讀到履約標的但完全沒有期限性事項，不謊稱推導成功", () => {
+  const s = scopeNote(8, 0, undefined);
+  assert.match(s, /讀出履約標的 8 項工作/);
+  assert.match(s, /沒有訂明期限/);
+});
+
+test("事項數等於或多於履約標的項數時不加提醒", () => {
+  assert.doesNotMatch(scopeNote(10, 10, undefined), /少於/);
+  assert.doesNotMatch(scopeNote(10, 25, undefined), /少於/);
+});
+
+test("模型未提供說明時不留下多餘空白", () => {
+  const s = scopeNote(3, 4, "   ");
+  assert.equal(s, s.trim());
+  assert.doesNotMatch(s, /\s\s/);
 });

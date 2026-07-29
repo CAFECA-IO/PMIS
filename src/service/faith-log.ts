@@ -44,6 +44,23 @@ export type InteractionEntry = {
   /** 模型回覆（截斷後）。 */
   response?: { text: string; chars: number; truncated: boolean };
   maxOutputTokens?: number;
+  /**
+   * 模型為何停止輸出（STOP／MAX_TOKENS／SAFETY…）。
+   *
+   * 缺這個欄位曾讓一次真實故障無法從紀錄判定原因：輸出被長度上限切斷，
+   * 但截斷的 JSON 被修補成合法物件，看起來像「成功但沒資料」。
+   */
+  finishReason?: string;
+  /**
+   * token 用量。thoughts 是思考 token —— 它與輸出共用 maxOutputTokens，
+   * 思考吃掉預算時輸出會在中途被切斷，這是唯一能看出來的欄位。
+   */
+  usage?: {
+    prompt?: number;
+    candidates?: number;
+    thoughts?: number;
+    total?: number;
+  };
 };
 
 /** 使用者對某則回答的評價。 */

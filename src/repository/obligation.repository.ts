@@ -9,6 +9,8 @@ import type {
 /** 履約事項的資料存取。 */
 
 export type CreateObligationData = {
+  /** 推導來源的契約履約標的。 */
+  scopeItemId?: string | null;
   projectId: string;
   code: string;
   title: string;

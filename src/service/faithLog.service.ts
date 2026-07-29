@@ -76,6 +76,8 @@ export type InteractionInput = {
   attachment?: { name?: string; mimeType?: string; bytes?: number };
   responseText?: string;
   maxOutputTokens?: number;
+  finishReason?: string;
+  usage?: InteractionEntry["usage"];
 };
 
 /** 記錄一次模型往返。由 faith.service 的閘道呼叫，不需其他模組介入。 */
@@ -99,6 +101,8 @@ export async function logInteraction(input: InteractionInput): Promise<void> {
     attachment: input.attachment,
     response: input.responseText ? clip(input.responseText) : undefined,
     maxOutputTokens: input.maxOutputTokens,
+    finishReason: input.finishReason,
+    usage: input.usage,
   };
   await append(entry);
 }
