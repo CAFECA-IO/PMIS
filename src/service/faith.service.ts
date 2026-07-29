@@ -22,6 +22,12 @@ import {
   describeFields,
   type FormAssistSpec,
 } from "@/service/form-assist";
+import {
+  domainBrief,
+  managementPatternBrief,
+  matchDomain,
+  workItemShapeBrief,
+} from "@/service/domain-match";
 import * as docRepo from "@/repository/approvalDocument.repository";
 import * as storage from "@/service/storage.service";
 import { logInteraction } from "@/service/faithLog.service";
@@ -1097,6 +1103,27 @@ function passRequest(
   };
 }
 
+
+/**
+ * 由本次輸入的契約文字判定領域，組出要注入的知識段落。
+ *
+ * 只用 documentText —— 附件是 PDF／影像時無法在此讀出文字，
+ * 此時不注入領域知識，寧可少給也不要給錯領域的詞彙。
+ */
+function knowledgeFor(
+  input: WizardPassInput,
+  briefs: ((
+    m: ReturnType<typeof matchDomain>,
+    text?: string | null,
+  ) => string | null)[],
+): string | undefined {
+  const match = matchDomain(input.documentText);
+  const parts = briefs
+    .map((f) => f(match, input.documentText))
+    .filter(Boolean) as string[];
+  return parts.length ? parts.join("\n\n") : undefined;
+}
+
 /** 每段都回傳 reply，讓費思能就該段狀況說一句話。 */
 export type PassResult<T> = { reply?: string; data: T };
 
@@ -1228,7 +1255,8 @@ export async function extractScopeItems(
       AI_WIZARD_SCOPE_PROMPT,
       input,
       SCOPE_SCHEMA,
-      undefined,
+      // 領域詞彙協助辨識專有名詞（如「沉箱」「攔污柵」），避免抄錯字
+      knowledgeFor(input, [domainBrief]),
       WIZARD_MAX_TOKENS,
       "project-build:scope",
     ),
@@ -1315,7 +1343,12 @@ export async function planWorkPackages(
       AI_WIZARD_PACKAGES_PROMPT,
       input,
       PACKAGES_SCHEMA,
-      scopeListing(scopeItems),
+      [
+        scopeListing(scopeItems),
+        knowledgeFor(input, [domainBrief, workItemShapeBrief]),
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
       WIZARD_MAX_TOKENS,
       "project-build:packages",
     ),
@@ -1407,7 +1440,12 @@ export async function extractObligations(
       AI_WIZARD_OBLIGATIONS_PROMPT,
       input,
       OBLIGATIONS_SCHEMA,
-      scopeListing(scopeItems),
+      [
+        scopeListing(scopeItems),
+        knowledgeFor(input, [managementPatternBrief]),
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
       // 履約標的清單＋15-40 項應辦事項，加上思考佔用的四分之一預算
       WIZARD_MAX_TOKENS,
       "project-build:obligations",
@@ -1637,6 +1675,10 @@ export async function extractWorkItems(
         .join("\n")}`,
     );
   }
+  // 分項的組織方式（構造物單元 × 工序）對這一段最關鍵
+  const shape = knowledgeFor(input, [workItemShapeBrief, domainBrief]);
+  if (shape) sections.push(shape);
+
   const listing = sections.length > 0 ? sections.join("\n\n") : undefined;
 
   const raw = await askStructured<{ reply?: unknown; workItems?: unknown }>(
