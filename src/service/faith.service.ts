@@ -2,6 +2,7 @@ import {
   GEMINI_ENDPOINT,
   DEFAULT_AI_MODEL,
   AI_SYSTEM_PROMPT,
+  AI_CHAT_RETRIEVAL_PROMPT,
   AI_DOC_ANALYSIS_PROMPT,
   AI_IMAGE_ANALYSIS_PROMPT,
   AI_SCREEN_FOCUS_PROMPT,
@@ -28,6 +29,7 @@ import {
   matchDomain,
   workItemShapeBrief,
 } from "@/service/domain-match";
+import { lookupReference } from "@/constant/domain-knowledge";
 import * as docRepo from "@/repository/approvalDocument.repository";
 import * as storage from "@/service/storage.service";
 import { logInteraction } from "@/service/faithLog.service";
@@ -393,6 +395,13 @@ export type FaithRequest = {
   context?: string;
   /** 原生判讀的附件（PDF／影像） */
   attachment?: FaithAttachment;
+  /**
+   * 多份原生附件。
+   *
+   * 對話檢索會一次帶上數份調閱到的 PDF，故不能只留單數的 attachment；
+   * 兩者並存時一併送出（attachment 是使用者當下上傳的那一份）。
+   */
+  attachments?: FaithAttachment[];
   maxOutputTokens?: number;
   /** contents 為空時的預設提問 */
   fallbackPrompt?: string;
@@ -413,11 +422,14 @@ function buildFaithContents(req: FaithRequest): GeminiContent[] {
     contents.push({ role: "user", parts: [{ text: req.context }] });
   }
 
-  if (req.attachment?.data) {
+  const files = [req.attachment, ...(req.attachments ?? [])].filter(
+    (a): a is FaithAttachment => Boolean(a?.data),
+  );
+  for (const att of files) {
     const filePart: Part = {
       inlineData: {
-        mimeType: req.attachment.mimeType || "application/octet-stream",
-        data: req.attachment.data,
+        mimeType: att.mimeType || "application/octet-stream",
+        data: att.data,
       },
     };
     const last = contents[contents.length - 1];
@@ -459,21 +471,85 @@ export async function askStructured<T = Record<string, unknown>>(
   return parseJsonLoose<T>(text);
 }
 
-// Info: (20260721 - Luphia) AI 面板使用的多輪對話，可帶一個 inline 附件
+/**
+ * AI 面板使用的多輪對話。
+ *
+ * `retrieved` 是系統代為調閱的專案資料（文件全文、查表結果與原檔）。
+ * 帶著它時上限放寬 —— 引用實際條文與數據的回答本來就比通則長，
+ * 沿用 1024 會在列到第三條就被截斷。
+ */
 export async function chat(
   messages: FaithMessage[],
   attachment?: FaithAttachment,
+  retrieved?: { context?: string; attachments?: FaithAttachment[] },
 ): Promise<string> {
-  if (messages.every((m) => !m.text.trim()) && !attachment?.data) {
+  const hasRetrieved = Boolean(
+    retrieved?.context?.trim() || retrieved?.attachments?.length,
+  );
+  if (messages.every((m) => !m.text.trim()) && !attachment?.data && !hasRetrieved) {
     throw new FaithError("failed", { hint: "訊息內容為空，請輸入問題或附上檔案。" });
   }
   return ask({
     instruction: AI_SYSTEM_PROMPT,
     task: "chat",
     messages,
+    context: retrieved?.context,
     attachment,
-    maxOutputTokens: attachment ? 1536 : 1024,
+    attachments: retrieved?.attachments,
+    maxOutputTokens: hasRetrieved ? 4096 : attachment ? 1536 : 1024,
     fallbackPrompt: "請分析這個附件，並以繁體中文摘要重點。",
+  });
+}
+
+/** 檢索規劃的輸出上限。只需一句理由與幾個代號，不必大。 */
+const RETRIEVAL_PLAN_MAX_TOKENS = 1536;
+
+/**
+ * 對話檢索的第一段：判斷是否需要調閱本專案的資料，以及調閱哪些。
+ *
+ * propertyOrdering 把 reason 排在最前面是刻意的：Gemini 依序生成欄位，
+ * 先寫理由等於強迫它先想過再挑，直接讓它挑會挑得很隨便。
+ *
+ * 回傳 null 表示規劃失敗（模型不可用或輸出無法解析），
+ * 由呼叫端退回一般對話 —— 檢索是加分，不該讓對話整個壞掉。
+ */
+export async function planRetrieval(input: {
+  question: string;
+  manifest: string;
+  datasetIds: string[];
+}): Promise<{
+  reason?: string;
+  needed?: boolean;
+  files?: string[];
+  datasets?: string[];
+} | null> {
+  const schema: ResponseSchema = {
+    type: "object",
+    properties: {
+      reason: { type: "string", description: "一句話說明判斷依據" },
+      needed: { type: "boolean", description: "是否需要調閱資料" },
+      files: {
+        type: "array",
+        description: "要調閱的檔案代號，如 F3；不需要時為空陣列",
+        items: { type: "string" },
+      },
+      datasets: {
+        type: "array",
+        description: "要查詢的系統資料 id；不需要時為空陣列",
+        items: { type: "string", enum: input.datasetIds },
+      },
+    },
+    required: ["reason", "needed", "files", "datasets"],
+    propertyOrdering: ["reason", "needed", "files", "datasets"],
+  };
+
+  return askStructured({
+    instruction: AI_CHAT_RETRIEVAL_PROMPT,
+    task: "chat:retrieval-plan",
+    context: input.manifest,
+    messages: [{ role: "user", text: `使用者的問題：${input.question}` }],
+    maxOutputTokens: RETRIEVAL_PLAN_MAX_TOKENS,
+    schema,
   });
 }
 
@@ -701,6 +777,14 @@ export type WizardWorkItem = {
   workPackage?: string;
   /** 源自哪一項履約標的（名稱），由所屬工程項目繼承。 */
   scopeRef?: string;
+  /** WBS 代碼（估驗台帳用）。 */
+  wbsCode?: string;
+  /** 計量單位。契約詳細價目表有列則照抄，否則依參考清單推斷。 */
+  unit?: string;
+  /** 契約數量。僅在契約明列時填入，不得推估。 */
+  contractQty?: number;
+  /** 單價。僅在契約明列時填入，不得推估。 */
+  unitPrice?: number;
 };
 
 export type ProjectWizardResult = {
@@ -1074,6 +1158,23 @@ const str = (v: unknown) =>
   typeof v === "string" && v.trim() ? v.trim() : undefined;
 const pickEnumValue = (valid: string[], v: unknown) =>
   typeof v === "string" && valid.includes(v) ? v : undefined;
+
+/**
+ * 數值欄位（契約數量、單價）。
+ *
+ * 只接受能明確解析的正數，其餘一律 undefined ——
+ * 這些數字會直接進到估驗台帳成為對帳依據，
+ * 寧可留白讓人補，也不能讓「約 1,200」這種字樣變成一個看似精確的數字。
+ * 千分位逗號是模型常見的輸出，允許並去除。
+ */
+const numeric = (v: unknown): number | undefined => {
+  if (typeof v === "number") return Number.isFinite(v) && v >= 0 ? v : undefined;
+  if (typeof v !== "string") return undefined;
+  const s = v.trim().replace(/,/g, "");
+  if (!/^\d+(\.\d+)?$/.test(s)) return undefined;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : undefined;
+};
 
 /** 各段共用的送件組裝：文件文字以 context 傳入，維持 faith 溝通規範。 */
 function passRequest(
@@ -1627,6 +1728,10 @@ const WORKITEMS_SCHEMA: ResponseSchema = {
           code: S("分項編號，無則空字串"),
           name: S("工程分項名稱"),
           category: S("工種／類別"),
+          wbsCode: S("WBS 代碼，如 WBS-2.1；契約未編則留空"),
+          unit: S("計量單位，如 m3、m、m2、t、組、座、支、式、月"),
+          contractQty: S("契約數量，僅阿拉伯數字不含逗號與單位；契約未列則留空"),
+          unitPrice: S("單價（新臺幣元），僅阿拉伯數字；契約未列則留空"),
           workPackage: S("所屬工程項目名稱，須與清單完全一致"),
           obligation: S("所屬履約事項名稱，須與清單一致；無法對應留空"),
           plannedStart: S("預定開始 YYYY-MM-DD"),
@@ -1637,6 +1742,10 @@ const WORKITEMS_SCHEMA: ResponseSchema = {
           "code",
           "name",
           "category",
+          "wbsCode",
+          "unit",
+          "contractQty",
+          "unitPrice",
           "obligation",
           "plannedStart",
           "plannedEnd",
@@ -1713,6 +1822,12 @@ export async function extractWorkItems(
     const pkg = str(w.workPackage);
     // 對應不到清單的工程項目名稱丟棄，避免產生孤兒分群
     const known = pkg && scopeOfPackage.has(pkg) ? pkg : undefined;
+    /*
+      單位與類別可由參考清單補齊：模型讀出名稱卻漏了單位時，
+      名稱恰好對得上知識庫就用參考值，省下使用者逐項回填。
+      契約明寫的單位優先 —— 參考值只是預設，不該蓋掉契約。
+    */
+    const reference = lookupReference(name);
     out.push({
       code: str(w.code),
       name,
@@ -1723,6 +1838,10 @@ export async function extractWorkItems(
       workPackage: known,
       // 來源由所屬工程項目繼承，模型不必也不該自行填
       scopeRef: known ? scopeOfPackage.get(known) : undefined,
+      wbsCode: str(w.wbsCode),
+      unit: str(w.unit) ?? reference?.unit,
+      contractQty: numeric(w.contractQty),
+      unitPrice: numeric(w.unitPrice),
     });
   }
   return { reply: str(raw.reply), data: out };

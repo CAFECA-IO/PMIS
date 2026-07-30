@@ -107,6 +107,25 @@ export async function logInteraction(input: InteractionInput): Promise<void> {
   await append(entry);
 }
 
+/**
+ * 記下一段過程說明（非模型呼叫）。
+ * 沿用請求範圍的脈絡，因此與同一次送出的模型呼叫在紀錄裡自然相鄰。
+ */
+export async function logNote(topic: string, text: string): Promise<void> {
+  const ctx = currentLogContext();
+  await append({
+    kind: "note",
+    ts: new Date().toISOString(),
+    conversationId: ctx.conversationId,
+    turnId: ctx.turnId,
+    route: ctx.route,
+    userId: ctx.userId,
+    userName: ctx.userName,
+    topic,
+    text: clip(text).text,
+  });
+}
+
 export type FeedbackInput = {
   conversationId?: string;
   turnId?: string;

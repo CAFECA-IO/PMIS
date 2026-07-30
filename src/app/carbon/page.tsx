@@ -6,7 +6,6 @@ import * as projectService from "@/service/project.service";
 import { requireUser } from "@/service/auth.service";
 import { assertModuleAccess } from "@/service/access.service";
 import { PageHeader } from "@/components/page-header";
-import { CarbonProjectSwitcher } from "./carbon-project-switcher";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatRows } from "@/components/charts";
 import {
@@ -20,6 +19,7 @@ import {
 import { carbonScopeMeta, carbonScopeColor } from "@/constant/pmis";
 import { CARBON_SCOPES } from "@/service/carbon.calc";
 import { CarbonTab } from "../projects/[id]/carbon-tab";
+import { withProject } from "@/lib/project-link";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "碳盤查 — PMIS" };
@@ -43,12 +43,6 @@ export default async function CarbonPage({
       section="04 工程執行與查核"
         title="碳盤查"
       description="溫室氣體盤查與跨專案彙總（僅顯示您可檢視的專案）"
-      action={
-        <CarbonProjectSwitcher
-          projects={projectList.map((p) => ({ id: p.id, name: p.name }))}
-          selected={selectedProjectId}
-        />
-      }
     />
   );
 
@@ -143,7 +137,7 @@ export default async function CarbonPage({
                   {summary.projects.map((p) => (
                     <div key={p.projectId} className="flex items-center gap-2 text-sm">
                       <Link
-                        href={`/carbon?project=${p.projectId}`}
+                        href={withProject("/carbon", p.projectId)}
                         className="w-40 shrink-0 truncate text-primary hover:underline"
                       >
                         {p.projectName}
@@ -197,7 +191,7 @@ export default async function CarbonPage({
                       </TableCell>
                       <TableCell className="text-right">
                         <Link
-                          href={`/carbon?project=${p.projectId}`}
+                          href={withProject("/carbon", p.projectId)}
                           className="text-sm text-primary hover:underline"
                         >
                           檢視

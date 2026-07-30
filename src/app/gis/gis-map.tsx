@@ -14,6 +14,7 @@ import {
   deleteFeatureAction,
   setProjectLocationAction,
 } from "./actions";
+import { withProject } from "@/lib/project-link";
 
 export type MapLayer = {
   id: string;
@@ -370,7 +371,7 @@ export function GisMap({
       const color = f.color ?? "#7c3aed";
       const linkHtml =
         f.linkModule && MODULE_HREF[f.linkModule] && selectedProjectId
-          ? `<br/><a href="${MODULE_HREF[f.linkModule]}?project=${selectedProjectId}" style="color:#2563eb;text-decoration:underline">🔗 檢視${MODULE_LABEL[f.linkModule] ?? "關聯項目"}</a>`
+          ? `<br/><a href="${withProject(MODULE_HREF[f.linkModule], selectedProjectId)}" style="color:#2563eb;text-decoration:underline">🔗 檢視${MODULE_LABEL[f.linkModule] ?? "關聯項目"}</a>`
           : "";
       const popup = `<b>${escapeHtml(f.name)}</b> <span style="color:#94a3b8">(${
         TYPE_LABEL[f.type] ?? f.type

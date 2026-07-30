@@ -6,7 +6,6 @@ import { assertModuleAccess, canEditModule } from "@/service/access.service";
 import * as gisService from "@/service/gis.service";
 import * as projectService from "@/service/project.service";
 import { PageHeader } from "@/components/page-header";
-import { ProjectSwitcher } from "@/components/project-switcher";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { GisMap } from "./gis-map";
@@ -44,12 +43,6 @@ export default async function GisPage({
         section="05 空間與現場資訊"
         title="GIS 地圖"
         description="PMIS-12 · 政府圖資套疊 OSM 白底底圖，工地周邊風險判讀與專案空間管理"
-        action={
-          <ProjectSwitcher
-            projects={projectList.map((p) => ({ id: p.id, name: p.name }))}
-            selected={selected}
-          />
-        }
       />
       <div className="space-y-4 p-4 sm:p-6">
         {risk && (

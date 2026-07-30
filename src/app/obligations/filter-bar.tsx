@@ -12,13 +12,16 @@ import {
   obligationStageOptions,
   obligationStatusOptions,
 } from "@/constant/obligation";
+import { obligationFilterHref } from "@/service/obligation-view";
 
 /**
  * 篩選條件在本地暫存，按下「套用篩選」才寫入 URL 查詢字串。
  * 條件放在 URL 上，重新整理與分享連結都會保留同一份檢視。
+ *
+ * 專案不在這裡切換 —— 全系統統一由左上角選單指定目前專案，
+ * 這條篩選只負責事項本身的條件，並把專案參數原樣帶過去。
  */
 export type ObligationFilterState = {
-  project: string;
   q: string;
   stage: string;
   risk: string;
@@ -26,7 +29,6 @@ export type ObligationFilterState = {
 };
 
 const EMPTY: ObligationFilterState = {
-  project: "all",
   q: "",
   stage: "all",
   risk: "all",
@@ -34,24 +36,18 @@ const EMPTY: ObligationFilterState = {
 };
 
 export function ObligationFilterBar({
-  projects,
+  project,
   initial,
 }: {
-  projects: { id: string; name: string }[];
+  /** 目前專案；由網址而非本元件決定 */
+  project: string | null;
   initial: ObligationFilterState;
 }) {
   const router = useRouter();
   const [state, setState] = useState<ObligationFilterState>(initial);
 
   function apply(next: ObligationFilterState) {
-    const sp = new URLSearchParams();
-    if (next.project !== "all") sp.set("project", next.project);
-    if (next.q.trim()) sp.set("q", next.q.trim());
-    if (next.stage !== "all") sp.set("stage", next.stage);
-    if (next.risk !== "all") sp.set("risk", next.risk);
-    if (next.status !== "all") sp.set("status", next.status);
-    const qs = sp.toString();
-    router.push(qs ? `/obligations?${qs}` : "/obligations");
+    router.push(obligationFilterHref(project, next));
   }
 
   const set = <K extends keyof ObligationFilterState>(
@@ -63,25 +59,12 @@ export function ObligationFilterBar({
 
   return (
     <form
-      className="grid grid-cols-1 gap-2 rounded-lg border bg-card p-3 @[560px]:grid-cols-2 @[1080px]:grid-cols-[minmax(180px,1fr)_minmax(200px,1.4fr)_140px_130px_140px_auto]"
+      className="grid grid-cols-1 gap-2 rounded-lg border bg-card p-3 @[560px]:grid-cols-2 @[1080px]:grid-cols-[minmax(220px,1.6fr)_140px_130px_140px_auto]"
       onSubmit={(e) => {
         e.preventDefault();
         apply(state);
       }}
     >
-      <Select
-        aria-label="專案"
-        value={state.project}
-        onChange={(e) => set("project", e.target.value)}
-      >
-        <option value="all">全部專案</option>
-        {projects.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
-      </Select>
-
       <Input
         aria-label="關鍵字"
         placeholder="搜尋事項名稱、編號、契約依據或責任人"

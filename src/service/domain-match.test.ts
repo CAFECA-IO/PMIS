@@ -12,7 +12,12 @@ import {
   workItemShapeBrief,
   MAX_WORK_ITEM_HINTS,
 } from "./domain-match";
-import { DOMAINS, totalWorkItems } from "@/constant/domain-knowledge";
+import {
+  DOMAINS,
+  lookupReference,
+  totalWorkItems,
+} from "@/constant/domain-knowledge";
+import { WBS_CATEGORIES, isWorkUnit } from "@/constant/ledger";
 
 /**
  * 取自真實文件：彰化縣和美鎮污水下水道系統第一期水資源回收中心新建工程
@@ -220,8 +225,8 @@ test("同一領域內的分項不得重複", () => {
   for (const d of DOMAINS) {
     const seen = new Set<string>();
     for (const w of d.workItems) {
-      assert.ok(!seen.has(w), `${d.id} 內重複：${w}`);
-      seen.add(w);
+      assert.ok(!seen.has(w.name), `${d.id} 內重複：${w.name}`);
+      seen.add(w.name);
     }
   }
 });
@@ -231,14 +236,101 @@ test("分項名稱不得混入英文或空白異常", () => {
   // 但不得有連續空格或前後空白。
   const ok = /^[一-鿿（）()０-９0-9A-Z]+(?: [一-鿿（）()０-９0-9A-Z]+)*$/;
   for (const d of DOMAINS) {
-    for (const w of d.workItems) {
-      assert.ok(ok.test(w), `${d.id} 的分項含非預期字元：${w}`);
-      assert.doesNotMatch(w, /  /, `${d.id} 的分項含連續空格：${w}`);
-      assert.equal(w, w.trim(), `${d.id} 的分項有前後空白：${w}`);
-      assert.ok(w.length >= 3, `${d.id} 的分項過短，不像分項名：${w}`);
-      assert.ok(w.length <= 20, `${d.id} 的分項過長：${w}`);
+    for (const { name } of d.workItems) {
+      assert.ok(ok.test(name), `${d.id} 的分項含非預期字元：${name}`);
+      assert.doesNotMatch(name, /  /, `${d.id} 的分項含連續空格：${name}`);
+      assert.equal(name, name.trim(), `${d.id} 的分項有前後空白：${name}`);
+      assert.ok(name.length >= 3, `${d.id} 的分項過短，不像分項名：${name}`);
+      assert.ok(name.length <= 20, `${d.id} 的分項過長：${name}`);
     }
   }
+});
+
+// ── 計量單位與 WBS 類別 ─────────────────────────────────────
+test("每一項參考分項都有合法的計量單位", () => {
+  for (const d of DOMAINS) {
+    for (const w of d.workItems) {
+      assert.ok(
+        isWorkUnit(w.unit),
+        `${d.id} 的「${w.name}」單位不在允許清單內：${w.unit}`,
+      );
+    }
+  }
+});
+
+test("每一項參考分項都有合法的 WBS 類別", () => {
+  const ids = new Set(WBS_CATEGORIES.map((c) => c.id as string));
+  for (const d of DOMAINS) {
+    for (const w of d.workItems) {
+      assert.ok(ids.has(w.wbs), `${d.id} 的「${w.name}」類別不合法：${w.wbs}`);
+    }
+  }
+});
+
+test("單位不會全部落在「式」（那等於沒有計量）", () => {
+  const all = DOMAINS.flatMap((d) => d.workItems);
+  const lump = all.filter((w) => w.unit === "式").length;
+  assert.ok(
+    lump / all.length < 0.2,
+    `以「式」計價者佔 ${Math.round((lump / all.length) * 100)}%，過高則無法逐量估驗`,
+  );
+});
+
+test("類別分布涵蓋主要工種，不是全歸一類", () => {
+  const used = new Set<string>(
+    DOMAINS.flatMap((d) => d.workItems.map((w) => w.wbs as string)),
+  );
+  for (const key of ["civil", "pipeline", "mechanical", "electrical"]) {
+    assert.ok(used.has(key), `沒有任何分項屬於 ${key}`);
+  }
+});
+
+test("機電設備以組、台、座或式計，不以尺寸計量", () => {
+  /*
+    只針對「設備」本身，不涵蓋所有「安裝」——
+    管線安裝按長度（不鏽鋼管及管件安裝以 m 計價）、
+    帷幕與舖面安裝按面積，都是正確的實務作法。
+    真正不該出現的是「一台鼓風機以 m3 計價」。
+  */
+  const equipment = /(泵|鼓風機|風機|刮泥機|脫水機|洗砂機|攔污柵|變壓器|發電機|配電盤|儀控盤|閘門|電梯|起重機)/;
+  const allowed = new Set(["組", "台", "座", "式"]);
+  for (const d of DOMAINS) {
+    for (const w of d.workItems) {
+      /*
+        排除兩類「名稱含設備但主體不是設備」的分項：
+        「鼓風機房結構澆置」蓋的是房子（土建，按體積），
+        「鼓風機管路配置」配的是管（按長度）。
+        剩下的才是設備本體，那才該以組、台計。
+      */
+      if (
+        !equipment.test(w.name) ||
+        /(房|室|基座|結構|澆置|基礎|管|線|槽)/.test(w.name)
+      ) {
+        continue;
+      }
+      assert.ok(
+        allowed.has(w.unit),
+        `「${w.name}」是機電設備卻以 ${w.unit} 計量`,
+      );
+    }
+  }
+});
+
+test("可依名稱查回單位與類別（供解讀後回填）", () => {
+  const water = DOMAINS.find((d) => d.id === "water")!;
+  const sample = water.workItems[0];
+  const hit = lookupReference(sample.name);
+  assert.deepEqual(hit, sample);
+  assert.equal(lookupReference("不存在的分項名稱"), null);
+  assert.equal(lookupReference("  "), null);
+});
+
+test("注入的參考分項帶上單位與類別，模型才提得出合理單位", () => {
+  const brief = domainBrief(matchDomain(REPORT), REPORT);
+  assert.ok(brief);
+  assert.match(brief, /名稱｜參考單位｜WBS 類別/);
+  assert.match(brief, /｜m3｜土建工程|｜組｜機械工程/);
+  assert.match(brief, /契約另有訂明者以契約為準/, "須說明單位僅供參考");
 });
 
 test("土木與水利各主要領域都有足夠的分項", () => {

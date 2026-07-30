@@ -94,3 +94,36 @@ export async function addAttachment(auditId: string, file: File, actor: Actor) {
 }
 
 export const getAttachment = (id: string) => ehsRepo.findAttachment(id);
+
+/**
+ * 取稽核附件的內容（含權限判定）。
+ *
+ * 與 fileManager.getFile／faithUpload.getFile 同形，讓需要跨來源取檔的
+ * 呼叫端（如費思對話檢索）能以同一種方式處理三種來源，
+ * 而不必各自複製一份「先查所屬專案、再判斷是否為成員」的邏輯。
+ */
+export async function getAttachmentFile(
+  id: string,
+  viewer: { id: string; role: AccountRole },
+): Promise<
+  | { ok: true; buffer: Buffer; mimeType: string; fileName: string }
+  | { ok: false; reason: "not-found" | "forbidden" }
+> {
+  const attachment = await ehsRepo.findAttachment(id);
+  if (!attachment) return { ok: false, reason: "not-found" };
+
+  const projectId = attachment.audit.projectId;
+  const allowed =
+    canSeeAllProjects(viewer.role) ||
+    Boolean(await memberRepo.exists(projectId, viewer.id));
+  if (!allowed) return { ok: false, reason: "forbidden" };
+
+  const buffer = await storage.read(attachment.storedName);
+  if (!buffer) return { ok: false, reason: "not-found" };
+  return {
+    ok: true,
+    buffer,
+    mimeType: attachment.mimeType,
+    fileName: attachment.fileName,
+  };
+}

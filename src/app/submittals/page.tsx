@@ -7,7 +7,6 @@ import * as projectService from "@/service/project.service";
 import { requireUser } from "@/service/auth.service";
 import { assertModuleAccess, canEditModule } from "@/service/access.service";
 import { PageHeader } from "@/components/page-header";
-import { ProjectSwitcher } from "@/components/project-switcher";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -39,6 +38,7 @@ import {
   deleteWorkflowAction,
   restoreWorkflowAction,
 } from "./actions";
+import { withProject } from "@/lib/project-link";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "簽核管理 — PMIS" };
@@ -88,7 +88,9 @@ export default async function SubmittalsPage({
         activePeriod,
       ),
     ]);
-  const projectQuery = selectedProjectId ? `&project=${selectedProjectId}` : "";
+  /** 頁內分頁連結一律帶上目前專案，切換分頁不會掉選定的專案。 */
+  const tabHref = (query: string) =>
+    withProject(`/submittals?${query}`, selectedProjectId);
 
   const applicantOptions = accounts.map((a) => ({ id: a.id, name: a.name }));
   const workflowOptions = workflows.map((w) => ({ id: w.id, name: w.name }));
@@ -99,19 +101,13 @@ export default async function SubmittalsPage({
         section="03 文件與協作"
         title="簽核管理"
         description="PMIS-06 · 設定簽核流程、建立簽核文件並逐關簽核"
-        action={
-          <ProjectSwitcher
-            projects={projectList.map((p) => ({ id: p.id, name: p.name }))}
-            selected={selectedProjectId}
-          />
-        }
       />
 
       <div className="flex gap-1 overflow-x-auto border-b px-4 sm:px-8">
         {TABS.map((t) => (
           <Link
             key={t.key}
-            href={`/submittals?tab=${t.key}${projectQuery}`}
+            href={tabHref(`tab=${t.key}`)}
             className={cn(
               "-mb-px border-b-2 px-4 py-3 text-sm font-medium transition-colors",
               active === t.key
@@ -174,7 +170,7 @@ export default async function SubmittalsPage({
                   {PERIODS.map((p) => (
                     <Link
                       key={p.value}
-                      href={`/submittals?tab=overview&period=${p.value}${projectQuery}`}
+                      href={tabHref(`tab=overview&period=${p.value}`)}
                       className={cn(
                         "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
                         activePeriod === p.value

@@ -3,7 +3,6 @@ import * as projectService from "@/service/project.service";
 import { requireUser } from "@/service/auth.service";
 import { assertModuleAccess, canEditModule } from "@/service/access.service";
 import { PageHeader } from "@/components/page-header";
-import { ProjectSwitcher } from "@/components/project-switcher";
 import { Badge } from "@/components/ui/badge";
 import { ehsTypeMeta } from "@/constant/pmis";
 import { formatDate } from "@/lib/utils";
@@ -36,10 +35,6 @@ export default async function EhsPage({
         description="PMIS-05 · 環境、職安衛、交通維持督導與稽核紀錄"
         action={
           <div className="flex items-center gap-2">
-            <ProjectSwitcher
-              projects={projectList.map((p) => ({ id: p.id, name: p.name }))}
-              selected={selectedProjectId}
-            />
             {canEdit && (
               <EhsForm
                 projects={projectList.map((p) => ({ id: p.id, name: p.name }))}

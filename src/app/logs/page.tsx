@@ -10,7 +10,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ProjectSwitcher } from "@/components/project-switcher";
 import { reportStatusMeta } from "@/constant/pmis";
 import { formatDate } from "@/lib/utils";
 import { CreateRecordDialog } from "@/components/ui/create-record-dialog";
@@ -46,7 +45,7 @@ export default async function LogsPage({
       <>
         <PageHeader
           section="03 文件與協作"
-          title="工程日誌"
+        title="工程日誌"
           description="日報由監造人員填報；週/月/季/年報由費思 AI 彙整（PMIS-11）"
         />
         <div className="p-8">
@@ -71,12 +70,6 @@ export default async function LogsPage({
         section="03 文件與協作"
           title="工程日誌"
         description="日報由監造人員填報（監造報表）；週/月/季/年報由費思 AI 彙整（PMIS-11）"
-        action={
-          <ProjectSwitcher
-            projects={projectList.map((p) => ({ id: p.id, name: p.name }))}
-            selected={selected.id}
-          />
-        }
       />
       <div className="space-y-6 p-8">
         {/* 日報（監造報表，人工填報） */}

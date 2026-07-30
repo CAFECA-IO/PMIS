@@ -32,6 +32,10 @@ model Project {
   lng         Float? // 工地經度 (WGS84)
   startDate   DateTime?
   endDate     DateTime?
+  /// 契約簽訂日。履約事項的相對期限常自簽約日起算，且不必等於開工日
+  signedDate DateTime?
+  /// 開工命令日（機關通知開工之日），同樣是常見的期限起算基準
+  noticeDate DateTime?
   status      ProjectStatus @default(PLANNING)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -290,6 +294,20 @@ model WorkItem {
   actualEnd    DateTime?
   progress     Int            @default(0) // percent 0-100
   status       WorkItemStatus @default(NOT_STARTED)
+
+  // ── 數量與估驗（詳細工項數量與估驗台帳）──────────────────
+  // 一項工程分項在台帳上就是一列價目。以下六欄是資料，
+  // 契約複價（數量×單價）與完成率一律推導，不另存欄位 ——
+  // 存了就會出現「金額與數量對不起來」而無從判斷誰是真的。
+  wbsCode      String? // 台帳上的 WBS 代碼，如 WBS-2.1
+  wbsCategory  String? // WBS 類別 id（土建／管線／機械／電氣儀控／職安環保／間接費）
+  unit         String? // 計量單位，如 m3、m、組、式
+  contractQty  Decimal? // 契約數量
+  unitPrice    Decimal? // 單價
+  completedQty Decimal? // 累計完成量（人工更新）
+  inspectedQty Decimal? // 查驗合格量
+  valuatedQty  Decimal? // 累計估驗量
+
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
@@ -451,10 +469,26 @@ model ContractObligation {
   /// 計入試運轉就緒度
   commissioning Boolean @default(false)
 
-  /// RELATIVE_DUE 用：相對基準日的提前／延後天數
+  /// 偏移天數：相對期限與前置事項共用，負數代表基準點之前
   offsetDays Int?
-  docNo      String? // 核准文號（展延）
-  note       String?
+
+  // ── 觸發設定（決定期限如何得出）──────────────────────────
+  // 四種觸發方式各需不同的輸入。先前四種都只有一個日期欄位，於是
+  // 相對期限、前置事項、條件觸發的依據無處可存，契約工期一改就沒人
+  // 知道哪些期限該跟著動。
+  /// 相對期限的基準點（PROJECT_START／CONTRACT_SIGNED／MONTHLY…）
+  relativeAnchor String?
+  /// 前置事項；被指定者刪除時僅解除關聯，不連帶刪除本事項
+  predecessorId String?
+  /// 條件類型（AGENCY_ACTION／WORK_EVENT／THRESHOLD）
+  conditionKind String?
+  /// 條件說明（取自該類型的可選模式）
+  conditionDetail String?
+  /// 期限經人工指定，不隨觸發設定重新推算
+  dueDateOverridden Boolean @default(false)
+
+  docNo String? // 核准文號（展延）
+  note  String?
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -467,11 +501,16 @@ model ContractObligation {
   scopeItem ContractScopeItem? @relation(fields: [scopeItemId], references: [id], onDelete: SetNull)
   workItems WorkItem[] // 歸屬此履約事項的工程分項
 
+  /// 前置事項的自我關聯：甲以乙為前置時，乙延期則甲的期限跟著動
+  predecessor ContractObligation?  @relation("ObligationChain", fields: [predecessorId], references: [id], onDelete: SetNull)
+  successors  ContractObligation[] @relation("ObligationChain")
+
   @@unique([projectId, code])
   @@index([projectId])
   @@index([status])
   @@index([stage])
   @@index([scopeItemId])
+  @@index([predecessorId])
 }
 
 /// 履約事項所屬階段

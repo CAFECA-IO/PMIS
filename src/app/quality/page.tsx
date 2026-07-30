@@ -3,7 +3,6 @@ import * as projectService from "@/service/project.service";
 import { requireUser } from "@/service/auth.service";
 import { assertModuleAccess, canEditModule } from "@/service/access.service";
 import { PageHeader } from "@/components/page-header";
-import { ProjectSwitcher } from "@/components/project-switcher";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -54,17 +53,11 @@ export default async function QualityPage({
         section="04 工程執行與查核"
         title="品質稽核管理"
         description="PMIS-07 · 施工品質抽查、材料設備抽驗與缺失改善追蹤"
-        action={
-          <ProjectSwitcher
-            projects={projectList.map((p) => ({ id: p.id, name: p.name }))}
-            selected={selectedProjectId}
-          />
-        }
       />
       <div className="space-y-6 p-8">
         {!selectedProjectId ? (
           <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
-            於右上角選擇<b>單一專案</b>後，即可新增查驗與缺失，並指定其「所屬分項」（連結 PMIS-04 工程分項）。
+            於左側選單的<b>目前專案</b>選定單一專案後，即可新增查驗與缺失，並指定其「所屬分項」（連結 PMIS-04 工程分項）。
           </p>
         ) : canEdit ? (
           <div className="flex flex-wrap justify-end gap-2">

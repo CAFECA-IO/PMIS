@@ -30,6 +30,7 @@ import { cn, formatDate } from "@/lib/utils";
 import { createInventoryAction } from "./carbon-actions";
 import { CarbonEntryForm } from "./carbon-entry-form";
 import { CarbonEntryRowActions } from "./carbon-entry-row-actions";
+import { withProject } from "@/lib/project-link";
 
 const num = (v: unknown) => (v == null ? 0 : Number(v));
 
@@ -116,7 +117,7 @@ export async function CarbonTab({
           {inventories.map((inv) => (
             <Link
               key={inv.id}
-              href={`/carbon?project=${projectId}&inv=${inv.id}`}
+              href={withProject(`/carbon?inv=${inv.id}`, projectId)}
               className={cn(
                 "rounded-full border px-3 py-1 text-xs transition-colors",
                 inv.id === selectedId

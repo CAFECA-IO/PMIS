@@ -6,15 +6,8 @@ import { Loader2, Plus, Sparkles, UploadCloud, X, FileText } from "lucide-react"
 
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-provider";
-import { useNotification } from "@/components/ui/notification";
-import { useAiAssistant } from "@/components/ai-assistant-context";
-import { findAssistSpec, type FormAssistId } from "@/constant/form-assist";
-import {
-  fillSummary,
-  offerCopy,
-  planFill,
-  type Patch,
-} from "@/service/form-assist";
+import { useFormAssist } from "@/components/use-form-assist";
+import type { FormAssistId } from "@/constant/form-assist";
 import { cn } from "@/lib/utils";
 
 /**
@@ -28,18 +21,6 @@ import { cn } from "@/lib/utils";
  *
  * 各模組只需提供 action（server action）與表單欄位，即可獲得一致的新建體驗。
  */
-
-/**
- * 已詢問過的表單（本次瀏覽期間）。
- *
- * 放在模組層級而非元件狀態：對話框關閉即卸載，狀態會消失，
- * 使用者反覆開關同一表單就會被反覆詢問。改頁（client navigation）
- * 也不重置，符合「同一表單只問一次」。整頁重載才會歸零。
- *
- * 不另外記錄「已拒絕」：問過就不再問，兩者行為相同；
- * 想事後求助的人一律走表單內常駐的「請費思協助」。
- */
-const asked = new Set<string>();
 
 export function CreateRecordDialog({
   title,
@@ -73,9 +54,6 @@ export function CreateRecordDialog({
 }) {
   const router = useRouter();
   const confirm = useConfirm();
-  const { notify } = useNotification();
-  const { task, startTask, endTask, working, registerOffer } =
-    useAiAssistant();
   const [open, setOpen] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -85,11 +63,14 @@ export function CreateRecordDialog({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
 
-  const spec = findAssistSpec(assistId);
-  const aiTaskId = spec ? `form-assist:${spec.id}` : null;
-  const assisting = aiTaskId != null && task?.id === aiTaskId;
-  // 判讀期間表單淡化並停止輸入，避免與 AI 回填衝突
-  const locked = assisting && working;
+  // 費思表單助手：主動詢問、右下角入口、判讀期間鎖定，與細節頁共用同一套
+  const { spec, assisting, locked, handToFaith } = useFormAssist({
+    assistId,
+    active: open,
+    formRef,
+    // 有寫入就算有未儲存變更，關閉時才會出現確認
+    onFilled: () => setDirty(true),
+  });
 
   const fileLabel = (files: FileList) =>
     files.length > 1 ? `${files.length} 個檔案` : files[0]?.name ?? null;
@@ -112,150 +93,6 @@ export function CreateRecordDialog({
     setFileName(null);
     setDragOver(false);
   }
-
-  /**
-   * 讀出表單目前各欄位的值。
-   *
-   * 直接讀 DOM 而非維護一份 React state：本元件的欄位由各模組以 children
-   * 自由提供且皆為非受控輸入（靠 FormData 送出）。要判斷「使用者是否已填」
-   * 只能問 DOM，這也是唯一與所有呼叫端都相容的做法。
-   */
-  function currentValues(): Record<string, string> {
-    const out: Record<string, string> = {};
-    const form = formRef.current;
-    if (!form || !spec) return out;
-    for (const f of spec.fields) {
-      const el = form.elements.namedItem(f.name);
-      if (!el) continue;
-      if (el instanceof HTMLInputElement && el.type === "checkbox") {
-        out[f.name] = el.checked ? "on" : "";
-      } else if (
-        el instanceof HTMLInputElement ||
-        el instanceof HTMLSelectElement ||
-        el instanceof HTMLTextAreaElement
-      ) {
-        out[f.name] = el.value;
-      }
-    }
-    return out;
-  }
-
-  /** 把費思判讀的值寫進表單。已填欄位不覆蓋（由 planFill 決定）。 */
-  function applyPatch(patch: Patch, rejected: string[], reply?: string) {
-    if (!spec) return;
-    const plan = planFill(spec.fields, patch, currentValues());
-    const form = formRef.current;
-
-    for (const action of plan.fill) {
-      const el = form?.elements.namedItem(action.name);
-      if (el instanceof HTMLInputElement && el.type === "checkbox") {
-        el.checked = action.value === "on";
-      } else if (
-        el instanceof HTMLInputElement ||
-        el instanceof HTMLSelectElement ||
-        el instanceof HTMLTextAreaElement
-      ) {
-        el.value = action.value;
-      }
-    }
-    // 有寫入就算有未儲存變更，關閉時才會出現確認
-    if (plan.fill.length > 0) setDirty(true);
-
-    return fillSummary(plan, rejected, reply);
-  }
-
-  /** 把這張表單交給費思當助手。 */
-  function handToFaith() {
-    if (!spec || !aiTaskId) return;
-    // 交給費思前先記為已詢問，避免助手回填後又跳出詢問
-    asked.add(spec.id);
-
-    startTask({
-      id: aiTaskId,
-      title: spec.title,
-      greeting: [
-        `好的，我來協助您填寫「${spec.title}」。`,
-        "",
-        spec.accept
-          ? "您可以**上傳相關文件**（PDF、圖片、Word、Excel、PowerPoint、純文字），或直接用文字描述。"
-          : "請用文字描述您要建立的內容。",
-        "",
-        `我會判讀出可對應的欄位並填入左側表單，共 ${spec.fields.length} 個欄位。**您已經填過的欄位我不會覆蓋。**`,
-        "",
-        "判讀結果請務必於表單上核對後再儲存。",
-      ].join("\n"),
-      endpoint: "/api/forms/assist",
-      accept: spec.accept,
-      buildBody: ({ messages, attachment }) => ({
-        specId: spec.id,
-        messages,
-        attachment,
-      }),
-      // 回傳整理好的說明取代模型的 reply：只有這裡知道實際填了哪些欄位
-      onResult: (data) => {
-        const patch = (data.patch ?? {}) as Patch;
-        const rejected = Array.isArray(data.rejected)
-          ? (data.rejected as string[])
-          : [];
-        return applyPatch(
-          patch,
-          rejected,
-          typeof data.reply === "string" ? data.reply : undefined,
-        );
-      },
-    });
-  }
-
-  /*
-    對話框開啟期間，向右下角的費思註冊協助入口 ——
-    點費思等同啟動這張表單的代填，而不是開啟無關的一般問答。
-    關閉時解除註冊，費思即回到一般待命。
-  */
-  useEffect(() => {
-    if (!open || !spec || !aiTaskId) return;
-    return registerOffer({
-      taskId: aiTaskId,
-      title: spec.title,
-      start: () => handToFaith(),
-    });
-    // handToFaith 在本元件生命週期內穩定
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, spec?.id, aiTaskId, registerOffer]);
-
-  /**
-   * 開啟表單時主動詢問是否需要協助。
-   *
-   * 以彈出通知詢問而非直接接手：使用者可能只是要手動填兩個欄位，
-   * 逕自展開費思並清空對話會打斷他。同一表單只問一次；
-   * 按下通知的關閉鈕視為拒絕，之後不再詢問。
-   */
-  useEffect(() => {
-    if (!open || !spec) return;
-    // 費思已開啟而自動接手時不必再問
-    if (assisting) return;
-    if (asked.has(spec.id)) return;
-    asked.add(spec.id);
-
-    const copy = offerCopy(spec);
-    notify({
-      title: copy.title,
-      description: copy.description,
-      variant: "info",
-      actionLabel: "好，交給費思",
-      actionIcon: "sparkles",
-      onAction: () => handToFaith(),
-      // 比預設久一些：使用者剛打開表單，注意力還在左側欄位上
-      duration: 12000,
-    });
-    // handToFaith 與 notify 在本元件生命週期內穩定，僅需在開啟時觸發一次
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, spec?.id, assisting]);
-
-  /** 關閉表單時一併結束助手任務，費思不該停在一張已消失的表單上。 */
-  useEffect(() => {
-    if (open || !assisting) return;
-    endTask();
-  }, [open, assisting, endTask]);
 
   async function attemptClose() {
     if (dirty) {

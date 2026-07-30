@@ -34,6 +34,7 @@ import {
   type SCurvePoint,
   type SCurveBasis,
 } from "./scurve";
+import { lookupReference } from "@/constant/domain-knowledge";
 import {
   derivedProgress,
   effectiveObligationActual,
@@ -329,6 +330,9 @@ export type CreateProjectInput = {
   budget?: string;
   startDate?: string;
   endDate?: string;
+  /** 契約簽訂日與開工命令日：履約事項的相對期限以這兩天為基準。 */
+  signedDate?: string;
+  noticeDate?: string;
   status?: string;
 };
 
@@ -405,6 +409,11 @@ export type WizardWorkItemInput = {
   obligation?: string;
   plannedStart?: string;
   plannedEnd?: string;
+  /** 估驗台帳欄位：WBS 代碼、計量單位、契約數量與單價。 */
+  wbsCode?: string;
+  unit?: string;
+  contractQty?: number;
+  unitPrice?: number;
 };
 
 const asDate = (v?: string) => {
@@ -492,10 +501,31 @@ export async function createProjectWithStructure(
         : null,
       workPackage: w.workPackage?.trim() || null,
       scopeItemId: w.scopeRef ? (scopeIdByTitle.get(w.scopeRef.trim()) ?? null) : null,
+      /*
+        數量與單價：契約有列才寫入。
+        完成量、查驗量、估驗量一律留空 —— 建案當下還沒有任何施作，
+        預設為 0 會讓台帳看起來像「已對過帳、數量為零」。
+      */
+      wbsCode: w.wbsCode?.trim() || null,
+      wbsCategory: wbsCategoryOf(name),
+      unit: w.unit?.trim() || null,
+      contractQty: w.contractQty ?? null,
+      unitPrice: w.unitPrice ?? null,
     });
   }
 
   return result;
+}
+
+/**
+ * 由分項名稱推得 WBS 類別。
+ *
+ * 名稱對得上知識庫的參考分項時用它的類別，否則留空由使用者於台帳指定。
+ * 不亂猜是刻意的：錯誤的類別會讓「土建完成幾成」這種彙總失真，
+ * 而空白至少會被彙整頁歸入「其他」而看得出來未分類。
+ */
+function wbsCategoryOf(name: string): string | null {
+  return lookupReference(name)?.wbs ?? null;
 }
 
 export type UpdateProjectInput = Omit<CreateProjectInput, "code">;
@@ -548,6 +578,12 @@ export type ObligationInput = {
   offsetDays?: string;
   docNo?: string;
   note?: string;
+  /** 觸發設定（皆為表單字串）。 */
+  relativeAnchor?: string;
+  predecessorId?: string;
+  conditionKind?: string;
+  conditionDetail?: string;
+  dueDateOverridden?: string;
 };
 
 export async function addObligation(input: ObligationInput) {
@@ -580,14 +616,39 @@ export async function addObligation(input: ObligationInput) {
     offsetDays,
     docNo: input.docNo?.trim() || undefined,
     note: input.note?.trim() || undefined,
+    /*
+      觸發設定：只保留與所選觸發方式相關的欄位。
+      與細節頁的編輯共用同一條規則（見 obligation-edit 的說明）——
+      留著不相關的舊設定，日後換回該方式時會沿用一個早已無意義的值。
+    */
+    relativeAnchor:
+      input.triggerType === "RELATIVE_DUE"
+        ? input.relativeAnchor?.trim() || undefined
+        : undefined,
+    predecessorId:
+      input.triggerType === "PREDECESSOR"
+        ? input.predecessorId?.trim() || undefined
+        : undefined,
+    conditionKind:
+      input.triggerType === "CONDITION"
+        ? input.conditionKind?.trim() || undefined
+        : undefined,
+    conditionDetail:
+      input.triggerType === "CONDITION"
+        ? input.conditionDetail?.trim() || undefined
+        : undefined,
+    dueDateOverridden:
+      input.triggerType !== "FIXED_DATE" &&
+      (input.dueDateOverridden === "on" || input.dueDateOverridden === "true"),
   });
 }
 
-/** 標記履約事項完成（寫入實際完成日並轉為 DONE）。 */
-export async function completeObligation(id: string, actualDate?: string) {
-  const d = actualDate ? new Date(actualDate) : new Date();
-  await obligationRepo.markDone(id, Number.isNaN(d.getTime()) ? new Date() : d);
-}
+/*
+  履約事項的「完成」刻意不放在這裡。
+  完成必須先確認歸屬的工程分項都已完成，那道關卡在
+  obligation.service.completeObligation。留一個未把關的同名函式在此，
+  下一個人多半會就近取用，限制便形同虛設。
+*/
 
 export async function deleteObligation(id: string) {
   await obligationRepo.softDelete(id);

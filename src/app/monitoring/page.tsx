@@ -3,7 +3,6 @@ import { requireUser } from "@/service/auth.service";
 import { assertModuleAccess } from "@/service/access.service";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
-import { ProjectSwitcher } from "@/components/project-switcher";
 import { MonitoringBoard } from "./monitoring-board";
 
 export const dynamic = "force-dynamic";
@@ -32,10 +31,6 @@ export default async function MonitoringPage({
         action={
           <div className="flex items-center gap-2">
             <Badge variant="warning">模擬展示</Badge>
-            <ProjectSwitcher
-              projects={projectList.map((p) => ({ id: p.id, name: p.name }))}
-              selected={selected?.id}
-            />
           </div>
         }
       />

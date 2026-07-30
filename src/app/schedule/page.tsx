@@ -3,7 +3,6 @@ import * as projectService from "@/service/project.service";
 import { requireUser } from "@/service/auth.service";
 import { assertModuleAccess } from "@/service/access.service";
 import { PageHeader } from "@/components/page-header";
-import { ProjectSwitcher } from "@/components/project-switcher";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -39,12 +38,6 @@ export default async function SchedulePage({
         section="02 契約與時程管理"
         title="時程進度管理"
         description="PMIS-04 · 工程進度、預定/實際與落後預警"
-        action={
-          <ProjectSwitcher
-            projects={projectList.map((p) => ({ id: p.id, name: p.name }))}
-            selected={selectedProjectId}
-          />
-        }
       />
       <div className="space-y-6 p-8">
         {projects.length === 0 ? (

@@ -17,11 +17,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ProjectSwitcher } from "@/components/project-switcher";
 import { financialDirectionMeta, voucherStatusMeta } from "@/constant/pmis";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { VoucherForm } from "./voucher-form";
 import { VoucherRowActions } from "./voucher-row-actions";
+import { withProject } from "@/lib/project-link";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "財務管理 — PMIS" };
@@ -86,12 +86,6 @@ export default async function FinancePage({
       section="02 契約與時程管理"
         title="財務管理"
       description="專案損益、收支與現金水位；上傳憑證由費思自動轉會計傳票（PMIS-08）"
-      action={
-        <ProjectSwitcher
-          projects={projectList.map((p) => ({ id: p.id, name: p.name }))}
-          selected={selectedProjectId}
-        />
-      }
     />
   );
 
@@ -249,7 +243,7 @@ export default async function FinancePage({
                     {cross.projects.map((p) => (
                       <TableRow key={p.projectId}>
                         <TableCell className="font-medium">
-                          <Link href={`/finance?project=${p.projectId}`} className="text-primary hover:underline">
+                          <Link href={withProject("/finance", p.projectId)} className="text-primary hover:underline">
                             {p.projectName}
                           </Link>
                         </TableCell>

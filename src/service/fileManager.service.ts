@@ -388,6 +388,78 @@ export async function search(
   };
 }
 
+// ── 清冊（供費思檢索用） ─────────────────────────────────────
+
+export type InventoryFile = {
+  id: string;
+  /** 取檔路徑不同，故須隨身帶著來源。 */
+  source: "project" | "faith" | "ehs";
+  name: string;
+  /** 顯示路徑，如「捷運藍線 / 契約文件」。 */
+  path: string;
+  mimeType: string | null;
+  size: number;
+  updatedAt: string | null;
+};
+
+/**
+ * 列出專案內所有檔案（含所在路徑），供費思判斷該調閱哪一份。
+ *
+ * 與 search 的差別：不比對關鍵字，而是整份清冊 —— 判斷該讀哪一份
+ * 是模型的工作，先用關鍵字砍一刀反而會在使用者的問法與檔名不同字時漏掉。
+ *
+ * 刻意排除簽核文件附件：那批資料在模型上沒有 projectId（見 search 的說明），
+ * 於檔案管理只是多顯示一些檔案，但若餵進 AI 回答，
+ * 就成了把別案的文件當作本案依據，比讀不到更糟。
+ */
+export async function inventory(
+  projectId: string,
+  projectName: string,
+  viewer: Viewer,
+): Promise<InventoryFile[] | null> {
+  if (!(await canAccess(projectId, viewer))) return null;
+
+  const [folders, fileRows] = await Promise.all([
+    nodeRepo.listFoldersByProject(projectId),
+    nodeRepo.scanFilesForSearch(projectId, SEARCH_SCAN_LIMIT),
+  ]);
+  const byId = new Map(folders.map((f) => [f.id, f]));
+  const pathOf = (folderId: string | null): string =>
+    joinPath([
+      projectName,
+      ...ancestorChain(
+        folderId,
+        byId as Map<string, { id: string; name: string; parentId: string | null }>,
+      ).map((c) => c.name),
+    ]);
+
+  const out: InventoryFile[] = fileRows.map((f) => ({
+    id: f.id,
+    source: "project" as const,
+    name: f.fileName,
+    path: pathOf(f.folderId),
+    mimeType: f.mimeType,
+    size: f.size,
+    updatedAt: f.updatedAt.toISOString(),
+  }));
+
+  for (const source of ["ehs", "faith"] as const) {
+    const meta = VIRTUAL_FOLDERS.find((v) => v.source === source)!;
+    for (const n of await virtualFiles(projectId, source)) {
+      out.push({
+        id: n.id,
+        source,
+        name: n.name,
+        path: joinPath([projectName, meta.name]),
+        mimeType: n.mimeType,
+        size: n.size,
+        updatedAt: n.updatedAt,
+      });
+    }
+  }
+  return out;
+}
+
 /** 本專案的空間使用狀況（不設配額，只呈現事實）。 */
 export async function usage(
   projectId: string,

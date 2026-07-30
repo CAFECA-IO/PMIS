@@ -7,6 +7,7 @@ import {
   CircleDollarSign,
   CalendarClock,
   MapPin,
+  Table2,
 } from "lucide-react";
 
 import * as projectService from "@/service/project.service";
@@ -27,7 +28,6 @@ import {
   obligationStageOptions,
   obligationStatusMeta,
   obligationStatusOptions,
-  obligationTriggerOptions,
 } from "@/constant/obligation";
 import {
   updateProjectAction,
@@ -49,6 +49,7 @@ import { WorkItemDeleteButton } from "./work-item-delete-button";
 import { DeleteProjectButton } from "./delete-project-button";
 import { RecordDeleteButton } from "./record-delete-button";
 import { MemberRemoveButton } from "./member-remove-button";
+import { ObligationTriggerFields } from "@/components/obligation-trigger-fields";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { CreateRecordDialog } from "@/components/ui/create-record-dialog";
@@ -706,6 +707,22 @@ export default async function ProjectDetailPage({
                       ))}
                     </Select>
                   </div>
+                  {/*
+                    契約簽訂日與開工命令日：履約事項的相對期限常以這兩天起算，
+                    且不必等於開工日。沒有它們，那類期限就算不出來。
+                  */}
+                  <Field
+                    label="契約簽訂日"
+                    name="signedDate"
+                    type="date"
+                    defaultValue={dateInput(project.signedDate)}
+                  />
+                  <Field
+                    label="開工命令日"
+                    name="noticeDate"
+                    type="date"
+                    defaultValue={dateInput(project.noticeDate)}
+                  />
                   <Field
                     label="開工日"
                     name="startDate"
@@ -1103,16 +1120,6 @@ export default async function ProjectDetailPage({
                     </Select>
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="ob-trigger">觸發方式</Label>
-                    <Select id="ob-trigger" name="triggerType" defaultValue="FIXED_DATE">
-                      {obligationTriggerOptions.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
                     <Label htmlFor="ob-status">狀態</Label>
                     <Select id="ob-status" name="status" defaultValue="NOT_STARTED">
                       {obligationStatusOptions.map((o) => (
@@ -1122,7 +1129,38 @@ export default async function ProjectDetailPage({
                       ))}
                     </Select>
                   </div>
-                  <Field label="期限" name="dueDate" type="date" />
+                  {/*
+                    觸發方式與期限：四種方式需要的輸入不同，交由共用元件
+                    切換並即時推算期限；與細節頁使用同一個元件，兩處不會漂移。
+                  */}
+                  <ObligationTriggerFields
+                    defaults={{
+                      triggerType: "FIXED_DATE",
+                      dueDate: null,
+                      relativeAnchor: null,
+                      offsetDays: null,
+                      predecessorId: null,
+                      conditionKind: null,
+                      conditionDetail: null,
+                      dueDateOverridden: false,
+                    }}
+                    predecessors={project.obligations.map((o) => ({
+                      id: o.id,
+                      code: o.code,
+                      title: o.title,
+                    }))}
+                    context={{
+                      projectStart: toDateInput(project.startDate) ?? null,
+                      projectEnd: toDateInput(project.endDate) ?? null,
+                      contractSigned: toDateInput(project.signedDate) ?? null,
+                      noticeToProceed: toDateInput(project.noticeDate) ?? null,
+                      today: new Date().toISOString().slice(0, 10),
+                      dueDateOf: (id) =>
+                        toDateInput(
+                          project.obligations.find((o) => o.id === id)?.dueDate,
+                        ) ?? null,
+                    }}
+                  />
                   <Field label="實際完成日" name="actualDate" type="date" />
                   <Field label="責任單位" name="ownerUnit" placeholder="如：資訊組" />
                   <Field label="責任人" name="ownerName" placeholder="如：陳工程師" />
@@ -1223,14 +1261,27 @@ export default async function ProjectDetailPage({
           <div className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">
-                  工程分項 ({project.workItems.length})
-                </CardTitle>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <CardTitle className="text-base">
+                    工程分項 ({project.workItems.length})
+                  </CardTitle>
+                  {/*
+                    數量與計價不放在這張卡片：那是一張十一欄的寬表，
+                    塞進專案總覽會兩者都難用。此處只留入口。
+                  */}
+                  <Link
+                    href={`/projects/${project.id}/ledger`}
+                    className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+                  >
+                    <Table2 className="size-3.5" />
+                    工項數量與估驗台帳
+                  </Link>
+                </div>
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-xs text-muted-foreground">
                   工程分項之預定/實際起訖與進度為「工程分項基準」進度 S-Curve 的資料來源；
-                  查驗（PMIS-07）與缺失可關聯至工項。
+                  查驗（PMIS-07）與缺失可關聯至工項。數量、單價與估驗量請於台帳維護。
                 </p>
                 {project.workItems.length === 0 ? (
                   <p className="text-sm text-muted-foreground">尚無工項，請於下方新增。</p>

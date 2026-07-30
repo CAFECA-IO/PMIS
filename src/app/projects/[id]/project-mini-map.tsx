@@ -6,6 +6,7 @@ import type * as LType from "leaflet";
 import { MapPin, ExternalLink } from "lucide-react";
 
 import "leaflet/dist/leaflet.css";
+import { withProject } from "@/lib/project-link";
 
 export type MiniFeature = {
   id: string;
@@ -129,7 +130,7 @@ export function ProjectMiniMap({
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>底圖 OSM · 疊圖 內政部國土測繪中心（僅供參考）</span>
         <Link
-          href={`/gis?project=${projectId}`}
+          href={withProject("/gis", projectId)}
           className="inline-flex items-center gap-1 text-primary hover:underline"
         >
           <ExternalLink className="size-3.5" /> 在 GIS 地圖開啟
@@ -145,7 +146,7 @@ export function MiniMapEmpty({ projectId }: { projectId: string }) {
       <MapPin className="size-6" />
       <p>此專案尚未設定工地座標。</p>
       <Link
-        href={`/gis?project=${projectId}`}
+        href={withProject("/gis", projectId)}
         className="inline-flex items-center gap-1 text-primary hover:underline"
       >
         <ExternalLink className="size-3.5" /> 前往 GIS 地圖設定位置

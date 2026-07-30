@@ -13,6 +13,8 @@ export type CreateProjectData = {
   budget?: number;
   startDate?: Date;
   endDate?: Date;
+  signedDate?: Date | undefined;
+  noticeDate?: Date | undefined;
   status: ProjectStatus;
 };
 
@@ -28,6 +30,8 @@ export type UpdateProjectData = {
   budget?: number | null;
   startDate?: Date | null;
   endDate?: Date | null;
+  signedDate?: Date | null | undefined;
+  noticeDate?: Date | null | undefined;
   status?: ProjectStatus;
 };
 
@@ -123,6 +127,27 @@ export function findByIdWithRelations(id: string) {
         orderBy: { createdAt: "asc" },
         include: { account: { include: { orgUnit: true, position: true } } },
       },
+    },
+  });
+}
+
+/** 專案的基本識別（不撈關聯，供只需要名稱與代碼的畫面使用）。 */
+export function findBasic(id: string) {
+  return prisma.project.findFirst({
+    where: { id, deletedAt: null },
+    select: { id: true, code: true, name: true, status: true },
+  });
+}
+
+/** 排程基準日期（供履約事項的相對期限推算）。 */
+export function findScheduleDates(id: string) {
+  return prisma.project.findFirst({
+    where: { id, deletedAt: null },
+    select: {
+      startDate: true,
+      endDate: true,
+      signedDate: true,
+      noticeDate: true,
     },
   });
 }

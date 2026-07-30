@@ -80,7 +80,28 @@ export type FeedbackEntry = {
   path?: string;
 };
 
-export type LogEntry = InteractionEntry | FeedbackEntry;
+/**
+ * 非模型呼叫的過程紀錄。
+ *
+ * 由對話檢索引入：模型呼叫本身已被 InteractionEntry 記下，
+ * 但「規劃結果如何被解讀」（挑了哪幾份、哪些代號是模型編的、實際注入幾段）
+ * 不屬於任何一次呼叫，卻正是挑錯檔時唯一能追的線索。
+ * 硬塞進 interaction 會汙染延遲與 token 的統計，故獨立一類。
+ */
+export type NoteEntry = {
+  kind: "note";
+  ts: string;
+  conversationId?: string;
+  turnId?: string;
+  route?: string;
+  userId?: string;
+  userName?: string;
+  /** 事件標籤，如 chat:retrieval。 */
+  topic: string;
+  text: string;
+};
+
+export type LogEntry = InteractionEntry | FeedbackEntry | NoteEntry;
 
 /** 截斷長文字，回傳截斷後內容與原始長度。 */
 export function clip(

@@ -21,6 +21,17 @@ export type CreateWorkItemData = {
   progress?: number;
   status?: WorkItemStatus;
   obligationId?: string | null;
+  /** 台帳上的 WBS 代碼，如 WBS-2.1。 */
+  wbsCode?: string | null;
+  /** WBS 類別 id。 */
+  wbsCategory?: string | null;
+  /** 計量單位。 */
+  unit?: string | null;
+  contractQty?: number | null;
+  unitPrice?: number | null;
+  completedQty?: number | null;
+  inspectedQty?: number | null;
+  valuatedQty?: number | null;
 };
 
 /** Partial update — only provided keys are written; null clears the field. */
@@ -35,6 +46,17 @@ export type UpdateWorkItemData = {
   progress?: number;
   status?: WorkItemStatus;
   obligationId?: string | null;
+  /** 台帳上的 WBS 代碼，如 WBS-2.1。 */
+  wbsCode?: string | null;
+  /** WBS 類別 id。 */
+  wbsCategory?: string | null;
+  /** 計量單位。 */
+  unit?: string | null;
+  contractQty?: number | null;
+  unitPrice?: number | null;
+  completedQty?: number | null;
+  inspectedQty?: number | null;
+  valuatedQty?: number | null;
 };
 
 export function findById(id: string) {
@@ -63,6 +85,39 @@ const detailSelect = {
   obligationId: true,
 } as const;
 
+/** 台帳所需欄位：分項識別＋六個數量欄位。 */
+const ledgerSelect = {
+  id: true,
+  code: true,
+  name: true,
+  category: true,
+  workPackage: true,
+  obligationId: true,
+  status: true,
+  progress: true,
+  wbsCode: true,
+  wbsCategory: true,
+  unit: true,
+  contractQty: true,
+  unitPrice: true,
+  completedQty: true,
+  inspectedQty: true,
+  valuatedQty: true,
+} as const;
+
+/** 估驗台帳：專案全部工項的數量與金額。 */
+export function listLedgerByProject(projectId: string) {
+  return prisma.workItem.findMany({
+    where: { projectId },
+    orderBy: [{ wbsCode: "asc" }, { code: "asc" }, { createdAt: "asc" }],
+    select: ledgerSelect,
+  });
+}
+
+export type LedgerWorkItemRow = Awaited<
+  ReturnType<typeof listLedgerByProject>
+>[number];
+
 const metricSelect = {
   projectId: true,
   progress: true,
@@ -78,6 +133,65 @@ export function listDetailByProject(projectId: string) {
     where: { projectId },
     orderBy: { createdAt: "asc" },
     select: detailSelect,
+  });
+}
+
+/**
+ * 某履約事項底下的工程分項。
+ *
+ * 先前全站都是「載入整個專案的工程分項再於記憶體過濾 obligationId」，
+ * 履約事項細節頁只需要自己底下的幾項，沒有理由把整案撈出來。
+ */
+export function listByObligation(obligationId: string) {
+  return prisma.workItem.findMany({
+    where: { obligationId },
+    orderBy: [{ code: "asc" }, { createdAt: "asc" }],
+    select: {
+      ...detailSelect,
+      code: true,
+      category: true,
+      workPackage: true,
+      projectId: true,
+    },
+  });
+}
+
+/**
+ * 多個履約事項底下的工程分項狀態（供清單判斷可否完成）。
+ * 只取判斷完成條件所需的欄位。
+ */
+export function listStatesByObligations(obligationIds: string[]) {
+  if (obligationIds.length === 0) {
+    return Promise.resolve(
+      [] as { id: string; name: string; status: string; progress: number; obligationId: string | null }[],
+    );
+  }
+  return prisma.workItem.findMany({
+    where: { obligationId: { in: obligationIds } },
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      progress: true,
+      obligationId: true,
+    },
+  });
+}
+
+/** 多個履約事項底下分項的預定起訖（供甘特圖聚合工作區間）。 */
+export function listPlanByObligations(obligationIds: string[]) {
+  if (obligationIds.length === 0) {
+    return Promise.resolve(
+      [] as {
+        obligationId: string | null;
+        plannedStart: Date | null;
+        plannedEnd: Date | null;
+      }[],
+    );
+  }
+  return prisma.workItem.findMany({
+    where: { obligationId: { in: obligationIds } },
+    select: { obligationId: true, plannedStart: true, plannedEnd: true },
   });
 }
 

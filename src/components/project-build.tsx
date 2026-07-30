@@ -53,6 +53,7 @@ import {
   createProjectViaWizard,
   type WizardProfile,
 } from "@/app/projects/actions";
+import { withProject } from "@/lib/project-link";
 
 type Fields = WizardProfile;
 
@@ -584,7 +585,7 @@ export function ProjectBuild() {
         帶上此參數才會鎖定到剛建立的案子，而非停留在「全部專案」。
       */
       // created=1 觸發「是否一併歸入未指派檔案」的提示
-      router.push(`/projects/${id}?project=${id}&created=1`);
+      router.push(withProject(`/projects/${id}?created=1`, id));
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "建立專案失敗。");

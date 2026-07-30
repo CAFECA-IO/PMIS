@@ -106,6 +106,50 @@ export async function updateWorkItem(
   return true;
 }
 
+/**
+ * 標記工程分項完成。
+ *
+ * 一併把百分比補到 100、實際完工日補今日 ——
+ * 「狀態已完成、進度 60%」的紀錄會讓進度上捲算出比實際更低的數字，
+ * 而使用者以為自己已經回報完成了。
+ */
+export async function completeWorkItem(id: string, actor: Actor) {
+  const existing = await workItemRepo.findById(id);
+  if (!existing || !(await canAccess(existing.projectId, actor))) return false;
+
+  await workItemRepo.update(id, {
+    status: "COMPLETED",
+    progress: 100,
+    // 已填實際完工日者不覆寫：那是承辦人記錄的真實日期
+    actualEnd: existing.actualEnd ?? new Date(),
+    actualStart: existing.actualStart ?? undefined,
+  });
+  return true;
+}
+
+/**
+ * 只更新完成百分比與實際起訖日（履約事項細節頁用）。
+ *
+ * 與 updateWorkItem 分開是為了不必回傳名稱、類別等欄位 ——
+ * 那張表單不在這裡，硬用同一個入口會把沒送出的欄位清成空值。
+ */
+export async function updateWorkItemProgress(
+  id: string,
+  input: { progress?: string; actualStart?: string; actualEnd?: string; status?: string },
+  actor: Actor,
+) {
+  const existing = await workItemRepo.findById(id);
+  if (!existing || !(await canAccess(existing.projectId, actor))) return false;
+
+  await workItemRepo.update(id, {
+    progress: parseProgress(input.progress),
+    status: parseStatus(input.status),
+    actualStart: parseDate(input.actualStart),
+    actualEnd: parseDate(input.actualEnd),
+  });
+  return true;
+}
+
 export async function deleteWorkItem(id: string, actor: Actor) {
   const existing = await workItemRepo.findById(id);
   if (!existing || !(await canAccess(existing.projectId, actor))) return false;

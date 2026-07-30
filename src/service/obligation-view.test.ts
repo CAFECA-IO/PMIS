@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   filterObligations,
+  obligationFilterHref,
   ownerLabel,
   sortObligations,
   summarizeObligations,
@@ -269,4 +270,38 @@ test("toCsv 欄位順序與畫面表頭一致", () => {
     "狀態",
     "契約依據",
   ]);
+});
+
+// ── obligationFilterHref ───────────────────────────────────
+test("套用篩選時保留目前專案（否則搜尋一次就跳回全部專案）", () => {
+  const out = obligationFilterHref("proj1", { q: "竣工" });
+  const sp = new URLSearchParams(out.split("?")[1]);
+  assert.equal(sp.get("project"), "proj1");
+  assert.equal(sp.get("q"), "竣工");
+});
+
+test("全部專案時不寫入 project 參數", () => {
+  for (const v of [null, undefined, "", "  ", "all"]) {
+    assert.equal(obligationFilterHref(v, {}), "/obligations");
+  }
+});
+
+test("all 與空白條件不寫入網址，避免無意義的長網址", () => {
+  assert.equal(
+    obligationFilterHref(null, { q: "  ", stage: "all", risk: "", status: "all" }),
+    "/obligations",
+  );
+});
+
+test("階段、風險、狀態逐一寫入", () => {
+  const sp = new URLSearchParams(
+    obligationFilterHref(null, {
+      stage: "CONSTRUCTION",
+      risk: "HIGH",
+      status: "OPEN",
+    }).split("?")[1],
+  );
+  assert.equal(sp.get("stage"), "CONSTRUCTION");
+  assert.equal(sp.get("risk"), "HIGH");
+  assert.equal(sp.get("status"), "OPEN");
 });

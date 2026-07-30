@@ -10,13 +10,12 @@ import {
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import * as obligationService from "@/service/obligation.service";
-import * as projectService from "@/service/project.service";
 import { requireUser } from "@/service/auth.service";
 import { assertModuleAccess, currentUserCanEdit } from "@/service/access.service";
 import { cn } from "@/lib/utils";
 import type { ObligationStats } from "@/service/obligation-view";
 import { ObligationFilterBar } from "./filter-bar";
-import { ObligationTable } from "./obligation-table";
+import { ObligationViews } from "./obligation-views";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "履約事項 — PMIS" };
@@ -72,14 +71,14 @@ export default async function ObligationsPage({
   await assertModuleAccess(user, "/obligations");
   const { project, q, stage, risk, status } = await searchParams;
 
-  const [result, projects, canEdit] = await Promise.all([
+  // 專案清單不再需要 —— 專案改由左側選單統一切換，本頁只讀網址上的參數
+  const [result, canEdit] = await Promise.all([
     obligationService.listObligations(user, project, {
       keyword: q,
       stage,
       risk,
       status,
     }),
-    projectService.listProjectOptions(user),
     currentUserCanEdit("/obligations"),
   ]);
 
@@ -141,9 +140,8 @@ export default async function ObligationsPage({
         </div>
 
         <ObligationFilterBar
-          projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+          project={project ?? null}
           initial={{
-            project: project ?? "all",
             q: q ?? "",
             stage: stage ?? "all",
             risk: risk ?? "all",
@@ -151,11 +149,15 @@ export default async function ObligationsPage({
           }}
         />
 
-        <ObligationTable
+        <ObligationViews
           rows={result.rows}
           total={result.total}
           canEdit={canEdit}
           showProject={!project || project === "all"}
+          gates={result.gates}
+          projectId={project ?? null}
+          gantt={result.gantt}
+          today={result.today}
         />
       </div>
     </>

@@ -12,6 +12,7 @@ import {
   Loader2,
   ThumbsUp,
   ThumbsDown,
+  BookOpen,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -35,6 +36,13 @@ type Message = {
   archiveError?: string;
   /** 這則回答對應的送出識別，供評價與互動紀錄對應。 */
   turnId?: string;
+  /**
+   * 這則回答參考了哪些專案資料。
+   *
+   * 可追溯性的最後一哩：使用者要能分辨答案是讀了合約得出的，
+   * 還是模型的通識；沒讀到的部分也一併寫在這裡。
+   */
+  sources?: string;
   /** 已送出的評價（單選，可改）。 */
   rating?: "up" | "down";
 };
@@ -114,6 +122,8 @@ export function AiPanel() {
   const [dragOver, setDragOver] = useState(false);
   // 工作指示：暫時性狀態，不進入 messages，結束後清除
   const [activity, setActivity] = useState<string | null>(null);
+  // 一般問答且已鎖定專案時，回答前會多一次「要不要調閱資料」的判斷
+  const [retrieving, setRetrieving] = useState(false);
   // 負評時可補充原因（除錯價值最高的部分）；key 為訊息索引
   const [reasonFor, setReasonFor] = useState<number | null>(null);
   const [reason, setReason] = useState("");
@@ -403,6 +413,8 @@ export function AiPanel() {
       const body = task
         ? { ...task.buildBody({ messages: history, attachment }), ...ids }
         : { messages: history, attachment, ...ids };
+      // 任務模式不檢索（它有自己的文件來源），故只在一般問答時提示
+      setRetrieving(!task && Boolean(projectId));
 
       const res = await fetch(endpoint, {
         method: "POST",
@@ -425,6 +437,7 @@ export function AiPanel() {
         text?: string;
         reply?: string;
         error?: string;
+        note?: string | null;
         archived?: Archived;
         archiveError?: string;
       };
@@ -456,7 +469,7 @@ export function AiPanel() {
       setLoading(false);
       setMessages([
         ...history,
-        { role: "assistant", text: "", turnId },
+        { role: "assistant", text: "", turnId, sources: data.note ?? undefined },
       ]);
       setTyping({ index, full, shown: 0 });
     } catch (e) {
@@ -469,6 +482,7 @@ export function AiPanel() {
         },
       ]);
     } finally {
+      setRetrieving(false);
       // 一律解除工作中：非串流任務沒有 consumeStream 的收尾，
       // 漏掉這行會讓交出表單的一方永遠停在鎖定狀態
       setWorking(false);
@@ -652,6 +666,16 @@ export function AiPanel() {
               {typing && typing.index === i ? (
                 <span className="ml-0.5 inline-block h-3.5 w-1.5 translate-y-0.5 animate-pulse bg-current align-middle" />
               ) : null}
+              {/*
+                參考來源。等打字動畫結束才顯示 —— 答案還在逐字出現時
+                就先亮出來源，視覺上會像是來源屬於下一句。
+              */}
+              {m.sources && !(typing && typing.index === i) ? (
+                <div className="mt-2 flex items-start gap-1.5 border-t border-current/20 pt-2 text-xs opacity-75">
+                  <BookOpen className="mt-0.5 size-3.5 shrink-0" />
+                  <span className="break-words">{m.sources}</span>
+                </div>
+              ) : null}
               {m.archived ? (
                 <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-current/20 pt-2 text-xs opacity-90">
                   <FileCheck2 className="size-3.5 shrink-0" />
@@ -759,6 +783,17 @@ export function AiPanel() {
               <Dot delay="0ms" />
               <Dot delay="150ms" />
               <Dot delay="300ms" />
+              {/*
+                鎖定專案時，回答前會先判斷需不需要調閱本案資料，
+                因此比一般問答多一次模型往返。等待明顯變長，
+                總得說一句它在做什麼 —— 措辭停在「判斷」，
+                因為此刻還不知道會不會真的去讀。
+              */}
+              {retrieving ? (
+                <span className="ml-1.5 text-xs text-muted-foreground">
+                  正在判斷需要哪些專案資料…
+                </span>
+              ) : null}
             </div>
           </div>
         ) : null}

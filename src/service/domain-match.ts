@@ -4,6 +4,7 @@ import {
   type DomainId,
   type DomainKnowledge,
 } from "@/constant/domain-knowledge";
+import { wbsCategoryLabel } from "@/constant/ledger";
 
 /**
  * 依契約內容挑選領域知識（純函式，無 I/O，便於單元測試）。
@@ -84,18 +85,22 @@ export const MAX_WORK_ITEM_HINTS = 30;
  * 比整串比對寬鬆（契約不會出現「沉箱第一單元下沉作業」這串完整字），
  * 又比單字比對嚴格（單字「水」「工」會讓幾乎所有項目都命中）。
  */
-export function rankWorkItems(
-  items: string[],
+export function rankWorkItems<T extends string | { name: string }>(
+  items: T[],
   text: string | null | undefined,
   max: number = MAX_WORK_ITEM_HINTS,
-): string[] {
+): T[] {
   const source = text ?? "";
   if (!source.trim() || items.length === 0) return items.slice(0, max);
 
+  // 參考分項自知識庫來時是物件（含單位與類別），呼叫端也可能只給名稱
+  const nameOf = (item: T) => (typeof item === "string" ? item : item.name);
+
   const scored = items.map((item, index) => {
+    const name = nameOf(item);
     let score = 0;
-    for (let i = 0; i + 2 <= item.length; i += 1) {
-      const bigram = item.slice(i, i + 2);
+    for (let i = 0; i + 2 <= name.length; i += 1) {
+      const bigram = name.slice(i, i + 2);
       if (source.includes(bigram)) score += 1;
     }
     // index 作為次要鍵：同分時維持原始順序，結果穩定可預期
@@ -142,9 +147,17 @@ export function domainBrief(
   if (d.workItems.length && contractText) {
     const picked = rankWorkItems(d.workItems, contractText);
     if (picked.length) {
+      /*
+        一併列出計量單位與 WBS 類別。
+        分項在估驗台帳上就是一列價目，模型若只回名稱，
+        使用者仍得逐項補單位；給了參考單位，它至少會提出合理的一個。
+      */
       parts.push(
-        `與本契約較相關的參考工程分項（共 ${d.workItems.length} 項中取 ${picked.length} 項）：\n` +
-          picked.map((w) => `- ${w}`).join("\n"),
+        `與本契約較相關的參考工程分項（共 ${d.workItems.length} 項中取 ${picked.length} 項，` +
+          `格式為「名稱｜參考單位｜WBS 類別」，單位僅供參考，契約另有訂明者以契約為準）：\n` +
+          picked
+            .map((w) => `- ${w.name}｜${w.unit}｜${wbsCategoryLabel(w.wbs)}`)
+            .join("\n"),
       );
     }
   }

@@ -4,8 +4,9 @@ import * as faith from "@/service/faith.service";
 import type { FaithMessage, FaithAttachment } from "@/service/faith.service";
 import { getCurrentUser } from "@/service/auth.service";
 import { archiveAttachment, lastUserText } from "@/service/faithArchive";
-import { withLogContext } from "@/service/faithLog.service";
+import { logNote, withLogContext } from "@/service/faithLog.service";
 import { toFaithError } from "@/service/faith-error";
+import { retrieveForChat } from "@/service/chatRetrieve.service";
 
 export const runtime = "nodejs";
 
@@ -32,7 +33,7 @@ export async function POST(request: Request) {
     });
 
     // 於紀錄脈絡內執行，模型閘道即可把這次往返歸屬到同一對話與同一次送出
-    const text = await withLogContext(
+    const { text, note } = await withLogContext(
       {
         conversationId: body.conversationId,
         turnId: body.turnId,
@@ -40,9 +41,27 @@ export async function POST(request: Request) {
         userId: user.id,
         userName: user.name,
       },
-      () => faith.chat(body.messages ?? [], body.attachment),
+      async () => {
+        const messages = body.messages ?? [];
+        // 先判斷這個問題需不需要調閱本專案的資料，再據以回答。
+        // 檢索失敗不會拋錯，只會回「沒讀到東西」，對話照常進行。
+        const retrieval = await retrieveForChat({
+          projectId: body.projectId,
+          messages,
+          viewer: user,
+        });
+        await logNote("chat:retrieval", retrieval.log);
+        return {
+          text: await faith.chat(messages, body.attachment, {
+            context: retrieval.context,
+            attachments: retrieval.attachments,
+          }),
+          note: retrieval.note,
+        };
+      },
     );
-    return NextResponse.json({ text, archived, archiveError });
+    // note 是「參考了哪些資料」的說明，由面板附在回答下方以供追溯
+    return NextResponse.json({ text, note, archived, archiveError });
   } catch (error) {
     const message =
       toFaithError(error).message;

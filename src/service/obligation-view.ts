@@ -200,3 +200,28 @@ export function toCsv(
   }
   return lines.join("\n");
 }
+
+/**
+ * 履約事項篩選條件寫入網址。
+ *
+ * 專案不在這條篩選裡 —— 目前專案由左上角選單決定並存在 `?project=`，
+ * 套用篩選時必須把它原封不動帶過去，否則按一次搜尋就會跳回全部專案。
+ *
+ * @param project 目前專案；null／"all" 代表全部專案
+ */
+export function obligationFilterHref(
+  project: string | null | undefined,
+  filter: { q?: string; stage?: string; risk?: string; status?: string },
+): string {
+  const sp = new URLSearchParams();
+  const id = project?.trim();
+  if (id && id !== "all") sp.set("project", id);
+  const q = filter.q?.trim();
+  if (q) sp.set("q", q);
+  for (const key of ["stage", "risk", "status"] as const) {
+    const value = filter[key]?.trim();
+    if (value && value !== "all") sp.set(key, value);
+  }
+  const qs = sp.toString();
+  return qs ? `/obligations?${qs}` : "/obligations";
+}

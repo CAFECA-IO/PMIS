@@ -13,6 +13,7 @@ import {
   searchSummary,
 } from "@/service/file-search";
 import { FileBrowser } from "./file-browser";
+import { withProject } from "@/lib/project-link";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "檔案管理 — PMIS" };
@@ -56,7 +57,7 @@ export default async function DocumentsPage({
                 {projects.map((p) => (
                   <Link
                     key={p.id}
-                    href={`/documents?project=${p.id}`}
+                    href={withProject("/documents", p.id)}
                     className="rounded-md border px-3 py-1.5 text-sm transition-colors hover:border-primary hover:text-primary"
                   >
                     {p.name}

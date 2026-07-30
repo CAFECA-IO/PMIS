@@ -28,6 +28,11 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import {
+  currentProject,
+  switchProjectHref,
+  withProject,
+} from "@/lib/project-link";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { hidesSidebar } from "@/lib/layout-rules";
 import { Logo } from "@/components/logo";
@@ -79,8 +84,14 @@ export function Sidebar({
   projects?: ProjectOption[];
 }) {
   const pathname = usePathname();
+  const params = useSearchParams();
   const { navOpen: open, setNavOpen: setOpen } = useShell();
   const { expanded: aiExpanded } = useAiAssistant();
+  /*
+    目前鎖定的專案。導覽連結一律帶上它，讓使用者切換模組時不必重選 ——
+    網址仍是唯一權威來源，這裡只負責把它傳遞下去。
+  */
+  const selectedProjectId = currentProject(params.toString());
   // Info: 依職位權限過濾模組（always 者為儀表板/功能說明，一律顯示），再濾除無可見項目的分區
   const allowed = new Set(allowedRoutes);
   const visibleSections = sections
@@ -185,7 +196,11 @@ export function Sidebar({
                 return (
                   <Link
                     key={href}
-                    href={href}
+                    /*
+                      帶上目前專案：導覽連結原本是裸的 href，
+                      一切換模組 ?project= 就消失，使用者得重新選一次。
+                    */
+                    href={withProject(href, selectedProjectId)}
                     onClick={() => setOpen(false)}
                     title={rail ? label : undefined}
                     className={cn(
@@ -244,12 +259,9 @@ function CurrentProjectBlock({
 
   // Info: 切換：寫入 ?project=<id>（全部則清除），保留其他查詢參數
   function switchProject(value: string) {
-    const sp = new URLSearchParams(params.toString());
-    if (value === "all") sp.delete("project");
-    else sp.set("project", value);
-    const qs = sp.toString();
     setSwitching(false);
-    router.push(qs ? `${pathname}?${qs}` : pathname);
+    // 與各頁的專案篩選器共用同一份邏輯，避免兩處漂移
+    router.push(switchProjectHref(pathname, params.toString(), value));
   }
 
   return (

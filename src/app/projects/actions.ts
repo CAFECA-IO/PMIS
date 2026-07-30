@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import * as projectService from "@/service/project.service";
 import * as faithUpload from "@/service/faithUpload.service";
 import * as workItemService from "@/service/workItem.service";
+import * as obligationService from "@/service/obligation.service";
 import { requireUser } from "@/service/auth.service";
 import { currentUserCanEdit } from "@/service/access.service";
 
@@ -202,6 +203,8 @@ export async function updateProjectAction(formData: FormData) {
     budget: field(formData, "budget"),
     startDate: field(formData, "startDate"),
     endDate: field(formData, "endDate"),
+    signedDate: field(formData, "signedDate"),
+    noticeDate: field(formData, "noticeDate"),
     status: field(formData, "status"),
   });
   refreshProject(id);
@@ -228,6 +231,11 @@ export async function addObligationAction(formData: FormData) {
     commissioning: field(formData, "commissioning"),
     offsetDays: field(formData, "offsetDays"),
     docNo: field(formData, "docNo"),
+    relativeAnchor: field(formData, "relativeAnchor"),
+    predecessorId: field(formData, "predecessorId"),
+    conditionKind: field(formData, "conditionKind"),
+    conditionDetail: field(formData, "conditionDetail"),
+    dueDateOverridden: field(formData, "dueDateOverridden"),
     note: field(formData, "note"),
   });
   refreshProject(projectId);
@@ -308,12 +316,28 @@ export async function restoreObligationAction(id: string, projectId: string) {
   refreshProject(projectId);
 }
 
-/** 表格上的「完成」動作：寫入實際完成日並轉為 DONE。 */
-export async function completeObligationAction(id: string, projectId: string) {
-  if (!(await canEdit())) return;
-  await projectService.completeObligation(id);
+/**
+ * 表格上的「完成」動作：寫入實際完成日並轉為 DONE。
+ *
+ * 走 obligationService 而非 projectService，以套用同一道關卡 ——
+ * 歸屬的工程分項未全部完成前不得完成。這裡若留一條沒把關的路，
+ * 履約事項頁的限制就形同虛設。
+ */
+export async function completeObligationAction(
+  id: string,
+  projectId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!(await canEdit())) {
+    return { ok: false, error: "您沒有編輯專案的權限。" };
+  }
+  const result = await obligationService.completeObligation(
+    id,
+    await requireUser(),
+  );
+  if (!result.ok) return result;
   refreshProject(projectId);
   revalidatePath("/obligations");
+  return { ok: true };
 }
 
 export async function deleteContractChangeAction(id: string, projectId: string) {
