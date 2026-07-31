@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   X,
   Check,
+  AlertTriangle,
+  ExternalLink,
   CircleDashed,
   Loader2,
   ArrowLeft,
@@ -12,9 +14,7 @@ import {
   Plus,
   Trash2,
   Flag,
-  Hammer,
   Sparkles,
-  AlertCircle,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -22,79 +22,88 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { useNotification } from "@/components/ui/notification";
 import { cn } from "@/lib/utils";
 import {
   useAiAssistant,
   type AiEventOutcome,
 } from "@/components/ai-assistant-context";
+import { useFaithOffer } from "@/components/use-faith-offer";
 import { WIZARD_DOC_ACCEPT } from "@/constant/ai";
 import { projectStatusOptions, projectStatusMeta } from "@/constant/pmis";
 import {
   obligationRiskOptions,
   obligationStageOptions,
-  obligationTriggerOptions,
 } from "@/constant/obligation";
 import type { ProjectStatus } from "@/generated/prisma/enums";
-import type {
-  WizardScopeItem,
-  WizardWorkPackage,
-} from "@/service/faith.service";
+import type { WizardScopeItem } from "@/service/faith.service";
 import {
-  WIZARD_STEPS,
   applyProgress,
   describeStep,
   initialProgress,
+  isSettled,
   type StepProgress,
   type WizardStepId,
 } from "@/service/wizard-steps";
-import { summarizeRun, verdictOf } from "@/service/wizard-summary";
+import { summarizeRun } from "@/service/wizard-summary";
+import {
+  applyImport,
+  buildReview,
+  effectiveSelection,
+  importSummary,
+  type Proposal,
+  type ProposedFields,
+  type ProposedObligation,
+  type ProposedScopeItem,
+  type ReviewSection,
+} from "@/service/wizard-review";
+import {
+  AnalysisOverlay,
+  AnalysisReview,
+} from "@/components/wizard-analysis";
 import {
   createProjectViaWizard,
+  lookupDuplicateProjects,
   type WizardProfile,
 } from "@/app/projects/actions";
+import {
+  duplicateWarning,
+  hasBlocking,
+  type DuplicateMatch,
+} from "@/service/project-duplicate";
+import { useConfirm } from "@/components/ui/confirm-provider";
 import { withProject } from "@/lib/project-link";
+import { FormActionBar } from "@/components/ui/form-action-bar";
+import { useNotification } from "@/components/ui/notification";
 
 type Fields = WizardProfile;
 
-// Info: 精靈草稿中的履約事項／工程分項。以 rid 作為 React key，送出前剔除。
+// Info: 精靈草稿中的履約事項。以 rid 作為 React key，送出前剔除。
+/*
+  建置階段收「這件事叫什麼、出自契約哪一條、屬哪個階段、風險、期限、權重」。
+
+  契約依據是刻意留下的 —— 它與事項本身出自同一次閱讀，
+  此刻不記下來，日後要查證某項管制的來由就得重讀整份契約。
+
+  不收的是觸發方式、責任單位／責任人與試運轉：它們各自需要另一份依據
+  （工期表、組織分工、驗收條件），在還沒有專案的當下要求使用者決定只會逼他亂填，
+  而亂填的值看起來與已確認的資料無法區分。這三者於履約事項細節頁設定，
+  那裡有觸發方式的專用輸入。
+*/
 type ObligationRow = {
   rid: string;
   code: string;
   title: string;
+  contractBasis: string;
   stage: string;
   risk: string;
-  triggerType: string;
   dueDate: string;
-  ownerUnit: string;
-  ownerName: string;
-  contractBasis: string;
   weight: string;
-  commissioning: boolean;
-};
-type WorkItemRow = {
-  rid: string;
-  code: string;
-  name: string;
-  category: string;
-  obligation: string;
-  plannedStart: string;
-  plannedEnd: string;
 };
 
 const AI_TASK_ID = "project-wizard";
 
-/**
- * 本次瀏覽期間已詢問過要不要費思協助的頁面。
- *
- * 放模組層級：元件卸載即重置的話，來回切換頁面會被反覆詢問。
- * 用 Set 而非 let：重新指派模組層級變數會被視為 render 期間的副作用，
- * 集合的變更則不受此限（與各建置對話框採同一作法）。
- */
-const assistAsked = new Set<string>();
-
 const AI_SUGGESTIONS = [
-  "請依工程類型建議常見的履約事項與工程分項",
+  "請依工程類型建議應納管的履約事項",
   "這是一件道路拓寬工程，工期兩年",
 ];
 
@@ -105,31 +114,19 @@ const emptyObligation = (): ObligationRow => ({
   rid: nextRid(),
   code: "",
   title: "",
+  contractBasis: "",
   stage: "CONSTRUCTION",
   risk: "GREEN",
-  triggerType: "FIXED_DATE",
   dueDate: "",
-  ownerUnit: "",
-  ownerName: "",
-  contractBasis: "",
   weight: "1",
-  commissioning: false,
-});
-
-const emptyWorkItem = (): WorkItemRow => ({
-  rid: nextRid(),
-  code: "",
-  name: "",
-  category: "",
-  obligation: "",
-  plannedStart: "",
-  plannedEnd: "",
 });
 
 // Info: 精靈需蒐集的欄位清單（總覽用），required 為建立專案必填。
 const FIELD_DEFS: { key: keyof Fields; label: string; required?: boolean }[] = [
   { key: "code", label: "專案編號", required: true },
   { key: "name", label: "專案名稱", required: true },
+  // 契約編號與專案編號分開：同一紙契約重複建案，靠它認得出來
+  { key: "contractNo", label: "契約編號" },
   { key: "location", label: "工程地點" },
   { key: "client", label: "業主／主辦機關" },
   { key: "contractor", label: "承包商" },
@@ -141,31 +138,35 @@ const FIELD_DEFS: { key: keyof Fields; label: string; required?: boolean }[] = [
   { key: "description", label: "工程摘要" },
 ];
 
+/**
+ * 把費思提議的履約事項轉成草稿列。
+ *
+ * 未提供的欄位落回與手動新增相同的預設值，使用者看不出哪一列是模型帶進來的
+ * —— 匯入之後它就是使用者自己的草稿，沒有理由再區分。
+ */
+function toObligationRow(o: ProposedObligation): ObligationRow {
+  return {
+    rid: nextRid(),
+    code: o.code ?? "",
+    title: o.title,
+    contractBasis: o.contractBasis ?? "",
+    stage: o.stage ?? "CONSTRUCTION",
+    risk: o.risk ?? "GREEN",
+    dueDate: o.dueDate ?? "",
+    weight: o.weight != null ? String(o.weight) : "1",
+  };
+}
+
 // Info: 送出／回填 AI 前，將列資料轉為不含 rid 的乾淨物件
 function toObligationPayload(m: ObligationRow) {
   return {
     code: m.code.trim() || undefined,
     title: m.title.trim(),
+    contractBasis: m.contractBasis.trim() || undefined,
     stage: m.stage || undefined,
     risk: m.risk || undefined,
-    triggerType: m.triggerType || undefined,
     dueDate: m.dueDate || undefined,
-    ownerUnit: m.ownerUnit.trim() || undefined,
-    ownerName: m.ownerName.trim() || undefined,
-    contractBasis: m.contractBasis.trim() || undefined,
     weight: m.weight ? Number(m.weight) : undefined,
-    commissioning: m.commissioning,
-  };
-}
-
-function toWorkItemPayload(w: WorkItemRow) {
-  return {
-    code: w.code.trim() || undefined,
-    name: w.name.trim(),
-    category: w.category.trim() || undefined,
-    obligation: w.obligation.trim() || undefined,
-    plannedStart: w.plannedStart || undefined,
-    plannedEnd: w.plannedEnd || undefined,
   };
 }
 
@@ -190,12 +191,12 @@ function displayValue(key: keyof Fields, value: unknown): string {
  */
 export function ProjectBuild() {
   const router = useRouter();
-  const { task, startTask, endTask, registerOffer } = useAiAssistant();
+  const { task, startTask, endTask } = useAiAssistant();
   const { notify } = useNotification();
+  const confirm = useConfirm();
   const [step, setStep] = useState<1 | 2>(1);
   const [fields, setFields] = useState<Fields>({});
   const [obligations, setObligations] = useState<ObligationRow[]>([]);
-  const [workItems, setWorkItems] = useState<WorkItemRow[]>([]);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 四段解析的進度；由費思串流回報的事件驅動
@@ -216,8 +217,66 @@ export function ProjectBuild() {
   // 契約履約標的（階段一）與工程項目（階段二）：
   // 各階段的上游輸入，單獨重試下游時必須回傳，否則該段會因缺上游而略過
   const scopeRef = useRef<WizardScopeItem[]>([]);
-  const packagesRef = useRef<WizardWorkPackage[]>([]);
   const fieldsRef = useRef<Fields>({});
+
+  /*
+    費思的提議。刻意與表單分開存放 ——
+    解析途中直接寫進欄位，使用者就分不清哪個值是自己填的、哪個是模型填的，
+    也無從拒絕讀錯的項目。故先收在這裡，解析結束後由檢視清單勾選匯入。
+  */
+  const proposalRef = useRef<Proposal>({});
+  const [proposal, setProposal] = useState<Proposal>({});
+  /** 檢視清單是否開著；捨棄或匯入後關閉。 */
+  const [reviewing, setReviewing] = useState(false);
+  /** 使用者動過勾選的段落（其餘段落一律預設全選）。 */
+  const [touched, setTouched] = useState<Set<WizardStepId>>(new Set());
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  /** 正在重新解析的段落。單段重試時不蓋整張表單，只在該段轉圈。 */
+  const [busyStep, setBusyStep] = useState<WizardStepId | null>(null);
+  /*
+    可能重複的既有專案。
+    專案編號有 unique 約束，所以真正會漏掉的是「換了編號又建一次同一件工程」——
+    那種重複沒有任何資料庫約束擋得住，事後也無法合併，只能在建立前問。
+  */
+  const [duplicates, setDuplicates] = useState<DuplicateMatch[]>([]);
+  const [checkingDup, setCheckingDup] = useState(false);
+  /*
+    各段的附註。ref 供串流閉包在總結時取用；另存一份 state 供檢視清單顯示
+    —— render 期間讀 ref 為 React 所禁（讀到舊值也不會重繪）。
+  */
+  const [notes, setNotes] = useState<Partial<Record<WizardStepId, string>>>({});
+
+  /**
+   * 向伺服器查詢可能重複的專案。
+   *
+   * 比對必須在伺服器端做 —— 重複的另一半在資料庫裡，前端只有自己畫面上的資料。
+   * 查詢失敗時靜默略過：這是提醒而非把關，真正的把關在建立時由伺服器重查。
+   */
+  async function refreshDuplicates(next: Fields) {
+    const code = (next.code ?? "").trim();
+    const name = (next.name ?? "").trim();
+    if (!code && !name) {
+      setDuplicates([]);
+      return;
+    }
+    setCheckingDup(true);
+    try {
+      const found = await lookupDuplicateProjects({
+        code,
+        name,
+        contractNo: (next.contractNo ?? "").trim(),
+        client: (next.client ?? "").trim(),
+        startDate: (next.startDate ?? "").trim(),
+        endDate: (next.endDate ?? "").trim(),
+        fileNames: fileNameRef.current ? [fileNameRef.current] : [],
+      });
+      setDuplicates(found);
+    } catch {
+      setDuplicates([]);
+    } finally {
+      setCheckingDup(false);
+    }
+  }
 
   /**
    * 更新專案欄位。同時寫入 ref，讓串流事件處理器（閉包）能讀到最新值；
@@ -242,17 +301,24 @@ export function ProjectBuild() {
     setStep(1);
     commitFields({});
     setObligations([]);
-    setWorkItems([]);
     setCreating(false);
     setError(null);
     setProgress(initialProgress());
     progressRef.current = initialProgress();
     notesRef.current = {};
+    setNotes({});
     fileNameRef.current = null;
     onlyRef.current = undefined;
     uploadIdsRef.current = [];
     scopeRef.current = [];
-    packagesRef.current = [];
+    proposalRef.current = {};
+    setProposal({});
+    setReviewing(false);
+    setTouched(new Set());
+    setPicked(new Set());
+    setBusyStep(null);
+    setDuplicates([]);
+    setCheckingDup(false);
   }
 
   /** 放棄建置：結束費思任務並回到專案列表。 */
@@ -265,9 +331,10 @@ export function ProjectBuild() {
   /**
    * 把「解析文件並填寫專案資料」交給費思執行。
    *
-   * 採分段串流：後端把四段解析（基本資料／履約事項／責任分工／工程分項）
-   * 逐段回報，本元件收到 data 事件即時併入草稿，使用者能邊看邊確認，
-   * 而非等到全部結束才一次跳出結果。
+   * 採分段串流：後端把四段解析逐段回報。
+   * 本元件只「收集」提議，不寫進表單 —— 解析中直接改動使用者眼前的欄位，
+   * 使用者無從分辨哪個值是自己填的，也無從拒絕讀錯的項目。
+   * 全部跑完後由 AnalysisReview 讓使用者勾選要匯入哪些。
    *
    * @param only 僅重跑指定段落（單段重試）；未給則全跑。
    */
@@ -284,13 +351,39 @@ export function ProjectBuild() {
     progressRef.current = next;
     setProgress(next);
     onlyRef.current = only;
-    if (!retrying) notesRef.current = {};
+    if (!retrying) {
+      notesRef.current = {};
+      setNotes({});
+    }
+    /*
+      單段重試沿用已開著的檢視清單（只在該段轉圈）；
+      整份重跑則收起清單，改由覆蓋層顯示進度。
+    */
+    setBusyStep(retrying && only!.length === 1 ? only![0]! : null);
+    if (retrying) {
+      /*
+        重新解析的段落自「使用者動過」名單移除，其新內容會回到預設全選。
+        沿用舊的勾選集合會讓重新解析的結果一項都沒被勾 ——
+        而按下「重新解析此段」的人正是想要那些新結果。
+      */
+      setTouched((prev) => {
+        const next = new Set(prev);
+        for (const id of only!) next.delete(id);
+        return next;
+      });
+    } else {
+      setReviewing(false);
+      proposalRef.current = {};
+      setProposal({});
+      setTouched(new Set());
+      setPicked(new Set());
+    }
 
     startTask({
       id: AI_TASK_ID,
       title: "專案建置",
       greeting:
-        "好的，我來協助您建立新專案。您可以：\n\n- 上傳**契約書／決標公告／工期表／預算書**（支援 PDF、Word、Excel、PowerPoint、圖片）\n- 或直接用文字告訴我專案資訊\n\n我會分階段解析並隨時回報進度：**專案基本資料** → **契約履約標的** → **履約事項** → **責任分工與契約依據** → **工程項目** → **工程分項**。\n\n每一段只做一件事：先**照抄**契約履約標的，再由標的**推導**應辦期限、**規劃**具體工程項目，最後把項目**細分**為可排程的工程分項。上游沒有結果時下游會直接略過，不會憑常識自行編造。某一段失敗也不影響其他段已擷取的內容。",
+        "好的，我來協助您建立新專案。您可以：\n\n- 上傳**契約書／決標公告／工期表／預算書**（支援 PDF、Word、Excel、PowerPoint、圖片）\n- 或直接用文字告訴我專案資訊\n\n我會分四段解析：**專案基本資料** → **契約履約標的** → **履約事項** → **責任分工與契約依據**。\n\n每一段只做一件事：先**照抄**契約的履約標的，再由標的**推導**應辦事項與期限，最後回填責任分工與契約依據。上游沒有結果時下游會直接略過，不會憑常識自行編造。\n\n解析完成後會列出各段結果，**由您勾選要匯入哪些**，我不會直接改動您的表單。工程分項於專案建立後在專案頁或估驗台帳維護（那裡才有數量與單價欄位）。",
       endpoint: "/api/projects/wizard",
       accept: WIZARD_DOC_ACCEPT,
       suggestions: AI_SUGGESTIONS,
@@ -311,11 +404,9 @@ export function ProjectBuild() {
         known: {
           fields,
           obligations: obligations.map(toObligationPayload),
-          workItems: workItems.map(toWorkItemPayload),
-          // 單獨重試「工程分項」時第二段不會重跑，需回傳同一份履約標的，
-          // 否則分項會失去來源依據而改由模型自行想像
+          // 單獨重試「履約事項」時履約標的那段不會重跑，需回傳同一份清單，
+          // 否則該段會因「沒有標的」而被略過
           scopeItems: scopeRef.current,
-        packages: packagesRef.current,
         },
         };
       },
@@ -361,18 +452,31 @@ export function ProjectBuild() {
 
       if (typeof event.note === "string" && event.note.trim()) {
         notesRef.current[p.id] = event.note.trim();
+        setNotes({ ...notesRef.current });
       }
       return { kind: "activity", text: describeStep(p) };
     }
 
     if (event.type === "data") {
+      /*
+        只收集，不寫入表單。
+        提議累積在 proposalRef，解析結束後才由檢視清單交給使用者勾選。
+      */
       if (Array.isArray(event.scopeItems)) {
         scopeRef.current = event.scopeItems as WizardScopeItem[];
+        proposalRef.current.scopeItems = event.scopeItems as ProposedScopeItem[];
       }
-      if (Array.isArray(event.packages)) {
-        packagesRef.current = event.packages as WizardWorkPackage[];
+      if (event.fields && typeof event.fields === "object") {
+        proposalRef.current.fields = {
+          ...proposalRef.current.fields,
+          ...(event.fields as ProposedFields),
+        };
       }
-      applyIncoming(event);
+      if (Array.isArray(event.obligations)) {
+        // 責任分工那段回傳的是「補齊後的整份清單」，直接取代即可
+        proposalRef.current.obligations = event.obligations as ProposedObligation[];
+      }
+      setProposal({ ...proposalRef.current });
       return { kind: "ignore" };
     }
 
@@ -389,6 +493,12 @@ export function ProjectBuild() {
         fileName: fileNameRef.current,
         only: onlyRef.current,
       });
+      /*
+        解析結束才把結果攤開讓使用者處理。
+        重試的那一段回來後仍留在同一份清單裡，不必從頭再看一次。
+      */
+      setBusyStep(null);
+      setReviewing(true);
       return text ? { kind: "message", text } : { kind: "ignore" };
     }
 
@@ -397,108 +507,6 @@ export function ProjectBuild() {
     }
 
     return { kind: "ignore" };
-  }
-
-  /** 把 data 事件的內容併入草稿。 */
-  function applyIncoming(event: Record<string, unknown>) {
-    const incomingFields = event.fields as Fields | undefined;
-    if (incomingFields) {
-      // 不覆蓋使用者已確認的非空值
-      commitFields((prev) => {
-        const merged: Fields = { ...prev };
-        for (const [k, v] of Object.entries(incomingFields)) {
-          if (v == null || v === "") continue;
-          if ((merged[k as keyof Fields] ?? "") === "") {
-            (merged as Record<string, unknown>)[k] = v;
-          }
-        }
-        return merged;
-      });
-    }
-
-    const incomingObligations = event.obligations as
-      | {
-          code?: string;
-          title?: string;
-          stage?: string;
-          risk?: string;
-          triggerType?: string;
-          dueDate?: string;
-          ownerUnit?: string;
-          ownerName?: string;
-          contractBasis?: string;
-          weight?: number;
-          commissioning?: boolean;
-        }[]
-      | undefined;
-    if (incomingObligations?.length) {
-      setObligations((prev) => {
-        const byTitle = new Map(prev.map((m) => [m.title.trim(), m]));
-        const out: ObligationRow[] = [];
-        for (const m of incomingObligations) {
-          const title = m.title?.trim();
-          if (!title) continue;
-          const existing = byTitle.get(title);
-          if (existing) {
-            // 責任分工段會回填既有事項，故以「補空欄位」方式更新
-            out.push({
-              ...existing,
-              ownerUnit: existing.ownerUnit || (m.ownerUnit ?? ""),
-              ownerName: existing.ownerName || (m.ownerName ?? ""),
-              contractBasis: existing.contractBasis || (m.contractBasis ?? ""),
-              dueDate: existing.dueDate || (m.dueDate ?? ""),
-              code: existing.code || (m.code ?? ""),
-            });
-            byTitle.delete(title);
-          } else {
-            out.push({
-              rid: nextRid(),
-              code: m.code ?? "",
-              title,
-              stage: m.stage ?? "CONSTRUCTION",
-              risk: m.risk ?? "GREEN",
-              triggerType: m.triggerType ?? "FIXED_DATE",
-              dueDate: m.dueDate ?? "",
-              ownerUnit: m.ownerUnit ?? "",
-              ownerName: m.ownerName ?? "",
-              contractBasis: m.contractBasis ?? "",
-              weight: m.weight != null ? String(m.weight) : "1",
-              commissioning: m.commissioning === true,
-            });
-          }
-        }
-        // 保留使用者自行新增、模型未提及的列
-        return [...out, ...byTitle.values()];
-      });
-    }
-
-    const incomingWorkItems = event.workItems as
-      | {
-          code?: string;
-          name?: string;
-          category?: string;
-          obligation?: string;
-          plannedStart?: string;
-          plannedEnd?: string;
-        }[]
-      | undefined;
-    if (incomingWorkItems?.length) {
-      setWorkItems((prev) => {
-        const seen = new Set(prev.map((w) => w.name.trim()));
-        const added = incomingWorkItems
-          .filter((w) => w.name?.trim() && !seen.has(w.name!.trim()))
-          .map((w) => ({
-            rid: nextRid(),
-            code: w.code ?? "",
-            name: w.name!.trim(),
-            category: w.category ?? "",
-            obligation: w.obligation ?? "",
-            plannedStart: w.plannedStart ?? "",
-            plannedEnd: w.plannedEnd ?? "",
-          }));
-        return [...prev, ...added];
-      });
-    }
   }
 
   function setField(key: keyof Fields, value: string) {
@@ -515,60 +523,189 @@ export function ProjectBuild() {
     );
   }
 
-  function setWorkItem<K extends keyof WorkItemRow>(
-    rid: string,
-    key: K,
-    value: WorkItemRow[K],
-  ) {
-    setWorkItems((prev) =>
-      prev.map((w) => (w.rid === rid ? { ...w, [key]: value } : w)),
-    );
-  }
-
-  // Info: 履約事項更名時，同步更新引用該名稱的工程分項，維持關聯
-  function renameObligation(rid: string, value: string) {
-    const before = obligations.find((m) => m.rid === rid)?.title ?? "";
-    setObligation(rid, "title", value);
-    if (before) {
-      setWorkItems((prev) =>
-        prev.map((w) =>
-          w.obligation === before ? { ...w, obligation: value } : w,
-        ),
-      );
-    }
-  }
-
   function removeObligation(rid: string) {
-    const name = obligations.find((m) => m.rid === rid)?.title ?? "";
     setObligations((prev) => prev.filter((m) => m.rid !== rid));
-    if (name) {
-      setWorkItems((prev) =>
-        prev.map((w) => (w.obligation === name ? { ...w, obligation: "" } : w)),
-      );
-    }
   }
 
-  const obligationTitles = obligations
-    .map((m) => m.title.trim())
-    .filter((n) => n !== "");
   const namedObligations = obligations.filter((m) => m.title.trim()).length;
-  const namedWorkItems = workItems.filter((w) => w.name.trim()).length;
-  // 只要有任一段脫離「待處理」，就顯示解析進度區塊
-  const anyParsing = progress.some((p) => p.state !== "pending");
+  /*
+    缺契約依據的項數。不阻擋建立 —— 使用者可能就是要先建骨架；
+    但要說出來，否則這些事項日後沒有人查得出它為什麼被列管。
+  */
+  const missingBasis = obligations.filter(
+    (m) => m.title.trim() && !m.contractBasis.trim(),
+  ).length;
 
-  async function create() {
+  /*
+    檢視清單。純函式算出來，故「哪些會覆蓋既有值」「哪一段值得重試」
+    這些判斷有測試釘住，而不是散在畫面裡。
+  */
+  const sections = useMemo<ReviewSection[]>(
+    () =>
+      buildReview({
+        progress,
+        proposal,
+        current: {
+          fields: fields as ProposedFields,
+          obligationTitles: obligations.map((m) => m.title),
+        },
+        notes,
+        fieldLabels: FIELD_DEFS,
+      }),
+    [progress, proposal, fields, obligations, notes],
+  );
+  const selected = useMemo(
+    () => effectiveSelection(sections, touched, picked),
+    [sections, touched, picked],
+  );
+
+  /** 解析中：整份重跑時蓋住表單；單段重試只在清單內轉圈。 */
+  const analysing =
+    progress.some((p) => p.state !== "pending") &&
+    !isSettled(progress) &&
+    busyStep == null;
+  const showReview = reviewing && sections.length > 0;
+
+  /** 依勾選把提議寫進表單。這是模型的結果進到表單的唯一路徑。 */
+  function importSelected() {
+    const result = applyImport({
+      sections,
+      selected,
+      proposal,
+      current: {
+        fields: fields as ProposedFields,
+        obligationTitles: obligations.map((m) => m.title),
+      },
+    });
+
+    const merged: Fields = { ...fieldsRef.current, ...(result.fields as Fields) };
+    commitFields(merged);
+    /*
+      匯入完立刻查一次重複。
+      在使用者開始逐項核對履約事項之前就告訴他「這件可能已經建過了」——
+      等他核對完 28 項才被擋下，那些工都白做了。
+    */
+    void refreshDuplicates(merged);
+
+    setObligations((prev) => {
+      // 同名事項補欄位而非再新增一列；且只補空的，不動使用者填過的
+      const patched = prev.map((m) => {
+        const patch = result.patches.find((x) => x.title === m.title.trim());
+        if (!patch) return m;
+        return {
+          ...m,
+          code: m.code || patch.code || "",
+          contractBasis: m.contractBasis || patch.contractBasis || "",
+          stage: m.stage || patch.stage || "CONSTRUCTION",
+          dueDate: m.dueDate || patch.dueDate || "",
+        };
+      });
+      return [...patched, ...result.newObligations.map(toObligationRow)];
+    });
+
+    // 匯入的履約標的隨專案一起建立，供日後溯源到契約條次
+    scopeRef.current = result.scopeItems as WizardScopeItem[];
+
+    setReviewing(false);
+    notify({ title: "已匯入解析結果", description: importSummary(result) });
+  }
+
+  function discardReview() {
+    setReviewing(false);
+    proposalRef.current = {};
+    setProposal({});
+    setTouched(new Set());
+    setPicked(new Set());
+  }
+
+  /**
+   * 確認「即使可能重複也要建立」。
+   *
+   * 只在有非阻擋的重複時才問。編號撞號不問 —— 那是資料庫的 unique 約束，
+   * 問了也建不出來，問等於給一個假的選擇。
+   */
+  async function confirmDuplicate(matches: DuplicateMatch[]) {
+    return confirm({
+      title: "可能是重複的專案",
+      danger: true,
+      confirmLabel: "仍要建立",
+      cancelLabel: "返回修改",
+      description: (
+        <div className="space-y-2">
+          <p>{duplicateWarning(matches)}</p>
+          <ul className="space-y-1.5">
+            {matches.map((m) => (
+              <li key={m.project.id} className="rounded-md border px-2.5 py-1.5">
+                <span className="block text-xs font-medium text-foreground">
+                  {m.project.name}
+                </span>
+                <span className="block text-[11px]">
+                  {m.project.code}
+                  {"　"}
+                  {m.reasons
+                    .map((r) => (r.detail ? `${r.label}（${r.detail}）` : r.label))
+                    .join("、")}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ),
+    });
+  }
+
+  /**
+   * 建立專案。
+   *
+   * @param allowDuplicate 使用者已同意「即使可能重複也要建立」。
+   *   遞迴只會發生一次：伺服器查到前端還不知道的重複時，問過後以 true 重送，
+   *   而 true 的那一輪不會再問。
+   */
+  async function create(allowDuplicate = false) {
     if (!requiredReady || creating) return;
+
+    /*
+      先問過再送。
+      伺服器仍會重查（前端可被跳過，兩次檢查之間也可能有人剛建了同名專案），
+      這裡問是為了讓使用者在同一個畫面上看到重複是哪些、並保有「就是要建」的選擇。
+    */
+    if (!allowDuplicate && duplicates.length > 0 && !hasBlocking(duplicates)) {
+      if (!(await confirmDuplicate(duplicates))) return;
+      allowDuplicate = true;
+    }
+
     setCreating(true);
     setError(null);
     try {
       const result = await createProjectViaWizard(
         fields,
         obligations.filter((m) => m.title.trim()).map(toObligationPayload),
-        workItems.filter((w) => w.name.trim()).map(toWorkItemPayload),
+        /*
+          建置階段不處理工程分項：分項要有數量、單價與預定起訖才有意義，
+          那些資料來自預算書與施工排程，不在簽約當下的契約裡。
+          專案建立後於專案頁與估驗台帳維護。
+        */
+        [],
         uploadIdsRef.current,
         scopeRef.current,
+        allowDuplicate,
+        fileNameRef.current ? [fileNameRef.current] : [],
       );
       if (!result.ok) {
+        /*
+          伺服器查到的重複，前端可能還沒查過（使用者直接按建立，
+          或這段時間內有人剛建了同名專案）。把結果收下並就地問一次，
+          同意就立刻重送 —— 否則使用者會看到一句「請確認後再建立」，
+          卻沒有任何可以確認的地方。
+        */
+        if (result.duplicates?.length) {
+          setDuplicates(result.duplicates);
+          if (!hasBlocking(result.duplicates) && !allowDuplicate) {
+            setCreating(false);
+            if (await confirmDuplicate(result.duplicates)) await create(true);
+            return;
+          }
+        }
         setError(result.error);
         return;
       }
@@ -595,43 +732,21 @@ export function ProjectBuild() {
   }
 
   /*
-    向右下角的費思註冊協助入口：在本頁點擊費思等同啟動 AI 協助建置，
-    而不是開啟一個與眼前表單無關的一般問答。離開頁面時解除註冊。
+    邀請與右下角入口交由共用 hook：註冊入口、每次進入本頁邀請一次、
+    離開後重置（放棄建置再回來會重新提議）、被接手後撤回通知。
   */
-  useEffect(() => {
-    return registerOffer({
-      taskId: AI_TASK_ID,
-      title: "專案建置",
-      start: () => askFase(),
-    });
-    // askFase 在本元件生命週期內穩定
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [registerOffer]);
-
-  /*
-    開啟建置頁時主動詢問是否要費思協助。
-    取代原本的「AI 協助建置」按鈕：入口統一為右下角的狀態顯示，
-    這裡只負責提出邀請。與各建置對話框的行為一致。
-    本次瀏覽期間只問一次，避免來回切換頁面被反覆打擾。
-  */
-  useEffect(() => {
-    // 費思已開啟而自動接手時不必再問，否則會在剛接手後立刻跳出邀請
-    if (aiActive) return;
-    if (assistAsked.has(AI_TASK_ID)) return;
-    assistAsked.add(AI_TASK_ID);
-    notify({
+  useFaithOffer({
+    taskId: AI_TASK_ID,
+    title: "專案建置",
+    active: true,
+    accepted: aiActive,
+    start: askFase,
+    invitation: {
       title: "需要費思協助建立此專案嗎？",
-      description:
-        "上傳契約書或決標公告，我會分階段判讀並填入左側表單。",
-      variant: "info",
-      actionLabel: "好，交給費思",
-      actionIcon: "sparkles",
-      onAction: () => askFase(),
-      duration: 12000,
-    });
-    // askFase 與 notify 在本元件生命週期內穩定，僅需於進入頁面時觸發一次
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aiActive]);
+      description: "上傳契約書或決標公告，我會分階段判讀並填入左側表單。",
+    },
+  });
+
 
 
   return (
@@ -647,7 +762,7 @@ export function ProjectBuild() {
             步驟 {step} / 2
           </span>
           <span className="text-sm font-medium">
-            {step === 1 ? "專案基本資料" : "履約事項與工程分項"}
+            {step === 1 ? "專案基本資料" : "履約事項"}
           </span>
         </div>
         <button
@@ -713,122 +828,39 @@ export function ProjectBuild() {
                     );
                   })}
 
-                  {/* 履約事項與工程分項蒐集狀況 */}
-                  <div className="mt-2 space-y-1 border-t pt-2">
-                    {[
-                      { icon: Flag, label: "履約事項", count: namedObligations },
-                      { icon: Hammer, label: "工程分項", count: namedWorkItems },
-                    ].map(({ icon: Icon, label, count }) => (
-                      <div
-                        key={label}
-                        className="flex items-center gap-2 rounded-md px-2 py-1.5"
-                      >
-                        {count > 0 ? (
-                          <Check className="size-3.5 shrink-0 text-success" />
-                        ) : (
-                          <CircleDashed className="size-3.5 shrink-0 text-muted-foreground/50" />
-                        )}
-                        <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-                        <span className="text-xs font-medium">{label}</span>
-                        <span
-                          className={cn(
-                            "ml-auto text-xs tabular-nums",
-                            count > 0
-                              ? "text-foreground/80"
-                              : "text-muted-foreground/60",
-                          )}
-                        >
-                          {count > 0 ? `${count} 項` : "待補"}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-
                   {/*
-                    分段解析進度。四段各自獨立，某段失敗時其他段的資料仍在，
-                    因此提供單段重試而非整份重跑。
+                    履約事項蒐集狀況。
+                    解析進度不再列在這裡 —— 進行中的事情放在畫面角落，
+                    使用者得一邊填表一邊分神看它；改為在解析期間直接蓋住表單。
                   */}
-                  {anyParsing ? (
-                    <div className="mt-2 space-y-1 border-t pt-2">
-                      <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60">
-                        文件解析進度
-                      </div>
-                      {progress.map((p) => {
-                        const meta = WIZARD_STEPS.find((x) => x.id === p.id);
-                        // 與對話總結共用同一份判定，避免兩處說法不一致
-                        const verdict = verdictOf(p);
-                        const thin =
-                          p.state === "done" &&
-                          (verdict === "partial" || verdict === "empty");
-                        return (
-                          <div
-                            key={p.id}
-                            className="flex items-start gap-2 rounded-md px-2 py-1.5"
-                          >
-                            {p.state === "running" ? (
-                              <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin text-primary" />
-                            ) : thin ? (
-                              <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-warning" />
-                            ) : p.state === "done" ? (
-                              <Check className="mt-0.5 size-3.5 shrink-0 text-success" />
-                            ) : p.state === "failed" ? (
-                              <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
-                            ) : (
-                              <CircleDashed className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/50" />
-                            )}
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-baseline gap-2">
-                                <span className="text-xs font-medium">
-                                  {meta?.label ?? p.id}
-                                </span>
-                                <span
-                                  className={cn(
-                                    "ml-auto shrink-0 text-xs tabular-nums",
-                                    thin ? "text-warning" : "text-muted-foreground",
-                                  )}
-                                >
-                                  {p.state === "done"
-                                    ? verdict === "empty"
-                                      ? "未取得"
-                                      : p.total != null
-                                        ? `${p.count ?? 0}/${p.total}`
-                                        : `${p.count ?? 0} 項`
-                                    : p.state === "running"
-                                      ? "解析中"
-                                      : p.state === "failed"
-                                        ? "失敗"
-                                        : p.state === "skipped"
-                                          ? "略過"
-                                          : "待處理"}
-                                </span>
-                              </div>
-                              {p.error ? (
-                                <div className="mt-0.5 flex items-start gap-1.5">
-                                  <span className="min-w-0 flex-1 break-words text-[11px] text-muted-foreground">
-                                    {p.error}
-                                  </span>
-                                  {p.state === "failed" ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => askFase([p.id])}
-                                      className="shrink-0 text-[11px] font-medium text-primary hover:underline"
-                                    >
-                                      重試
-                                    </button>
-                                  ) : null}
-                                </div>
-                              ) : null}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : null}
+                  <div className="mt-2 flex items-center gap-2 rounded-md border-t px-2 pb-1.5 pt-3">
+                    {namedObligations > 0 ? (
+                      <Check className="size-3.5 shrink-0 text-success" />
+                    ) : (
+                      <CircleDashed className="size-3.5 shrink-0 text-muted-foreground/50" />
+                    )}
+                    <Flag className="size-3.5 shrink-0 text-muted-foreground" />
+                    <span className="text-xs font-medium">履約事項</span>
+                    <span
+                      className={cn(
+                        "ml-auto text-xs tabular-nums",
+                        namedObligations > 0
+                          ? "text-foreground/80"
+                          : "text-muted-foreground/60",
+                      )}
+                    >
+                      {namedObligations > 0 ? `${namedObligations} 項` : "待補"}
+                    </span>
+                  </div>
                 </div>
               </aside>
 
-              {/* 右：Step 1 基本資料 / Step 2 履約事項與工程分項 */}
-              <section className="flex min-h-0 flex-col">
+              {/* 右：Step 1 基本資料 / Step 2 履約事項 */}
+              {/*
+                relative：解析中的進度層與解析後的檢視清單都蓋在這一欄之上，
+                而非蓋住整個視窗 —— 左側清單與右下角的費思仍要看得見、點得到。
+              */}
+              <section className="relative flex min-h-0 flex-col">
                 {aiActive ? (
                   <div className="animate-bubble-in mx-4 mt-4 flex items-start gap-2 rounded-lg border border-primary/40 bg-primary/5 p-3 text-sm">
                     <Sparkles className="mt-0.5 size-4 shrink-0 text-primary" />
@@ -837,8 +869,80 @@ export function ProjectBuild() {
                         費思正在協助建立此專案
                       </span>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        請在右下角的費思對話框上傳文件或描述專案，判讀結果會自動填入。
+                        請在右下角的費思對話框上傳文件或描述專案。解析完成後會列出結果，由您勾選要匯入哪些。
                       </p>
+                    </div>
+                  </div>
+                ) : null}
+
+                {/*
+                  可能重複的既有專案。
+                  放在表單上方而非只在送出時彈窗 —— 使用者需要能先點進去看看
+                  那個專案是不是真的同一件，再決定要不要繼續。
+                */}
+                {duplicates.length > 0 ? (
+                  <div
+                    className={cn(
+                      "mx-4 mt-4 rounded-lg border p-3",
+                      hasBlocking(duplicates)
+                        ? "border-destructive/40 bg-destructive/10"
+                        : "border-warning/50 bg-warning-soft",
+                    )}
+                  >
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle
+                        className={cn(
+                          "mt-0.5 size-4 shrink-0",
+                          hasBlocking(duplicates)
+                            ? "text-destructive"
+                            : "text-warning",
+                        )}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium">
+                          {hasBlocking(duplicates)
+                            ? "專案編號已被使用"
+                            : "系統中可能已有這個專案"}
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {duplicateWarning(duplicates)}
+                        </p>
+                        <ul className="mt-2 space-y-1.5">
+                          {duplicates.map((m) => (
+                            <li key={m.project.id}>
+                              <a
+                                href={withProject(
+                                  `/projects/${m.project.id}`,
+                                  m.project.id,
+                                )}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="flex items-start gap-1.5 text-xs hover:underline"
+                              >
+                                <ExternalLink className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                                <span className="min-w-0">
+                                  <span className="font-medium">
+                                    {m.project.name}
+                                  </span>
+                                  <span className="text-muted-foreground">
+                                    {"　"}
+                                    {m.project.code}
+                                  </span>
+                                  <span className="block text-[11px] text-muted-foreground">
+                                    {m.reasons
+                                      .map((r) =>
+                                        r.detail
+                                          ? `${r.label}（${r.detail}）`
+                                          : r.label,
+                                      )
+                                      .join("、")}
+                                  </span>
+                                </span>
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                     </div>
                   </div>
                 ) : null}
@@ -846,7 +950,7 @@ export function ProjectBuild() {
                 {step === 1 ? (
                   <div className="min-h-0 flex-1 overflow-y-auto p-4">
                     <p className="mb-3 text-sm text-muted-foreground">
-                      請專案經理人核對以下由精靈整理的專案基本資料，可直接修改。
+                      請專案經理人核對專案基本資料，可直接修改。
                     </p>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {FIELD_DEFS.filter(
@@ -906,7 +1010,7 @@ export function ProjectBuild() {
                 ) : (
                   <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4">
                     <p className="text-sm text-muted-foreground">
-                      請核對履約事項與工程分項，可新增、刪除或修改。留空名稱的列不會建立。
+                      請核對履約事項，可新增、刪除或修改。留空名稱的列不會建立。工程分項於專案建立後維護。
                     </p>
 
                     {/* 履約事項 */}
@@ -938,23 +1042,33 @@ export function ProjectBuild() {
                         </p>
                       ) : (
                         <div className="overflow-x-auto pb-1">
-                          <div className="space-y-2 sm:min-w-[1080px]">
-                            <div className="hidden gap-2 whitespace-nowrap px-1 text-[11px] font-medium text-muted-foreground sm:grid sm:grid-cols-[128px_minmax(180px,1fr)_116px_96px_116px_142px_136px_64px_60px_36px]">
+                          {/*
+                            min-w 必須等於各欄寬度加間距的總和：
+                            固定欄 132+124+104+148+68+36＝612，7 個 8px 間距＝56，
+                            兩個彈性欄的最小值 200（事項）＋150（契約依據）＝350。
+                            少算會把最後一欄擠出容器 —— 這是先前實際發生過的版面異常。
+                          */}
+                          <div className="space-y-2 sm:min-w-[1018px]">
+                            <div className={cn(
+                              "hidden gap-2 whitespace-nowrap px-1 text-[11px] font-medium text-muted-foreground sm:grid",
+                              "sm:grid-cols-[132px_minmax(200px,1.4fr)_minmax(150px,1fr)_124px_104px_148px_68px_36px]",
+                            )}>
                               <span>管制編號</span>
                               <span>履約事項</span>
+                              <span>契約依據</span>
                               <span>階段</span>
                               <span>風險</span>
-                              <span>觸發方式</span>
                               <span>期限</span>
-                              <span>責任單位／人</span>
                               <span>權重</span>
-                              <span>試運轉</span>
                               <span />
                             </div>
                             {obligations.map((m) => (
                             <div
                               key={m.rid}
-                              className="grid grid-cols-1 gap-2 rounded-md border p-2 sm:grid-cols-[128px_minmax(180px,1fr)_116px_96px_116px_142px_136px_64px_60px_36px] sm:items-center sm:border-0 sm:p-0"
+                              className={cn(
+                                "grid grid-cols-1 gap-2 rounded-md border p-2 sm:items-center sm:border-0 sm:p-0",
+                                "sm:grid-cols-[132px_minmax(200px,1.4fr)_minmax(150px,1fr)_124px_104px_148px_68px_36px]",
+                              )}
                             >
                               <Input
                                 aria-label="管制編號"
@@ -969,7 +1083,19 @@ export function ProjectBuild() {
                                 placeholder="如 結構體完成"
                                 value={m.title}
                                 onChange={(e) =>
-                                  renameObligation(m.rid, e.target.value)
+                                  setObligation(m.rid, "title", e.target.value)
+                                }
+                              />
+                              <Input
+                                aria-label="契約依據"
+                                placeholder="如 契約第五條第二款"
+                                value={m.contractBasis}
+                                onChange={(e) =>
+                                  setObligation(
+                                    m.rid,
+                                    "contractBasis",
+                                    e.target.value,
+                                  )
                                 }
                               />
                               <Select
@@ -998,23 +1124,6 @@ export function ProjectBuild() {
                                   </option>
                                 ))}
                               </Select>
-                              <Select
-                                aria-label="觸發方式"
-                                value={m.triggerType}
-                                onChange={(e) =>
-                                  setObligation(
-                                    m.rid,
-                                    "triggerType",
-                                    e.target.value,
-                                  )
-                                }
-                              >
-                                {obligationTriggerOptions.map((o) => (
-                                  <option key={o.value} value={o.value}>
-                                    {o.label}
-                                  </option>
-                                ))}
-                              </Select>
                               <Input
                                 aria-label="期限"
                                 type="date"
@@ -1023,32 +1132,6 @@ export function ProjectBuild() {
                                   setObligation(m.rid, "dueDate", e.target.value)
                                 }
                               />
-                              <div className="grid grid-cols-2 gap-1">
-                                <Input
-                                  aria-label="責任單位"
-                                  placeholder="單位"
-                                  value={m.ownerUnit}
-                                  onChange={(e) =>
-                                    setObligation(
-                                      m.rid,
-                                      "ownerUnit",
-                                      e.target.value,
-                                    )
-                                  }
-                                />
-                                <Input
-                                  aria-label="責任人"
-                                  placeholder="責任人"
-                                  value={m.ownerName}
-                                  onChange={(e) =>
-                                    setObligation(
-                                      m.rid,
-                                      "ownerName",
-                                      e.target.value,
-                                    )
-                                  }
-                                />
-                              </div>
                               <Input
                                 aria-label="權重"
                                 type="number"
@@ -1058,21 +1141,6 @@ export function ProjectBuild() {
                                   setObligation(m.rid, "weight", e.target.value)
                                 }
                               />
-                              <label className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
-                                <input
-                                  type="checkbox"
-                                  className="size-4 accent-[var(--primary)]"
-                                  checked={m.commissioning}
-                                  onChange={(e) =>
-                                    setObligation(
-                                      m.rid,
-                                      "commissioning",
-                                      e.target.checked,
-                                    )
-                                  }
-                                />
-                                <span className="sm:hidden">計入試運轉</span>
-                              </label>
                               <button
                                 type="button"
                                 aria-label="刪除履約事項"
@@ -1087,138 +1155,37 @@ export function ProjectBuild() {
                         </div>
                       )}
                     </section>
-
-                    {/* 工程分項 */}
-                    <section className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <h3 className="flex items-center gap-2 text-sm font-semibold">
-                          <Hammer className="size-4 text-primary" />
-                          工程分項
-                          <span className="text-xs font-normal text-muted-foreground">
-                            （{namedWorkItems} 項）
-                          </span>
-                        </h3>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            setWorkItems((p) => [...p, emptyWorkItem()])
-                          }
-                        >
-                          <Plus className="size-4" />
-                          新增工程分項
-                        </Button>
-                      </div>
-
-                      {workItems.length === 0 ? (
-                        <p className="rounded-md border border-dashed px-3 py-4 text-center text-xs text-muted-foreground">
-                          尚無工程分項。可回上一步請精靈依工程類型建議範本，或手動新增。
-                        </p>
-                      ) : (
-                        <div className="overflow-x-auto pb-1">
-                          <div className="space-y-2 sm:min-w-[860px]">
-                            <div className="hidden gap-2 whitespace-nowrap px-1 text-[11px] font-medium text-muted-foreground sm:grid sm:grid-cols-[84px_minmax(180px,1fr)_104px_150px_138px_138px_36px]">
-                              <span>編號</span>
-                              <span>名稱</span>
-                              <span>類別</span>
-                              <span>所屬履約事項</span>
-                              <span>預定開始</span>
-                              <span>預定完成</span>
-                              <span />
-                            </div>
-                            {workItems.map((w) => (
-                            <div
-                              key={w.rid}
-                              className="grid grid-cols-1 gap-2 rounded-md border p-2 sm:grid-cols-[84px_minmax(180px,1fr)_104px_150px_138px_138px_36px] sm:items-center sm:border-0 sm:p-0"
-                            >
-                              <Input
-                                aria-label="工項編號"
-                                placeholder="A-01"
-                                value={w.code}
-                                onChange={(e) =>
-                                  setWorkItem(w.rid, "code", e.target.value)
-                                }
-                              />
-                              <Input
-                                aria-label="工程分項名稱"
-                                placeholder="如 基礎開挖"
-                                value={w.name}
-                                onChange={(e) =>
-                                  setWorkItem(w.rid, "name", e.target.value)
-                                }
-                              />
-                              <Input
-                                aria-label="類別"
-                                placeholder="土方"
-                                value={w.category}
-                                onChange={(e) =>
-                                  setWorkItem(w.rid, "category", e.target.value)
-                                }
-                              />
-                              <Select
-                                aria-label="所屬履約事項"
-                                value={w.obligation}
-                                onChange={(e) =>
-                                  setWorkItem(
-                                    w.rid,
-                                    "obligation",
-                                    e.target.value,
-                                  )
-                                }
-                              >
-                                <option value="">未指定</option>
-                                {obligationTitles.map((n) => (
-                                  <option key={n} value={n}>
-                                    {n}
-                                  </option>
-                                ))}
-                              </Select>
-                              <Input
-                                aria-label="預定開始"
-                                type="date"
-                                value={w.plannedStart}
-                                onChange={(e) =>
-                                  setWorkItem(
-                                    w.rid,
-                                    "plannedStart",
-                                    e.target.value,
-                                  )
-                                }
-                              />
-                              <Input
-                                aria-label="預定完成"
-                                type="date"
-                                value={w.plannedEnd}
-                                onChange={(e) =>
-                                  setWorkItem(
-                                    w.rid,
-                                    "plannedEnd",
-                                    e.target.value,
-                                  )
-                                }
-                              />
-                              <button
-                                type="button"
-                                aria-label="刪除工程分項"
-                                onClick={() =>
-                                  setWorkItems((p) =>
-                                    p.filter((x) => x.rid !== w.rid),
-                                  )
-                                }
-                                className="flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                              >
-                                <Trash2 className="size-4" />
-                              </button>
-                            </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </section>
                   </div>
                 )}
 
+
+                {/*
+                  解析中蓋住表單。這時去改欄位，稍後匯入會與模型的提議衝突，
+                  而使用者不會記得自己改了什麼。
+                */}
+                {analysing ? <AnalysisOverlay progress={progress} /> : null}
+
+                {/*
+                  解析完成：結果不進表單，先攤在這裡讓使用者勾選。
+                  蓋在表單之上而非塞進表單裡 —— 兩份「基本資料」並排會分不清
+                  哪一份才是即將建立的內容。
+                */}
+                {showReview ? (
+                  <div className="absolute inset-0 z-20 flex flex-col bg-background">
+                    <AnalysisReview
+                      sections={sections}
+                      selected={selected}
+                      onSelectedChange={(next, section) => {
+                        setPicked(next);
+                        setTouched((prev) => new Set(prev).add(section.id));
+                      }}
+                      onRetry={(id) => askFase([id])}
+                      onImport={importSelected}
+                      onDiscard={discardReview}
+                      busyStep={busyStep}
+                    />
+                  </div>
+                ) : null}
 
                 {error ? (
                   <div className="mx-4 mb-1 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -1231,31 +1198,48 @@ export function ProjectBuild() {
                   不再放「AI 協助建置」按鈕：費思的狀態與入口統一在右下角的
                   狀態顯示，避免同一件事有兩個入口、兩種說法。
                 */}
-                <div className="flex items-center justify-between gap-2 border-t px-4 py-3">
-                  <span className="text-xs text-muted-foreground">
-                    {aiActive
-                      ? "費思正在協助此專案，可於右下角查看狀態"
-                      : "點右下角的費思即可開始 AI 協助建置"}
-                  </span>
-
-                  {step === 1 ? (
-                    <div className="flex items-center gap-3">
-                      <span className="hidden text-xs text-muted-foreground sm:inline">
-                        {requiredReady
-                          ? "必填欄位已備齊"
-                          : "請至少提供專案編號與名稱"}
+                <FormActionBar
+                  hint={
+                    <>
+                      <span className="block">
+                        {aiActive
+                          ? "費思正在協助此專案，可於右下角查看狀態"
+                          : "點右下角的費思即可開始 AI 協助建置"}
                       </span>
-                      <Button
-                        type="button"
-                        onClick={() => setStep(2)}
-                        disabled={!requiredReady}
-                      >
-                        下一步：履約事項與工程分項
-                        <ArrowRight className="size-4" />
-                      </Button>
-                    </div>
+                      {/*
+                        送出前的確認資訊放在左側提示區，不再插在兩顆按鈕之間 ——
+                        夾在按鈕中央會把「返回」與「建立」推開，讀起來也像按鈕的一部分。
+                      */}
+                      {checkingDup ? (
+                        <span className="block">正在比對是否已有相同專案…</span>
+                      ) : null}
+                      <span className="block">
+                        {step === 1
+                          ? requiredReady
+                            ? "必填欄位已備齊"
+                            : "請至少提供專案編號與名稱"
+                          : missingBasis > 0
+                            ? `將建立 ${namedObligations} 項履約事項，其中 ${missingBasis} 項未填契約依據`
+                            : `將建立 ${namedObligations} 項履約事項`}
+                      </span>
+                    </>
+                  }
+                >
+                  {step === 1 ? (
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        setStep(2);
+                        // 使用者可能手改了編號或名稱，離開這一步時重查
+                        void refreshDuplicates(fieldsRef.current);
+                      }}
+                      disabled={!requiredReady}
+                    >
+                      下一步：履約事項
+                      <ArrowRight className="size-4" />
+                    </Button>
                   ) : (
-                    <div className="flex items-center gap-3">
+                    <>
                       <Button
                         type="button"
                         variant="outline"
@@ -1265,9 +1249,6 @@ export function ProjectBuild() {
                         <ArrowLeft className="size-4" />
                         返回基本資料
                       </Button>
-                      <span className="hidden text-xs text-muted-foreground sm:inline">
-                        將建立 {namedObligations} 項履約事項、{namedWorkItems} 項工程分項
-                      </span>
                       <Button
                         type="button"
                         onClick={() => void create()}
@@ -1280,9 +1261,9 @@ export function ProjectBuild() {
                         )}
                         {creating ? "建立中…" : "確認並建立專案"}
                       </Button>
-                    </div>
+                    </>
                   )}
-                </div>
+                </FormActionBar>
               </section>
       </div>
     </div>

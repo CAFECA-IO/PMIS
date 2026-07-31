@@ -15,6 +15,13 @@ import {
   obligationStatusMeta,
   obligationTriggerMeta,
 } from "@/constant/obligation";
+import {
+  findDuplicates,
+  hasBlocking,
+  type Candidate,
+  type DuplicateMatch,
+  type ExistingProject,
+} from "@/service/project-duplicate";
 import type {
   ProjectStatus,
   ObligationStage,
@@ -338,7 +345,8 @@ export type CreateProjectInput = {
 
 export type CreateProjectResult =
   | { ok: true; id: string }
-  | { ok: false; error: string };
+  /** duplicates 只在因重複而未建立時附上，供呼叫端列出是哪些專案。 */
+  | { ok: false; error: string; duplicates?: DuplicateMatch[] };
 
 export async function createProject(
   input: CreateProjectInput,
@@ -435,13 +443,72 @@ export type WizardScopeItemInput = {
   sourceClause?: string;
 };
 
+/**
+ * 查出可能重複的既有專案。
+ *
+ * 比對在此處（伺服器端）進行而非交給前端：前端只拿得到自己畫面上的資料，
+ * 而重複的另一半在資料庫裡。
+ */
+export async function checkDuplicates(
+  candidate: Candidate,
+): Promise<DuplicateMatch[]> {
+  const rows = await projectRepo.listForDuplicateCheck();
+  const existing: ExistingProject[] = rows.map((r) => ({
+    id: r.id,
+    code: r.code,
+    name: r.name,
+    contractNo: r.contractNo,
+    client: r.client,
+    startDate: r.startDate ? r.startDate.toISOString().slice(0, 10) : null,
+    endDate: r.endDate ? r.endDate.toISOString().slice(0, 10) : null,
+    fileNames: [
+      ...r.faithUploads.map((f) => f.fileName),
+      ...r.projectFiles.map((f) => f.fileName),
+    ],
+  }));
+  return findDuplicates(candidate, existing);
+}
+
 export async function createProjectWithStructure(
   input: CreateProjectInput,
   obligations: WizardObligationInput[] = [],
   workItems: WizardWorkItemInput[] = [],
   /** 契約履約標的（階段一）。履約事項與工程分項由此推導，存下才能溯源。 */
   scopeItems: WizardScopeItemInput[] = [],
+  /**
+   * 使用者已在確認視窗同意「即使重複也要建立」。
+   *
+   * 預設 false 並在此處重查一次 —— 前端的檢查是為了讓使用者早點知道，
+   * 不能當作把關：呼叫端可以不做檢查就送出，兩次檢查之間也可能有人
+   * 剛建了同名專案。
+   */
+  allowDuplicate = false,
+  /** 本次解析使用的檔名，供「同一份契約已被別的專案用過」的判斷。 */
+  fileNames: string[] = [],
 ): Promise<CreateProjectResult> {
+  const duplicates = await checkDuplicates({
+    code: input.code,
+    name: input.name,
+    contractNo: input.contractNo,
+    client: input.client,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    fileNames,
+  });
+  /*
+    編號撞號一律擋（資料庫的 unique 約束，同意也建不出來）；
+    其餘只在使用者尚未確認時擋。
+  */
+  if (duplicates.length > 0 && (!allowDuplicate || hasBlocking(duplicates))) {
+    return {
+      ok: false,
+      error: hasBlocking(duplicates)
+        ? `專案編號「${input.code?.trim()}」已存在。`
+        : "偵測到可能重複的專案，請確認後再建立。",
+      duplicates,
+    };
+  }
+
   const result = await createProject(input);
   if (!result.ok) return result;
   const projectId = result.id;

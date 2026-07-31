@@ -1,56 +1,40 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import {
-  ArrowLeft,
   AlertTriangle,
   ClipboardCheck,
   CircleDollarSign,
   CalendarClock,
   MapPin,
-  Table2,
 } from "lucide-react";
 
 import * as projectService from "@/service/project.service";
 import * as gisService from "@/service/gis.service";
 import { requireUser } from "@/service/auth.service";
 import { assertModuleAccess, canEditModule } from "@/service/access.service";
-import { canSeeAllProjects } from "@/lib/auth";
 import { ProjectMiniMap, MiniMapEmpty } from "./project-mini-map";
 import { SCurveChart } from "@/components/s-curve-chart";
 import { CurveBasisToggle } from "./curve-basis-toggle";
 import * as faithUpload from "@/service/faithUpload.service";
 import { rolledUpProgress } from "@/service/obligation-rollup";
-import { ownerLabel } from "@/service/obligation-view";
 import {
-  obligationRiskMeta,
-  obligationRiskOptions,
-  obligationStageMeta,
-  obligationStageOptions,
-  obligationStatusMeta,
-  obligationStatusOptions,
 } from "@/constant/obligation";
 import {
   updateProjectAction,
-  addObligationAction,
-  deleteObligationAction,
-  restoreObligationAction,
   addContractChangeAction,
   deleteContractChangeAction,
   restoreContractChangeAction,
   addDocumentAction,
   deleteDocumentAction,
   restoreDocumentAction,
-  addProjectMemberAction,
-  createWorkItemAction,
-  updateWorkItemAction,
 } from "../actions";
 import { UnassignedUploadsPrompt } from "./unassigned-uploads";
-import { WorkItemDeleteButton } from "./work-item-delete-button";
 import { DeleteProjectButton } from "./delete-project-button";
 import { RecordDeleteButton } from "./record-delete-button";
-import { MemberRemoveButton } from "./member-remove-button";
-import { ObligationTriggerFields } from "@/components/obligation-trigger-fields";
 import { PageHeader } from "@/components/page-header";
+import { withProject } from "@/lib/project-link";
+import { BasicInfoCard } from "./basic-info-card";
+import { decideProjectPage, projectHref } from "@/lib/project-route";
 import { Button } from "@/components/ui/button";
 import { CreateRecordDialog } from "@/components/ui/create-record-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -60,32 +44,32 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { ProgressWithTarget, RadialGauge } from "@/components/charts";
-import { CityCombobox } from "@/components/city-combobox";
 import {
   projectStatusMeta,
-  projectStatusOptions,
   projectDocumentCategoryMeta,
   projectDocumentCategoryOptions,
-  workItemStatusMeta,
   inspectionTypeMeta,
   inspectionResultMeta,
   defectSeverityMeta,
-  defectStatusMeta,
-  projectMemberRoleMeta,
-  projectMemberRoleOptions,
 } from "@/constant/pmis";
-import { accountRoleMeta } from "@/constant/people";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
+/*
+  三個分頁。
+
+  拿掉的四個各有更合適的去處，留在這裡只是入口重複：
+   - 基本資料 → 併入總覽的第一張卡（原本「看到的」與「能改的」是兩組欄位）
+   - 人力配置 → 帳號管理的「專案配置」（那是誰能碰什麼的問題）
+   - 履約事項 → 履約事項模組（有統計、篩選與甘特圖）
+   - 相關作業 → 工程分項改於估驗台帳維護，查驗與缺失各有模組頁
+
+  專案頁因此回到它該做的事：這個案子是什麼、契約與文件、改過什麼。
+*/
 const TABS = [
   { key: "overview", label: "總覽" },
-  { key: "basic", label: "基本資料" },
-  { key: "members", label: "人力配置" },
   { key: "contract", label: "契約與文件" },
-  { key: "obligations", label: "履約事項" },
-  { key: "related", label: "相關作業" },
   { key: "changes", label: "變更紀錄" },
 ] as const;
 
@@ -121,23 +105,21 @@ function Field({
 }
 
 /** Date → yyyy-mm-dd（供 <input type="date"> 的 defaultValue） */
-function toDateInput(d: Date | null | undefined): string | undefined {
-  if (!d) return undefined;
-  const dt = new Date(d);
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(
-    dt.getDate(),
-  ).padStart(2, "0")}`;
-}
 
 export default async function ProjectDetailPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string; curve?: string; created?: string }>;
+  searchParams: Promise<{
+    tab?: string;
+    curve?: string;
+    created?: string;
+    project?: string;
+  }>;
 }) {
   const { id } = await params;
-  const { tab, curve, created } = await searchParams;
+  const { tab, curve, created, project: selected } = await searchParams;
   const curveBasis = curve === "workitem" ? "WORKITEM" : "OBLIGATION";
   const user = await requireUser();
   const perms = await assertModuleAccess(user, "/projects");
@@ -145,22 +127,25 @@ export default async function ProjectDetailPage({
   const project = await projectService.getProject(id, user);
   if (!project) notFound();
 
+  /*
+    網址上沒有 ?project=（或指向別的專案）時補上。
+    從通知、費思的連結或書籤進來時常常沒帶，於是左上角顯示「全部專案」
+    而畫面上明明開著這一件 —— 兩者不一致比沒有更容易誤判。
+  */
+  const routing = decideProjectPage(id, selected, tab);
+  if (routing.kind === "redirect") redirect(routing.href);
+
   const active = TABS.some((t) => t.key === tab) ? tab! : "overview";
   const meta = projectStatusMeta[project.status];
   const miniMap =
     active === "overview"
       ? await gisService.getProjectMiniMap(project.id, user)
       : null;
-  // 工程分項明細（含 obligationId）供 S-Curve 上捲、履約事項達成度與分項編輯表單
+  // 工程分項明細（含 obligationId）供 S-Curve 上捲與履約事項達成度
   const wiDetails =
-    active === "overview" || active === "related" || active === "obligations"
+    active === "overview"
       ? await projectService.getWorkItemDetails(project.id)
       : [];
-  const obligationRollups = projectService.computeObligationRollups(
-    project.obligations,
-    wiDetails,
-  );
-  const wiObligationMap = new Map(wiDetails.map((w) => [w.id, w.obligationId]));
   const obligationOptions = project.obligations;
   /*
     專案剛建立時（?created=1）才查詢未指派檔案並提示是否一併歸入。
@@ -178,31 +163,19 @@ export default async function ProjectDetailPage({
         }))
       : [];
 
-  const canManageMembers = canSeeAllProjects(user.role);
-  const assignableAccounts = active === "members" && canManageMembers
-    ? await projectService.listAssignableAccounts()
-    : [];
-
   return (
     <>
       <PageHeader
         section="02 契約與時程管理"
         title={project.name}
         description={`專案編號 ${project.code}`}
-        action={
-          <div className="flex items-center gap-2">
-            <Badge variant={meta.variant}>{meta.label}</Badge>
-            <Button variant="outline" asChild>
-              <Link href="/projects">
-                <ArrowLeft className="size-4" />
-                返回
-              </Link>
-            </Button>
-            {canEdit && (
-              <DeleteProjectButton id={project.id} name={project.name} />
-            )}
-          </div>
-        }
+        /*
+          標題列只放狀態。
+          刪除移到總覽末尾的獨立區塊 —— 它與「編輯基本資料」「切換分頁」
+          這些每天都在做的事放在一起，遲早會有人點錯；而刪除牽動的是
+          整案的分項、查驗、缺失、文件與履約事項。
+        */
+        action={<Badge variant={meta.variant}>{meta.label}</Badge>}
       />
 
       {/* tab nav */}
@@ -210,7 +183,7 @@ export default async function ProjectDetailPage({
         {TABS.map((t) => (
           <Link
             key={t.key}
-            href={`/projects/${project.id}?tab=${t.key}`}
+            href={projectHref(project.id, t.key)}
             className={cn(
               "-mb-px border-b-2 px-4 py-3 text-sm font-medium transition-colors",
               active === t.key
@@ -457,33 +430,31 @@ export default async function ProjectDetailPage({
                   </Card>
                 </div>
 
-                {/* 第四層：關鍵資料 */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">關鍵資料</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <dl className="grid grid-cols-2 gap-x-6 gap-y-4 text-sm sm:grid-cols-3">
-                      {[
-                        ["業主", project.client],
-                        ["承包商", project.contractor],
-                        ["監造單位", project.supervisor],
-                        ["地點", project.location],
-                        ["開工日", formatDate(project.startDate)],
-                        ["完工日", formatDate(project.endDate)],
-                      ].map(([label, value]) => (
-                        <div key={label}>
-                          <dt className="text-xs text-muted-foreground">
-                            {label}
-                          </dt>
-                          <dd className="mt-0.5 font-medium">
-                            {value && value !== "—" ? value : "—"}
-                          </dd>
-                        </div>
-                      ))}
-                    </dl>
-                  </CardContent>
-                </Card>
+                {/*
+                  第四層：基本資料。
+                  同一張卡負責顯示與編輯（右上角鉛筆就地切換），
+                  不再有一個只顯示六項的「關鍵資料」加一個欄位還更少的編輯分頁。
+                */}
+                <BasicInfoCard
+                  canEdit={canEdit}
+                  info={{
+                    id: project.id,
+                    code: project.code,
+                    name: project.name,
+                    contractNo: project.contractNo,
+                    client: project.client,
+                    contractor: project.contractor,
+                    supervisor: project.supervisor,
+                    location: project.location,
+                    budget: project.budget != null ? String(project.budget) : null,
+                    status: project.status,
+                    signedDate: dateInput(project.signedDate),
+                    noticeDate: dateInput(project.noticeDate),
+                    startDate: dateInput(project.startDate),
+                    endDate: dateInput(project.endDate),
+                    description: project.description,
+                  }}
+                />
 
                 {/* 第五層：進度 S-Curve（資料連動） */}
                 <Card>
@@ -514,10 +485,13 @@ export default async function ProjectDetailPage({
                         <b>實際累計</b>以分項目前 <b>進度 %</b> 為終值自起始日線性分佈，
                         <b>預測</b>自目前實際值外推至工期末。調整分項的預定/實際起訖日或進度即會改變曲線 —{" "}
                         <Link
-                          href={`/projects/${project.id}?tab=related`}
+                          href={withProject(
+                            `/projects/${project.id}/ledger`,
+                            project.id,
+                          )}
                           className="text-primary hover:underline"
                         >
-                          前往工程分項
+                          前往估驗台帳維護分項
                         </Link>
                         。
                       </p>
@@ -528,10 +502,10 @@ export default async function ProjectDetailPage({
                         <b>實際累計</b>來自「實際完成日 × 權重」，<b>預測</b>自目前實際值外推至工期末。
                         調整權重或填入實際完成日即會改變曲線 —{" "}
                         <Link
-                          href={`/projects/${project.id}?tab=obligations`}
+                          href={withProject("/obligations", project.id)}
                           className="text-primary hover:underline"
                         >
-                          前往履約事項編輯
+                          前往履約事項
                         </Link>
                         。
                       </p>
@@ -546,7 +520,7 @@ export default async function ProjectDetailPage({
                       <CardTitle className="flex items-center justify-between text-base">
                         近期查驗
                         <Link
-                          href={`/projects/${project.id}?tab=related`}
+                          href={withProject("/quality", project.id)}
                           className="text-xs font-normal text-primary hover:underline"
                         >
                           全部
@@ -590,7 +564,7 @@ export default async function ProjectDetailPage({
                       <CardTitle className="flex items-center justify-between text-base">
                         待處理缺失
                         <Link
-                          href={`/projects/${project.id}?tab=related`}
+                          href={withProject("/quality", project.id)}
                           className="text-xs font-normal text-primary hover:underline"
                         >
                           全部
@@ -673,178 +647,6 @@ export default async function ProjectDetailPage({
               </div>
             );
           })()}
-
-        {active === "basic" && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">基本資料</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form action={updateProjectAction} className="space-y-5">
-                <input type="hidden" name="id" value={project.id} />
-                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <Label>專案編號</Label>
-                    <Input defaultValue={project.code} disabled />
-                  </div>
-                  <Field label="專案名稱" name="name" defaultValue={project.name} />
-                  <div className="space-y-1.5">
-                    <Label htmlFor="location">地點</Label>
-                    <CityCombobox
-                      id="location"
-                      name="location"
-                      defaultValue={project.location ?? ""}
-                      placeholder="輸入城市名稱或代碼搜尋"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="status">狀態</Label>
-                    <Select id="status" name="status" defaultValue={project.status}>
-                      {projectStatusOptions.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  {/*
-                    契約簽訂日與開工命令日：履約事項的相對期限常以這兩天起算，
-                    且不必等於開工日。沒有它們，那類期限就算不出來。
-                  */}
-                  <Field
-                    label="契約簽訂日"
-                    name="signedDate"
-                    type="date"
-                    defaultValue={dateInput(project.signedDate)}
-                  />
-                  <Field
-                    label="開工命令日"
-                    name="noticeDate"
-                    type="date"
-                    defaultValue={dateInput(project.noticeDate)}
-                  />
-                  <Field
-                    label="開工日"
-                    name="startDate"
-                    type="date"
-                    defaultValue={dateInput(project.startDate)}
-                  />
-                  <Field
-                    label="完工日"
-                    name="endDate"
-                    type="date"
-                    defaultValue={dateInput(project.endDate)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="description">工程摘要</Label>
-                  <Textarea
-                    id="description"
-                    name="description"
-                    rows={3}
-                    defaultValue={project.description ?? ""}
-                  />
-                </div>
-                {canEdit && <Button type="submit">儲存</Button>}
-              </form>
-            </CardContent>
-          </Card>
-        )}
-
-        {active === "members" && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                專案成員 ({project.members.length})
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {project.members.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  尚未配置人力。
-                  {canManageMembers ? "請於下方新增成員。" : ""}
-                </p>
-              ) : (
-                <div className="divide-y">
-                  {project.members.map((m) => (
-                    <div
-                      key={m.id}
-                      className="flex items-center justify-between gap-3 py-2"
-                    >
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">
-                          {m.account.name.slice(0, 1)}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 text-sm font-medium">
-                            <span className="truncate">{m.account.name}</span>
-                            <Badge variant={projectMemberRoleMeta[m.role].variant}>
-                              {projectMemberRoleMeta[m.role].label}
-                            </Badge>
-                          </div>
-                          <div className="truncate text-xs text-muted-foreground">
-                            {accountRoleMeta[m.account.role].label}
-                            {m.account.orgUnit
-                              ? ` · ${m.account.orgUnit.name}`
-                              : ""}
-                            {` · ${m.account.email}`}
-                          </div>
-                        </div>
-                      </div>
-                      {canManageMembers && canEdit && (
-                        <MemberRemoveButton
-                          id={m.id}
-                          projectId={project.id}
-                          name={m.account.name}
-                        />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {canManageMembers && canEdit ? (
-                <div className="flex justify-end">
-                  <CreateRecordDialog
-                    title="加入成員"
-                    triggerLabel="新增成員"
-                    action={addProjectMemberAction}
-                    submitLabel="加入"
-                  >
-                    <input type="hidden" name="projectId" value={project.id} />
-                    <div className="space-y-1.5">
-                      <Label htmlFor="member-account">成員</Label>
-                      <Select id="member-account" name="accountId" defaultValue="">
-                        <option value="" disabled>
-                          選擇帳號…
-                        </option>
-                        {assignableAccounts.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {a.name}（{accountRoleMeta[a.role].label}）
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="member-role">專案角色</Label>
-                      <Select id="member-role" name="role" defaultValue="MEMBER">
-                        {projectMemberRoleOptions.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
-                  </CreateRecordDialog>
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  僅系統管理員與計畫主管可調整人力配置。
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        )}
 
         {active === "contract" && (
           <>
@@ -978,213 +780,6 @@ export default async function ProjectDetailPage({
           </>
         )}
 
-        {active === "obligations" &&
-          (() => {
-            // 與總覽一致：全系統統一的上捲進度
-            const prog = rolledUpProgress(project.obligations, wiDetails);
-            const behind = prog.gap < 0;
-            return (
-              <div className="space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">本專案進度</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="flex flex-wrap items-center gap-x-8 gap-y-2">
-                      <div>
-                        <div className="text-xs text-muted-foreground">整體進度</div>
-                        <div className="text-2xl font-semibold tabular-nums">
-                          {prog.overall}%
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-muted-foreground">預定進度</div>
-                        <div className="text-2xl font-semibold tabular-nums text-muted-foreground">
-                          {prog.planned}%
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-muted-foreground">落差</div>
-                        <div>
-                          {prog.gap < 0 ? (
-                            <Badge variant="destructive">
-                              落後 {Math.abs(prog.gap)}%
-                            </Badge>
-                          ) : prog.gap > 0 ? (
-                            <Badge variant="success">超前 {prog.gap}%</Badge>
-                          ) : (
-                            <Badge variant="muted">準時</Badge>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <ProgressWithTarget
-                      actual={prog.overall}
-                      planned={prog.planned}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      進度依履約事項權重計算，｜為預定進度位置。
-                      {behind
-                        ? "目前落後，建議檢視未達成履約事項並排定趕工。"
-                        : "進度符合或超前預定。"}
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">
-                      履約事項 ({project.obligations.length})
-                    </CardTitle>
-                  </CardHeader>
-            <CardContent className="space-y-4">
-              {project.obligations.length === 0 ? (
-                <p className="text-sm text-muted-foreground">尚無履約事項。</p>
-              ) : (
-                <div className="divide-y">
-                  {project.obligations.map((m) => (
-                    <div
-                      key={m.id}
-                      className="flex items-center justify-between gap-3 py-2"
-                    >
-                      <div className="flex min-w-0 items-center gap-3">
-                        <span
-                          className={cn(
-                            "size-2.5 shrink-0 rounded-full",
-                            obligationRiskMeta[m.risk].dot,
-                          )}
-                          title={`風險：${obligationRiskMeta[m.risk].label}`}
-                        />
-                        <Badge variant={obligationStageMeta[m.stage].variant}>
-                          {obligationStageMeta[m.stage].label}
-                        </Badge>
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-medium">
-                            <span className="text-muted-foreground">{m.code}</span>{" "}
-                            {m.title}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {obligationStatusMeta[m.status].label} · 期限{" "}
-                            {formatDate(m.dueDate)}
-                            {m.actualDate ? ` · 實際 ${formatDate(m.actualDate)}` : ""}
-                            {ownerLabel(m) ? ` · ${ownerLabel(m)}` : ""}
-                            {(obligationRollups.get(m.id)?.count ?? 0) > 0
-                              ? ` · 分項推算 ${obligationRollups.get(m.id)!.progress}%（${obligationRollups.get(m.id)!.count} 項）`
-                              : ""}
-                          </div>
-                        </div>
-                      </div>
-                      {canEdit && (
-                        <RecordDeleteButton
-                          id={m.id}
-                          projectId={project.id}
-                          label="履約事項"
-                          onDelete={deleteObligationAction}
-                          onRestore={restoreObligationAction}
-                        />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {canEdit && (
-              <div className="flex justify-end">
-                <CreateRecordDialog
-                  title="新增履約事項"
-                  assistId="obligation"
-                  triggerLabel="新建履約事項"
-                  action={addObligationAction}
-                >
-                  <input type="hidden" name="projectId" value={project.id} />
-                  <Field label="管制編號" name="code" placeholder="如：WURI-C-001" />
-                  <Field label="履約事項" name="title" placeholder="如：連續壁完成" />
-                  <div className="space-y-1.5">
-                    <Label htmlFor="ob-stage">階段</Label>
-                    <Select id="ob-stage" name="stage" defaultValue="CONSTRUCTION">
-                      {obligationStageOptions.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="ob-risk">風險</Label>
-                    <Select id="ob-risk" name="risk" defaultValue="GREEN">
-                      {obligationRiskOptions.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="ob-status">狀態</Label>
-                    <Select id="ob-status" name="status" defaultValue="NOT_STARTED">
-                      {obligationStatusOptions.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  {/*
-                    觸發方式與期限：四種方式需要的輸入不同，交由共用元件
-                    切換並即時推算期限；與細節頁使用同一個元件，兩處不會漂移。
-                  */}
-                  <ObligationTriggerFields
-                    defaults={{
-                      triggerType: "FIXED_DATE",
-                      dueDate: null,
-                      relativeAnchor: null,
-                      offsetDays: null,
-                      predecessorId: null,
-                      conditionKind: null,
-                      conditionDetail: null,
-                      dueDateOverridden: false,
-                    }}
-                    predecessors={project.obligations.map((o) => ({
-                      id: o.id,
-                      code: o.code,
-                      title: o.title,
-                    }))}
-                    context={{
-                      projectStart: toDateInput(project.startDate) ?? null,
-                      projectEnd: toDateInput(project.endDate) ?? null,
-                      contractSigned: toDateInput(project.signedDate) ?? null,
-                      noticeToProceed: toDateInput(project.noticeDate) ?? null,
-                      today: new Date().toISOString().slice(0, 10),
-                      dueDateOf: (id) =>
-                        toDateInput(
-                          project.obligations.find((o) => o.id === id)?.dueDate,
-                        ) ?? null,
-                    }}
-                  />
-                  <Field label="實際完成日" name="actualDate" type="date" />
-                  <Field label="責任單位" name="ownerUnit" placeholder="如：資訊組" />
-                  <Field label="責任人" name="ownerName" placeholder="如：陳工程師" />
-                  <Field label="契約依據" name="contractBasis" placeholder="如：契約第二條第八款" />
-                  <Field label="進度權重" name="weight" type="number" placeholder="1" />
-                  <Field label="核准文號" name="docNo" />
-                  <Field label="說明" name="note" />
-                  <label className="flex items-center gap-2 text-sm sm:col-span-2">
-                    <input
-                      type="checkbox"
-                      name="commissioning"
-                      className="size-4 rounded border-input"
-                    />
-                    計入試運轉就緒度
-                  </label>
-                </CreateRecordDialog>
-              </div>
-              )}
-            </CardContent>
-                </Card>
-              </div>
-            );
-          })()}
-
         {active === "changes" && (
           <Card>
             <CardHeader>
@@ -1257,310 +852,31 @@ export default async function ProjectDetailPage({
           </Card>
         )}
 
-        {active === "related" && (
-          <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <CardTitle className="text-base">
-                    工程分項 ({project.workItems.length})
-                  </CardTitle>
-                  {/*
-                    數量與計價不放在這張卡片：那是一張十一欄的寬表，
-                    塞進專案總覽會兩者都難用。此處只留入口。
-                  */}
-                  <Link
-                    href={`/projects/${project.id}/ledger`}
-                    className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
-                  >
-                    <Table2 className="size-3.5" />
-                    工項數量與估驗台帳
-                  </Link>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <p className="text-xs text-muted-foreground">
-                  工程分項之預定/實際起訖與進度為「工程分項基準」進度 S-Curve 的資料來源；
-                  查驗（PMIS-07）與缺失可關聯至工項。數量、單價與估驗量請於台帳維護。
+        {/*
+          總覽末尾的不可逆操作區。
+
+          設計上刻意低調而非隱藏：外框是虛線、文字是次要色、按鈕是 ghost，
+          與上方每一張實心卡片明顯不同層級 —— 使用者掃過去不會誤觸，
+          但真的要找時知道它在最下面（那是這類操作的慣例位置）。
+          真正的把關在確認視窗裡：必須手動輸入 DELETE。
+        */}
+        {active === "overview" && canEdit ? (
+          <div className="mt-2 rounded-lg border border-dashed px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-muted-foreground">
+                  不可逆操作
                 </p>
-                {project.workItems.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">尚無工項，請於下方新增。</p>
-                ) : (
-                  <div className="space-y-2">
-                    {project.workItems.map((wi) => (
-                      <div key={wi.id} className="rounded-lg border p-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium">{wi.name}</span>
-                            {wi.category ? (
-                              <span className="text-xs text-muted-foreground">
-                                {wi.category}
-                              </span>
-                            ) : null}
-                            <Badge variant={workItemStatusMeta[wi.status].variant}>
-                              {workItemStatusMeta[wi.status].label}
-                            </Badge>
-                          </div>
-                          <div className="flex w-48 items-center gap-2">
-                            <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                              <div
-                                className="h-full rounded-full bg-primary"
-                                style={{ width: `${wi.progress}%` }}
-                              />
-                            </div>
-                            <span className="w-9 text-right text-xs tabular-nums text-muted-foreground">
-                              {wi.progress}%
-                            </span>
-                          </div>
-                        </div>
-                        {canEdit && (
-                        <details className="mt-2">
-                          <summary className="cursor-pointer text-xs text-primary hover:underline">
-                            編輯 / 刪除
-                          </summary>
-                          <form
-                            action={updateWorkItemAction}
-                            className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2"
-                          >
-                            <input type="hidden" name="id" value={wi.id} />
-                            <input type="hidden" name="projectId" value={project.id} />
-                            <label className="space-y-1 text-xs sm:col-span-2">
-                              <span className="text-muted-foreground">名稱</span>
-                              <Input name="name" defaultValue={wi.name} />
-                            </label>
-                            <label className="space-y-1 text-xs">
-                              <span className="text-muted-foreground">類別</span>
-                              <Input name="category" defaultValue={wi.category ?? ""} />
-                            </label>
-                            <label className="space-y-1 text-xs">
-                              <span className="text-muted-foreground">狀態</span>
-                              <Select name="status" defaultValue={wi.status}>
-                                {Object.entries(workItemStatusMeta).map(([v, m]) => (
-                                  <option key={v} value={v}>
-                                    {m.label}
-                                  </option>
-                                ))}
-                              </Select>
-                            </label>
-                            <label className="space-y-1 text-xs">
-                              <span className="text-muted-foreground">進度 %</span>
-                              <Input
-                                name="progress"
-                                type="number"
-                                min={0}
-                                max={100}
-                                defaultValue={String(wi.progress)}
-                              />
-                            </label>
-                            <label className="space-y-1 text-xs">
-                              <span className="text-muted-foreground">
-                                歸屬履約事項
-                              </span>
-                              <Select
-                                name="obligationId"
-                                defaultValue={wiObligationMap.get(wi.id) ?? ""}
-                              >
-                                <option value="">不歸屬</option>
-                                {obligationOptions.map((m) => (
-                                  <option key={m.id} value={m.id}>
-                                    {m.code} {m.title}
-                                  </option>
-                                ))}
-                              </Select>
-                            </label>
-                            <label className="space-y-1 text-xs">
-                              <span className="text-muted-foreground">預定開工</span>
-                              <Input
-                                name="plannedStart"
-                                type="date"
-                                defaultValue={toDateInput(wi.plannedStart)}
-                              />
-                            </label>
-                            <label className="space-y-1 text-xs">
-                              <span className="text-muted-foreground">預定完工</span>
-                              <Input
-                                name="plannedEnd"
-                                type="date"
-                                defaultValue={toDateInput(wi.plannedEnd)}
-                              />
-                            </label>
-                            <label className="space-y-1 text-xs">
-                              <span className="text-muted-foreground">實際開工</span>
-                              <Input
-                                name="actualStart"
-                                type="date"
-                                defaultValue={toDateInput(wi.actualStart)}
-                              />
-                            </label>
-                            <label className="space-y-1 text-xs">
-                              <span className="text-muted-foreground">實際完工</span>
-                              <Input
-                                name="actualEnd"
-                                type="date"
-                                defaultValue={toDateInput(wi.actualEnd)}
-                              />
-                            </label>
-                            <div className="flex items-center gap-2 sm:col-span-2">
-                              <Button type="submit" size="sm" variant="secondary">
-                                儲存
-                              </Button>
-                              <WorkItemDeleteButton
-                                id={wi.id}
-                                projectId={project.id}
-                                name={wi.name}
-                              />
-                            </div>
-                          </form>
-                        </details>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* 新增工程分項 */}
-                {canEdit && (
-                <div className="flex justify-end">
-                  <CreateRecordDialog
-                    title="新增工程分項"
-                  assistId="work-item"
-                    triggerLabel="新建工程分項"
-                    action={createWorkItemAction}
-                  >
-                    <input type="hidden" name="projectId" value={project.id} />
-                    <label className="space-y-1 text-xs sm:col-span-2">
-                      <span className="text-muted-foreground">名稱</span>
-                      <Input name="name" placeholder="如：連續壁施工" />
-                    </label>
-                    <label className="space-y-1 text-xs">
-                      <span className="text-muted-foreground">類別</span>
-                      <Input name="category" placeholder="如：結構" />
-                    </label>
-                    <label className="space-y-1 text-xs">
-                      <span className="text-muted-foreground">狀態</span>
-                      <Select name="status" defaultValue="NOT_STARTED">
-                        {Object.entries(workItemStatusMeta).map(([v, m]) => (
-                          <option key={v} value={v}>
-                            {m.label}
-                          </option>
-                        ))}
-                      </Select>
-                    </label>
-                    <label className="space-y-1 text-xs">
-                      <span className="text-muted-foreground">進度 %</span>
-                      <Input name="progress" type="number" min={0} max={100} placeholder="0" />
-                    </label>
-                    <label className="space-y-1 text-xs">
-                      <span className="text-muted-foreground">歸屬履約事項</span>
-                      <Select name="obligationId" defaultValue="">
-                        <option value="">不歸屬</option>
-                        {obligationOptions.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.code} {m.title}
-                          </option>
-                        ))}
-                      </Select>
-                    </label>
-                    <label className="space-y-1 text-xs">
-                      <span className="text-muted-foreground">預定開工</span>
-                      <Input name="plannedStart" type="date" />
-                    </label>
-                    <label className="space-y-1 text-xs">
-                      <span className="text-muted-foreground">預定完工</span>
-                      <Input name="plannedEnd" type="date" />
-                    </label>
-                    <label className="space-y-1 text-xs">
-                      <span className="text-muted-foreground">實際開工</span>
-                      <Input name="actualStart" type="date" />
-                    </label>
-                    <label className="space-y-1 text-xs">
-                      <span className="text-muted-foreground">實際完工</span>
-                      <Input name="actualEnd" type="date" />
-                    </label>
-                  </CreateRecordDialog>
-                </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">
-                    查驗紀錄 ({project.inspections.length})
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {project.inspections.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">尚無查驗紀錄。</p>
-                  ) : (
-                    project.inspections.map((insp) => (
-                      <div
-                        key={insp.id}
-                        className="flex items-start justify-between gap-3 border-b pb-3 last:border-0 last:pb-0"
-                      >
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <Badge variant={inspectionTypeMeta[insp.type].variant}>
-                              {inspectionTypeMeta[insp.type].label}
-                            </Badge>
-                            <span className="truncate text-sm font-medium">
-                              {insp.workItem?.name ?? insp.location ?? "全案"}
-                            </span>
-                          </div>
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            {formatDate(insp.scheduledAt)} · {insp.inspector ?? "—"}
-                          </div>
-                        </div>
-                        <Badge variant={inspectionResultMeta[insp.result].variant}>
-                          {inspectionResultMeta[insp.result].label}
-                        </Badge>
-                      </div>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">
-                    缺失追蹤 ({project.defects.length})
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {project.defects.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">尚無缺失。</p>
-                  ) : (
-                    project.defects.map((defect) => (
-                      <div
-                        key={defect.id}
-                        className="flex items-start justify-between gap-3 border-b pb-3 last:border-0 last:pb-0"
-                      >
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-medium">
-                            {defect.title}
-                          </div>
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            負責：{defect.assignedTo ?? "—"} · 期限：
-                            {formatDate(defect.dueDate)}
-                          </div>
-                        </div>
-                        <div className="flex shrink-0 flex-col items-end gap-1">
-                          <Badge variant={defectSeverityMeta[defect.severity].variant}>
-                            {defectSeverityMeta[defect.severity].label}
-                          </Badge>
-                          <Badge variant={defectStatusMeta[defect.status].variant}>
-                            {defectStatusMeta[defect.status].label}
-                          </Badge>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
+                <p className="mt-0.5 text-xs text-muted-foreground/80">
+                  刪除本案會一併移除其工程分項、查驗、缺失、文件、履約事項與變更紀錄，
+                  90 天內可於垃圾桶復原。
+                </p>
+              </div>
+              <DeleteProjectButton id={project.id} name={project.name} />
             </div>
           </div>
-        )}
+        ) : null}
+
       </div>
     </>
   );

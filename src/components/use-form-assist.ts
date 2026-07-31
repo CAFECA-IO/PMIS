@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, type RefObject } from "react";
 
-import { useNotification } from "@/components/ui/notification";
 import { useAiAssistant } from "@/components/ai-assistant-context";
+import { useFaithOffer } from "@/components/use-faith-offer";
 import { findAssistSpec, type FormAssistId } from "@/constant/form-assist";
 import {
   fillSummary,
@@ -20,18 +20,6 @@ import {
  * 抽出來共用而非複製一份 —— 這段邏輯的細節（例如「問過就不再問」要跨
  * 元件卸載保留）光看程式碼不明顯，兩份實作必然漂移。
  */
-
-/**
- * 已詢問過的表單（本次瀏覽期間）。
- *
- * 放在模組層級而非元件狀態：對話框關閉即卸載，狀態會消失，
- * 使用者反覆開關同一表單就會被反覆詢問。改頁（client navigation）
- * 也不重置，符合「同一表單只問一次」。整頁重載才會歸零。
- *
- * 不另外記錄「已拒絕」：問過就不再問，兩者行為相同；
- * 想事後求助的人一律走表單內常駐的「請費思協助」。
- */
-const asked = new Set<string>();
 
 export type FormAssist = {
   /** 欄位規格；未指定 assistId 時為 null。 */
@@ -66,8 +54,7 @@ export function useFormAssist({
    */
   offer?: boolean;
 }): FormAssist {
-  const { notify } = useNotification();
-  const { task, startTask, endTask, working, registerOffer } = useAiAssistant();
+  const { task, startTask, endTask, working } = useAiAssistant();
 
   const spec = findAssistSpec(assistId);
   const aiTaskId = spec ? `form-assist:${spec.id}` : null;
@@ -139,8 +126,6 @@ export function useFormAssist({
 
   const handToFaith = useCallback(() => {
     if (!spec || !aiTaskId) return;
-    // 交給費思前先記為已詢問，避免助手回填後又跳出詢問
-    asked.add(spec.id);
 
     startTask({
       id: aiTaskId,
@@ -179,45 +164,17 @@ export function useFormAssist({
   }, [aiTaskId, applyPatch, spec, startTask]);
 
   /*
-    表單在畫面上期間，向右下角的費思註冊協助入口 ——
-    點費思等同啟動這張表單的代填，而不是開啟無關的一般問答。
-    離開時解除註冊，費思即回到一般待命。
+    邀請與右下角入口交由共用 hook：註冊入口、每次出現只邀請一次、
+    離開後重置、被接手後撤回通知。三個呼叫端行為因此一致。
   */
-  useEffect(() => {
-    if (!active || !spec || !aiTaskId) return;
-    return registerOffer({
-      taskId: aiTaskId,
-      title: spec.title,
-      start: handToFaith,
-    });
-  }, [active, spec, aiTaskId, handToFaith, registerOffer]);
-
-  /**
-   * 主動詢問是否需要協助。
-   *
-   * 以彈出通知詢問而非直接接手：使用者可能只是要手動填兩個欄位，
-   * 逕自展開費思並清空對話會打斷他。同一表單只問一次；
-   * 按下通知的關閉鈕視為拒絕，之後不再詢問。
-   */
-  useEffect(() => {
-    if (!active || !offer || !spec) return;
-    // 費思已開啟而自動接手時不必再問
-    if (assisting) return;
-    if (asked.has(spec.id)) return;
-    asked.add(spec.id);
-
-    const copy = offerCopy(spec);
-    notify({
-      title: copy.title,
-      description: copy.description,
-      variant: "info",
-      actionLabel: "好，交給費思",
-      actionIcon: "sparkles",
-      onAction: handToFaith,
-      // 比預設久一些：使用者剛打開表單，注意力還在欄位上
-      duration: 12000,
-    });
-  }, [active, offer, spec, assisting, handToFaith, notify]);
+  useFaithOffer({
+    taskId: aiTaskId ?? "form-assist:none",
+    title: spec?.title ?? "",
+    active: active && Boolean(spec),
+    accepted: assisting,
+    start: handToFaith,
+    invitation: offer && spec ? offerCopy(spec) : undefined,
+  });
 
   /** 表單離開畫面時一併結束助手任務，費思不該停在一張已消失的表單上。 */
   useEffect(() => {

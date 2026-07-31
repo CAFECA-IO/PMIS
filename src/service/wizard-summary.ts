@@ -158,13 +158,13 @@ export function summarizeRun(input: RunSummaryInput): string {
       .filter((x) => x.p.id !== "profile")
       .map((x) => stepLabel(x.p.id));
     actions.push(
-      `「${names.join("、")}」擷取到的內容偏少，可能是文件未載明；可補充說明後在左側點**重試**。`,
+      `「${names.join("、")}」擷取到的內容偏少，可能是文件未載明；可補充說明後點該段的**重新解析此段**。`,
     );
   }
 
   if (failed.length > 0) {
     actions.push(
-      `「${failed.map((x) => stepLabel(x.p.id)).join("、")}」可在左側進度清單點**重試**，已取得的資料不會受影響。`,
+      `「${failed.map((x) => stepLabel(x.p.id)).join("、")}」可在解析結果清單點**重新解析此段**，已取得的資料不會受影響。`,
     );
   }
   if (skipped.length > 0) {

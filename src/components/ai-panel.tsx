@@ -20,6 +20,7 @@ import { faithStatus, isExpandedStatus } from "@/service/faith-status";
 import { shouldSendOnEnter } from "@/lib/ime";
 import { Markdown } from "@/components/markdown";
 import { useAiAssistant } from "@/components/ai-assistant-context";
+import { FAITH_DOCK_POSITION, PANE_WIDTH_CLASS } from "@/lib/faith-dock";
 
 /** 歸檔後的附件資訊，隨使用者訊息一起顯示，讓上傳者立刻知道檔案已入庫。 */
 type Archived = {
@@ -513,14 +514,16 @@ export function AiPanel() {
           aria-label={status.ariaLabel}
           aria-live="polite"
           className={cn(
-            "animate-fab-in fixed bottom-6 right-6 flex items-center rounded-full bg-primary text-primary-foreground shadow-overlay transition-all hover:scale-105",
+            "animate-fab-in flex items-center rounded-full bg-primary text-primary-foreground shadow-overlay transition-all hover:scale-105",
+            FAITH_DOCK_POSITION,
             /*
-              有建置表單可協助時必須浮到對話框之上。
-              建置對話框為 z-[60]、預警規則對話框為 z-[80]，
-              費思原本的 z-40 會被遮罩蓋住而點不到 ——
-              「點右下角即啟動協助」在對話框裡會完全失效。
+              一律 z-40，不再浮到對話框之上。
+              先前為了「在對話框裡也點得到費思」而在有 offer 時提到 z-[90]，
+              代價是這顆按鈕會蓋住對話框自己的按鈕。那個需求已有兩個更好的
+              入口：對話框內建的「請費思協助」，以及彈出通知上的「好，交給費思」。
+              浮動按鈕不該蓋住任何模態視窗的操作。
             */
-            pendingOffer ? "z-[90]" : "z-40",
+            "z-40",
             expandedStatus
               ? "max-w-[min(20rem,calc(100vw-3rem))] gap-2.5 py-2 pl-3 pr-4"
               : "size-12 justify-center",
@@ -565,7 +568,7 @@ export function AiPanel() {
           // justify-end 讓分欄貼齊右緣：寬度變化時內容原地被揭開，
           // 而不是隨著外殼左移造成文字晃動
           "lg:relative lg:z-[130] lg:flex lg:h-full lg:shrink-0 lg:justify-end",
-          open ? "lg:w-[400px] xl:w-[440px]" : "lg:w-0",
+          open ? PANE_WIDTH_CLASS : "lg:w-0",
           // 窄視窗改為全螢幕覆蓋，收合時整塊不渲染於畫面上
           !open && "max-lg:hidden",
         )}
@@ -576,7 +579,8 @@ export function AiPanel() {
         // 視窗寬度不足（< lg）：覆蓋全螢幕，由下方滑入
         "max-lg:fixed max-lg:inset-0 max-lg:z-[130] max-lg:animate-pane-slide-up",
         // 桌機：固定欄寬，避免寬度轉場期間內容被壓縮變形；內容淡入
-        "lg:w-[400px] lg:border-l xl:w-[440px] lg:animate-pane-fade-in",
+        PANE_WIDTH_CLASS,
+        "lg:border-l lg:animate-pane-fade-in",
         task && "lg:ring-2 lg:ring-inset lg:ring-primary/40",
       )}
       onDragOver={(e) => {

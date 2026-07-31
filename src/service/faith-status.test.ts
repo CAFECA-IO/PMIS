@@ -120,8 +120,22 @@ test("畫面上有建置表單時，說出點下去會幫什麼", () => {
   });
   assert.equal(s.state, "offer");
   assert.match(s.detail ?? "", /新增履約事項/);
-  assert.equal(isExpandedStatus(s.state), true, "要展開，否則使用者不知按了會如何");
-  assert.match(s.ariaLabel, /點擊讓費思協助/);
+  assert.match(s.ariaLabel, /點擊讓費思協助/, "說明改由無障礙標籤與提示承擔");
+});
+
+test("可協助時維持圓鈕，不展開成膠囊", () => {
+  /*
+    同一時間已有一則彈出通知在問「需要協助嗎」並附接受按鈕。
+    按鈕若也展開成約 320px 的膠囊，等於同一件事說兩次，
+    而那塊寬度正好蓋住頁面右下角的主要動作（實際發生過）。
+  */
+  assert.equal(isExpandedStatus("offer"), false);
+});
+
+test("進行中的任務與工作中才展開（那才是真的狀態）", () => {
+  assert.equal(isExpandedStatus("task"), true);
+  assert.equal(isExpandedStatus("working"), true);
+  assert.equal(isExpandedStatus("idle"), false);
 });
 
 test("已接手任務時不再顯示邀請，避免兩種語意並存", () => {

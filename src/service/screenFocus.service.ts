@@ -17,7 +17,7 @@ const MODULE_LABELS: Record<string, string> = {
   "/quality": "品質稽核",
   "/gis": "GIS 地圖",
   "/documents": "檔案管理",
-  "/people": "組織管理",
+  "/people": "帳號管理",
   "/docs": "功能說明",
 };
 

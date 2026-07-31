@@ -1,7 +1,6 @@
 import type {
   ProjectProfileFields,
   WizardObligation,
-  WizardWorkItem,
 } from "./faith.service";
 
 /**
@@ -12,24 +11,22 @@ import type {
  * 各自帶較小的 responseSchema，單段失敗也不影響其他段已取得的資料。
  */
 
-export type WizardStepId =
-  | "profile"
-  | "scope"
-  | "obligations"
-  | "owners"
-  | "packages"
-  | "workItems";
+export type WizardStepId = "profile" | "scope" | "obligations";
 
 /**
  * 解析階段。
  *
  * 分成這幾段的理由不只是輸出長度，更是「每段只做一件事」：
  *  - 合約標的是照抄，不需推理；
- *  - 履約事項是從標的推導期限；
- *  - 工程項目是規劃（把標的轉成可執行的工作）；
- *  - 工程分項是細分（把工程項目拆成可排程、可查驗的單元）。
- * 先前把「讀契約、推期限、規劃、細分」壓在兩次呼叫裡，
- * 模型既要抄又要想，輸出品質與完整度都不穩。
+ *  - 履約事項是從標的推導期限。
+ *
+ * 建置階段刻意止於「履約事項的名稱、階段、期限」——
+ * 一次要決定的事情越多，使用者越無法核對。責任分工、觸發方式、試運轉、
+ * 契約依據、工程分項各有自己的判斷（誰負責、由什麼事件起算、
+ * 數量與單價多少），都留到專案成立後於履約事項細節頁與估驗台帳處理。
+ *
+ * 先前這些都塞在建置流程裡，代價是多花模型呼叫產出一批待核對的欄位，
+ * 而使用者在還沒有專案的當下根本無從判斷對錯。
  */
 export const WIZARD_STEPS: {
   id: WizardStepId;
@@ -54,24 +51,6 @@ export const WIZARD_STEPS: {
     label: "履約事項",
     running: "由履約標的推導應辦事項與期限…",
     dependsOn: "scope",
-  },
-  {
-    id: "owners",
-    label: "責任分工與契約依據",
-    running: "回填各事項的責任單位、責任人與契約條款…",
-    dependsOn: "obligations",
-  },
-  {
-    id: "packages",
-    label: "工程項目",
-    running: "依契約內文與履約標的規劃具體工程項目…",
-    dependsOn: "scope",
-  },
-  {
-    id: "workItems",
-    label: "工程分項",
-    running: "將各工程項目細分為可排程的工程分項…",
-    dependsOn: "packages",
   },
 ];
 
@@ -191,50 +170,6 @@ export function mergeObligations(
   return [...current, ...added];
 }
 
-export type OwnerPatch = {
-  /** 對應履約事項的 title。 */
-  title: string;
-  ownerUnit?: string;
-  ownerName?: string;
-  contractBasis?: string;
-};
-
-/**
- * 套用責任分工回填：只填空欄位，且只認得對應到既有履約事項的 title。
- * 模型若回了不存在的名稱，直接忽略而非新建事項。
- */
-export function applyOwnerPatches(
-  obligations: WizardObligation[],
-  patches: OwnerPatch[] | undefined,
-): WizardObligation[] {
-  if (!patches?.length) return obligations;
-  const byTitle = new Map<string, OwnerPatch>();
-  for (const p of patches) {
-    const t = p.title?.trim();
-    if (t && !byTitle.has(t)) byTitle.set(t, p);
-  }
-
-  return obligations.map((o) => {
-    const patch = byTitle.get(o.title.trim());
-    if (!patch) return o;
-    return {
-      ...o,
-      ownerUnit: o.ownerUnit?.trim() ? o.ownerUnit : patch.ownerUnit,
-      ownerName: o.ownerName?.trim() ? o.ownerName : patch.ownerName,
-      contractBasis: o.contractBasis?.trim()
-        ? o.contractBasis
-        : patch.contractBasis,
-    };
-  });
-}
-
-/** 責任分工的完成度：至少填到單位或責任人之一即算有分工。 */
-export function countWithOwner(obligations: WizardObligation[]): number {
-  return obligations.filter(
-    (o) => o.ownerUnit?.trim() || o.ownerName?.trim(),
-  ).length;
-}
-
 /**
  * 履約事項那一段的進度說明。
  *
@@ -263,26 +198,4 @@ export function scopeNote(
     return `${head}，推導出 ${obligationCount} 項應辦事項（少於履約標的項數，可能仍有未訂期限或漏讀的工作）。${tail}`;
   }
   return `${head}，推導出 ${obligationCount} 項應辦事項。${tail}`;
-}
-
-/**
- * 合併工程分項：以名稱去重；obligation 僅接受能對應到既有履約事項者。
- */
-export function mergeWorkItems(
-  current: WizardWorkItem[],
-  incoming: WizardWorkItem[] | undefined,
-  obligationTitles: string[],
-): WizardWorkItem[] {
-  if (!incoming?.length) return current;
-  const valid = new Set(obligationTitles.map((t) => t.trim()));
-  const seen = new Set(current.map((w) => w.name.trim()));
-  const added: WizardWorkItem[] = [];
-  for (const w of incoming) {
-    const name = w.name?.trim();
-    if (!name || seen.has(name)) continue;
-    seen.add(name);
-    const ob = w.obligation?.trim();
-    added.push({ ...w, name, obligation: ob && valid.has(ob) ? ob : undefined });
-  }
-  return [...current, ...added];
 }

@@ -3,10 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   STEP_ORDER,
-  applyOwnerPatches,
   applyProgress,
   countFilled,
-  countWithOwner,
   scopeNote,
   describeStep,
   failedSteps,
@@ -14,10 +12,9 @@ import {
   isSettled,
   mergeFields,
   mergeObligations,
-  mergeWorkItems,
   stepLabel,
 } from "./wizard-steps";
-import type { WizardObligation, WizardWorkItem } from "./faith.service";
+import type { WizardObligation } from "./faith.service";
 
 const ob = (over: Partial<WizardObligation> & { title: string }): WizardObligation => ({
   ...over,
@@ -25,35 +22,25 @@ const ob = (over: Partial<WizardObligation> & { title: string }): WizardObligati
 
 // ── 步驟定義與進度 ──────────────────────────────────────────
 test("步驟順序：前置資料先於依賴它的段落", () => {
-  assert.deepEqual(STEP_ORDER, [
-      "profile",
-      "scope",
-      "obligations",
-      "owners",
-      "packages",
-      "workItems",
-    ]);
-  assert.ok(
-    STEP_ORDER.indexOf("obligations") < STEP_ORDER.indexOf("owners"),
-    "責任分工需在履約事項之後",
-  );
   assert.ok(
     STEP_ORDER.indexOf("scope") < STEP_ORDER.indexOf("obligations"),
     "履約事項由履約標的推導，標的必須先讀出",
   );
-  assert.ok(
-    STEP_ORDER.indexOf("scope") < STEP_ORDER.indexOf("packages"),
-    "工程項目由履約標的規劃",
-  );
-  assert.ok(
-    STEP_ORDER.indexOf("packages") < STEP_ORDER.indexOf("workItems"),
-    "工程分項由工程項目細分，項目必須先規劃",
-  );
+});
+
+test("建置階段止於履約事項的名稱與期限", () => {
+  /*
+    每一段被拿掉都是同一個理由：那件事在簽約當下判不準。
+    工程分項要有數量、單價與預定起訖（來自預算書與施工排程）；
+    責任分工要有組織分工；觸發方式要對照工期表；試運轉要看驗收條件。
+    在建置頁逼使用者一次決定這些，只會得到一批看似已確認的猜測。
+  */
+  assert.deepEqual(STEP_ORDER, ["profile", "scope", "obligations"]);
 });
 
 test("初始進度為全部待處理", () => {
   const p = initialProgress();
-  assert.equal(p.length, 6);
+  assert.equal(p.length, 3);
   assert.ok(p.every((x) => x.state === "pending"));
 });
 
@@ -84,9 +71,9 @@ test("isSettled 與 failedSteps", () => {
   assert.equal(isSettled(p), false);
   for (const id of STEP_ORDER) p = applyProgress(p, { id, state: "done" });
   assert.equal(isSettled(p), true);
-  p = applyProgress(p, { id: "owners", state: "failed", error: "x" });
+  p = applyProgress(p, { id: "obligations", state: "failed", error: "x" });
   assert.equal(isSettled(p), true, "失敗也算結束");
-  assert.deepEqual(failedSteps(p), ["owners"]);
+  assert.deepEqual(failedSteps(p), ["obligations"]);
 });
 
 test("describeStep 對各狀態產生可讀敘述", () => {
@@ -100,11 +87,11 @@ test("describeStep 對各狀態產生可讀敘述", () => {
     "履約事項完成（7 項）",
   );
   assert.equal(
-    describeStep({ id: "owners", state: "failed", error: "逾時" }),
-    "責任分工與契約依據解析失敗：逾時",
+    describeStep({ id: "scope", state: "failed", error: "逾時" }),
+    "契約履約標的解析失敗：逾時",
   );
-  assert.match(describeStep({ id: "workItems", state: "skipped" }), /略過/);
-  assert.equal(stepLabel("workItems"), "工程分項");
+  assert.match(describeStep({ id: "obligations", state: "skipped" }), /略過/);
+  assert.equal(stepLabel("scope"), "契約履約標的");
 });
 
 // ── mergeFields ─────────────────────────────────────────────
@@ -142,79 +129,6 @@ test("mergeObligations 忽略無名稱項目與空輸入", () => {
   const base = [ob({ title: "開工" })];
   assert.equal(mergeObligations(base, [ob({ title: "  " })]).length, 1);
   assert.equal(mergeObligations(base, undefined).length, 1);
-});
-
-// ── applyOwnerPatches ───────────────────────────────────────
-test("applyOwnerPatches 回填空白的責任欄位", () => {
-  const out = applyOwnerPatches(
-    [ob({ title: "連續壁完成" }), ob({ title: "開工" })],
-    [
-      { title: "連續壁完成", ownerUnit: "工務組", ownerName: "林監造", contractBasis: "契約第五條" },
-    ],
-  );
-  const target = out.find((o) => o.title === "連續壁完成")!;
-  assert.equal(target.ownerUnit, "工務組");
-  assert.equal(target.contractBasis, "契約第五條");
-  assert.equal(out.find((o) => o.title === "開工")!.ownerUnit, undefined);
-});
-
-test("applyOwnerPatches 不覆蓋已有的責任資料", () => {
-  const out = applyOwnerPatches(
-    [ob({ title: "開工", ownerUnit: "使用者填的單位" })],
-    [{ title: "開工", ownerUnit: "AI 單位", ownerName: "AI 人員" }],
-  );
-  assert.equal(out[0].ownerUnit, "使用者填的單位");
-  assert.equal(out[0].ownerName, "AI 人員", "原本為空者仍會填入");
-});
-
-test("applyOwnerPatches 忽略對應不到的名稱（不新建事項）", () => {
-  const out = applyOwnerPatches(
-    [ob({ title: "開工" })],
-    [{ title: "不存在的事項", ownerUnit: "X" }],
-  );
-  assert.equal(out.length, 1);
-  assert.equal(out[0].ownerUnit, undefined);
-});
-
-test("countWithOwner 計算已有分工的事項數", () => {
-  assert.equal(
-    countWithOwner([
-      ob({ title: "a", ownerUnit: "工務組" }),
-      ob({ title: "b", ownerName: "林監造" }),
-      ob({ title: "c" }),
-      ob({ title: "d", ownerUnit: "   " }),
-    ]),
-    2,
-  );
-});
-
-// ── mergeWorkItems ──────────────────────────────────────────
-const wi = (over: Partial<WizardWorkItem> & { name: string }): WizardWorkItem => ({
-  ...over,
-});
-
-test("mergeWorkItems 去重並保留可對應的履約事項", () => {
-  const out = mergeWorkItems(
-    [],
-    [wi({ name: "連續壁施工", obligation: "連續壁完成" }), wi({ name: "連續壁施工" })],
-    ["連續壁完成"],
-  );
-  assert.equal(out.length, 1);
-  assert.equal(out[0].obligation, "連續壁完成");
-});
-
-test("mergeWorkItems 對應不到履約事項時清空該關聯", () => {
-  const out = mergeWorkItems(
-    [],
-    [wi({ name: "開挖", obligation: "不存在" })],
-    ["連續壁完成"],
-  );
-  assert.equal(out[0].obligation, undefined);
-});
-
-test("mergeWorkItems 不與既有項目重複", () => {
-  const out = mergeWorkItems([wi({ name: "開挖" })], [wi({ name: "開挖" })], []);
-  assert.equal(out.length, 1);
 });
 
 // ── scopeNote：履約標的的判讀狀況 ──────────────────────────────

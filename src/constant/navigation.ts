@@ -52,7 +52,7 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     title: "06 專案與系統設定",
     items: [
-      { href: "/people", label: "組織管理" },
+      { href: "/people", label: "帳號管理" },
       { href: "/docs", label: "功能說明", always: true },
     ],
   },

@@ -182,3 +182,36 @@ export function count() {
 export function countByStatus(status: ProjectStatus) {
   return prisma.project.count({ where: { status, deletedAt: null } });
 }
+
+/**
+ * 重複檢查用的比對資料。
+ *
+ * 刻意獨立一支而非擴充 listWithCounts：Prisma 的 select 只要出現一個
+ * 不存在的鍵，整份 select 就失效，錯誤還會指向無關的行 ——
+ * 混進既有查詢會讓那支跟著壞掉，且症狀難以歸因。
+ *
+ * 檔名一併撈出（費思歸檔與檔案管理兩處），供「同一份契約已被別的專案用過」
+ * 的判斷。只取檔名，不取內容。
+ */
+export function listForDuplicateCheck() {
+  return prisma.project.findMany({
+    where: { deletedAt: null },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      contractNo: true,
+      client: true,
+      startDate: true,
+      endDate: true,
+      faithUploads: {
+        where: { deletedAt: null },
+        select: { fileName: true },
+      },
+      projectFiles: {
+        where: { deletedAt: null },
+        select: { fileName: true },
+      },
+    },
+  });
+}

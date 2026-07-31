@@ -29,7 +29,7 @@ export const PMIS_MODULES: PmisModule[] = [
   { key: "/logs", code: "PMIS-11", label: "工程日誌" },
   { key: "/gis", code: "PMIS-12", label: "GIS 地圖" },
   { key: "/documents", code: "PMIS-13", label: "檔案管理" },
-  { key: "/people", code: "PMIS-14", label: "組織管理" },
+  { key: "/people", code: "PMIS-14", label: "帳號管理" },
 ];
 
 const VALID_LEVELS = new Set<ModulePermissionLevel>(["NONE", "VIEW", "EDIT"]);

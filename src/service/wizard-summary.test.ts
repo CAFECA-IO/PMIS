@@ -7,8 +7,7 @@ import { initialProgress, type StepProgress } from "./wizard-steps";
 const allDone: StepProgress[] = [
   { id: "profile", state: "done", count: 11, total: 11 },
   { id: "obligations", state: "done", count: 7 },
-  { id: "owners", state: "done", count: 7, total: 7 },
-  { id: "workItems", state: "done", count: 12 },
+  { id: "scope", state: "done", count: 9 },
 ];
 
 // ── verdictOf：執行狀態與實際成果分離 ───────────────────────
@@ -29,19 +28,19 @@ test("呼叫成功但完全沒取得資料 → empty", () => {
 
 test("取滿或無分母且有成果 → complete", () => {
   assert.equal(
-    verdictOf({ id: "owners", state: "done", count: 2, total: 2 }),
+    verdictOf({ id: "obligations", state: "done", count: 2, total: 2 }),
     "complete",
   );
   assert.equal(
-    verdictOf({ id: "workItems", state: "done", count: 2 }),
+    verdictOf({ id: "scope", state: "done", count: 2 }),
     "complete",
   );
 });
 
 test("失敗與略過各自成一類", () => {
-  assert.equal(verdictOf({ id: "owners", state: "failed", error: "x" }), "failed");
-  assert.equal(verdictOf({ id: "owners", state: "skipped" }), "skipped");
-  assert.equal(verdictOf({ id: "owners", state: "pending" }), "empty");
+  assert.equal(verdictOf({ id: "scope", state: "failed", error: "x" }), "failed");
+  assert.equal(verdictOf({ id: "scope", state: "skipped" }), "skipped");
+  assert.equal(verdictOf({ id: "scope", state: "pending" }), "empty");
 });
 
 // ── 實際回報的情境（來自使用者截圖）─────────────────────────
@@ -50,8 +49,7 @@ test("回歸：基本資料 2/11 時不得聲稱全部完成", () => {
     progress: [
       { id: "profile", state: "done", count: 2, total: 11 },
       { id: "obligations", state: "done", count: 2 },
-      { id: "owners", state: "done", count: 2, total: 2 },
-      { id: "workItems", state: "done", count: 2 },
+      { id: "scope", state: "done", count: 2 },
     ],
     missingRequired: ["專案編號"],
     missingFields: [
@@ -69,7 +67,7 @@ test("回歸：基本資料 2/11 時不得聲稱全部完成", () => {
   });
 
   assert.doesNotMatch(md, /全部完成/, "成果不完整時不可聲稱全部完成");
-  assert.match(md, /3 個階段完整取得、1 個階段資料不完整/);
+  assert.match(md, /2 個階段完整取得、1 個階段資料不完整/);
   // 該段落必須標示為部分擷取，而非打勾
   assert.match(md, /◐ \*\*專案基本資料 2\/11（尚缺 9 項）\*\*/);
   assert.doesNotMatch(md, /✅ \*\*專案基本資料/);
@@ -81,7 +79,7 @@ test("回歸：基本資料 2/11 時不得聲稱全部完成", () => {
 
 test("全部取滿才說全部完成", () => {
   const md = summarizeRun({ progress: allDone, fileName: "契約書.pdf" });
-  assert.match(md, /已解析 \*\*契約書\.pdf\*\*，4 個階段全部完成。/);
+  assert.match(md, /已解析 \*\*契約書\.pdf\*\*，3 個階段全部完成。/);
   assert.match(md, /✅ \*\*專案基本資料 11\/11\*\*/);
   assert.match(md, /請核對內容後即可建立專案。/);
 });
@@ -91,8 +89,7 @@ test("某段回 0 項時標為未取得，並提示可能未載明", () => {
     progress: [
       allDone[0],
       { id: "obligations", state: "done", count: 0 },
-      { id: "owners", state: "skipped", error: "尚無履約事項可回填責任分工" },
-      { id: "workItems", state: "done", count: 0 },
+      { id: "scope", state: "done", count: 0 },
     ],
   });
   assert.match(md, /⚠️ \*\*履約事項 未取得任何資料\*\*/);
@@ -112,13 +109,12 @@ test("部分失敗：說明比例並提示可單段重試", () => {
   const md = summarizeRun({
     progress: [
       ...allDone.slice(0, 2),
-      { id: "owners", state: "failed", error: "Gemini API 錯誤（503）" },
-      allDone[3],
+      { id: "scope", state: "failed", error: "Gemini API 錯誤（503）" },
     ],
   });
-  assert.match(md, /3 個階段完整取得、1 個階段未完成/);
-  assert.match(md, /責任分工與契約依據 未完成[\s\S]*503/);
-  assert.match(md, /可在左側進度清單點\*\*重試\*\*/);
+  assert.match(md, /2 個階段完整取得、1 個階段未完成/);
+  assert.match(md, /契約履約標的 未完成[\s\S]*503/);
+  assert.match(md, /可在解析結果清單點\*\*重新解析此段\*\*/);
   assert.match(md, /已取得的資料不會受影響/);
 });
 
@@ -137,12 +133,11 @@ test("略過的段落單獨說明原因與後續", () => {
   const md = summarizeRun({
     progress: [
       allDone[0],
-      { id: "obligations", state: "done", count: 3 },
-      { id: "owners", state: "skipped", error: "尚無履約事項可回填責任分工" },
-      allDone[3],
+      { id: "obligations", state: "skipped", error: "尚無履約標的可推導應辦事項" },
+      { id: "scope", state: "done", count: 0 },
     ],
   });
-  assert.match(md, /責任分工與契約依據 略過[\s\S]*尚無履約事項/);
+  assert.match(md, /履約事項 略過[\s\S]*尚無履約標的/);
   assert.match(md, /因缺少前置資料而略過/);
 });
 
@@ -150,13 +145,12 @@ test("單段重試時開頭改為說明重試範圍", () => {
   const md = summarizeRun({
     progress: [
       { id: "profile", state: "pending" },
-      { id: "obligations", state: "pending" },
-      { id: "owners", state: "done", count: 7, total: 7 },
-      { id: "workItems", state: "pending" },
+      { id: "obligations", state: "done", count: 7, total: 7 },
+      { id: "scope", state: "pending" },
     ],
-    only: ["owners"],
+    only: ["obligations"],
   });
-  assert.match(md, /已重新解析「責任分工與契約依據」/);
+  assert.match(md, /已重新解析「履約事項」/);
   assert.doesNotMatch(md, /專案基本資料/);
 });
 
@@ -172,7 +166,7 @@ test("activityLine 顯示目前段落與序號", () => {
       { id: "profile", state: "done" },
       { id: "obligations", state: "running" },
     ]),
-    "（3/6）正在解析履約事項…",
+    "（3/3）正在解析履約事項…",
   );
 });
 

@@ -18,6 +18,11 @@ import {
 import { Markdown } from "@/components/markdown";
 import { SoftDeleteButton } from "@/components/ui/soft-delete-button";
 import { accountRoleMeta, accountStatusMeta } from "@/constant/people";
+import {
+  projectMemberRoleMeta,
+  projectMemberRoleOptions,
+} from "@/constant/pmis";
+import { canSeeAllProjects } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { AccountForm } from "./account-form";
 import { AccountStatusToggle } from "./account-status-toggle";
@@ -36,15 +41,23 @@ import {
   restoreOrgUnitAction,
   deletePositionAction,
   restorePositionAction,
+  assignProjectMemberAction,
 } from "./actions";
+import { StaffingRemoveButton } from "./project-staffing";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "組織管理 — PMIS" };
+export const metadata = { title: "帳號管理 — PMIS" };
 
 const TABS = [
   { key: "accounts", label: "帳號" },
   { key: "orgs", label: "組織" },
   { key: "positions", label: "職位" },
+  /*
+    專案配置自專案頁的「人力配置」分頁遷入。
+    它要回答的是「誰能碰哪個案子」—— 那屬於帳號與權限的範疇，
+    而非某一個專案的內容；放在這裡也才看得出「誰被配置在哪些案子」。
+  */
+  { key: "staffing", label: "專案配置" },
   { key: "chart", label: "組織架構圖" },
 ] as const;
 
@@ -71,14 +84,22 @@ export default async function PeoplePage({
   const positionOptions = positions.map((p) => ({ id: p.id, name: p.name }));
   const positionPerms =
     active === "positions" ? await people.listPositionPermissions() : [];
+  const staffing =
+    active === "staffing" ? await people.listProjectStaffing() : [];
+  /*
+    只有系統管理員與計畫主管能調整人力配置。
+    少了這一層，任何有帳號管理編輯權的人都能把自己加進任何專案，
+    而專案成員身分正是各模組資料的存取依據。
+  */
+  const canStaff = canSeeAllProjects(user.role) && canEdit;
   const permById = new Map(positionPerms.map((pp) => [pp.id, pp.permissions]));
 
   return (
     <>
       <PageHeader
         section="06 專案與系統設定"
-        title="組織管理"
-        description="設定組織、職位與帳號，並檢視組織架構"
+        title="帳號管理"
+        description="設定組織、職位與帳號，配置專案人力，並檢視組織架構"
       />
 
       <div className="flex gap-1 border-b px-8">
@@ -393,6 +414,121 @@ export default async function PeoplePage({
                 </div>
               </CardContent>
             </Card>
+          </div>
+        )}
+
+        {active === "staffing" && (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              專案成員身分決定該帳號能讀取哪些專案的檔案與模組資料。
+              {canStaff ? "" : "僅系統管理員與計畫主管可調整。"}
+            </p>
+
+            {staffing.length === 0 ? (
+              <Card>
+                <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                  尚無專案。
+                </CardContent>
+              </Card>
+            ) : (
+              staffing.map((p) => (
+                <Card key={p.id}>
+                  <CardHeader className="flex-row items-center justify-between space-y-0">
+                    <CardTitle className="text-base">
+                      {p.name}
+                      <span className="ml-2 font-mono text-xs font-normal text-muted-foreground">
+                        {p.code}
+                      </span>
+                    </CardTitle>
+                    {canStaff ? (
+                      <CreateRecordDialog
+                        title={`配置人力 — ${p.name}`}
+                        triggerLabel="新增成員"
+                        action={assignProjectMemberAction}
+                        submitLabel="加入"
+                      >
+                        <input type="hidden" name="projectId" value={p.id} />
+                        <div className="space-y-1.5">
+                          <Label htmlFor={`acc-${p.id}`}>成員</Label>
+                          <Select id={`acc-${p.id}`} name="accountId" defaultValue="">
+                            <option value="" disabled>
+                              選擇帳號…
+                            </option>
+                            {accounts
+                              .filter((a) => a.status === "ACTIVE")
+                              .map((a) => (
+                                <option key={a.id} value={a.id}>
+                                  {a.name}（{accountRoleMeta[a.role].label}）
+                                </option>
+                              ))}
+                          </Select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label htmlFor={`role-${p.id}`}>專案角色</Label>
+                          <Select id={`role-${p.id}`} name="role" defaultValue="MEMBER">
+                            {projectMemberRoleOptions.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </Select>
+                        </div>
+                      </CreateRecordDialog>
+                    ) : null}
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    {p.members.length === 0 ? (
+                      /*
+                        未配置人力要講清楚後果：這種案子只有系統管理員與
+                        計畫主管看得到，現場人員一律進不去。
+                      */
+                      <p className="text-sm text-muted-foreground">
+                        尚未配置人力 —— 除系統管理員與計畫主管外無人可存取此專案。
+                      </p>
+                    ) : (
+                      <div className="divide-y">
+                        {p.members.map((m) => (
+                          <div
+                            key={m.id}
+                            className="flex items-center justify-between gap-3 py-2"
+                          >
+                            <div className="flex min-w-0 items-center gap-3">
+                              <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">
+                                {m.account.name.slice(0, 1)}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 text-sm font-medium">
+                                  <span className="truncate">{m.account.name}</span>
+                                  <Badge
+                                    variant={projectMemberRoleMeta[m.role].variant}
+                                  >
+                                    {projectMemberRoleMeta[m.role].label}
+                                  </Badge>
+                                </div>
+                                <div className="truncate text-xs text-muted-foreground">
+                                  {accountRoleMeta[m.account.role].label}
+                                  {m.account.orgUnit
+                                    ? ` · ${m.account.orgUnit.name}`
+                                    : ""}
+                                  {` · ${m.account.email}`}
+                                </div>
+                              </div>
+                            </div>
+                            {canStaff ? (
+                              <StaffingRemoveButton
+                                id={m.id}
+                                name={m.account.name}
+                                project={p.name}
+                              />
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))
+            )}
           </div>
         )}
 

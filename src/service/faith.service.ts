@@ -739,6 +739,8 @@ export async function extractEhsFinding(
 export type ProjectProfileFields = {
   code?: string;
   name?: string;
+  /** 契約編號。與專案編號分開：重複檢查靠它認出「同一紙契約」。 */
+  contractNo?: string;
   location?: string;
   client?: string;
   contractor?: string;
@@ -841,6 +843,7 @@ const PROJECT_WIZARD_SCHEMA: ResponseSchema = {
       properties: {
         code: S("專案編號／契約編號，無法判讀填空字串"),
         name: S("專案名稱，無法判讀填空字串"),
+        contractNo: S("契約編號（契約書上的契約編號），無則空字串"),
         location: S("工程地點"),
         client: S("業主／主辦機關"),
         contractor: S("承包商"),
@@ -858,6 +861,7 @@ const PROJECT_WIZARD_SCHEMA: ResponseSchema = {
       propertyOrdering: [
         "code",
         "name",
+        "contractNo",
         "location",
         "client",
         "contractor",
@@ -1063,6 +1067,7 @@ export async function extractProjectProfile(
   const fields: ProjectProfileFields = {
     code: str(rf.code),
     name: str(rf.name),
+    contractNo: str(rf.contractNo),
     location: str(rf.location),
     client: str(rf.client),
     contractor: str(rf.contractor),
@@ -1236,8 +1241,9 @@ const PROFILE_SCHEMA: ResponseSchema = {
     fields: {
       type: "OBJECT",
       properties: {
-        code: S("專案編號／契約編號，無法判讀填空字串"),
+        code: S("專案編號／標案編號，無法判讀填空字串"),
         name: S("專案名稱"),
+        contractNo: S("契約編號（契約書上的契約編號），無則空字串"),
         location: S("工程地點"),
         client: S("業主／主辦機關"),
         contractor: S("承包商"),
@@ -1291,6 +1297,7 @@ export async function extractProjectFields(
   const fields: ProjectProfileFields = {
     code: str(rf.code),
     name: str(rf.name),
+    contractNo: str(rf.contractNo),
     location: str(rf.location),
     client: str(rf.client),
     contractor: str(rf.contractor),
@@ -1502,23 +1509,32 @@ const OBLIGATIONS_SCHEMA: ResponseSchema = {
           code: S("管制編號，無則空字串"),
           title: S("履約事項名稱"),
           scopeRef: S("源自哪一項履約標的，須與清單完全一致；無法對應留空"),
+          contractBasis: S("契約依據條次，如「契約第五條第二款」；務必逐項填寫"),
           stage: { type: "STRING", enum: OBLIGATION_STAGES },
-          triggerType: { type: "STRING", enum: OBLIGATION_TRIGGERS },
           risk: { type: "STRING", enum: OBLIGATION_RISKS },
           dueDate: S("期限 YYYY-MM-DD"),
           weight: { type: "INTEGER", description: "進度權重，正整數" },
-          commissioning: { type: "BOOLEAN", description: "是否計入試運轉就緒度" },
         },
-        required: ["title"],
+        required: ["title", "contractBasis"],
+        /*
+          不要求 triggerType 與 commissioning：
+          觸發方式（固定日期／相對期限／前置事項／條件觸發）與試運轉認定
+          都需要對照工期表與驗收條件才判得準，光讀契約條文只能猜；
+          猜出來的值又長得像已確認的資料。這兩者留到履約事項細節頁處理。
+
+          契約依據則相反 —— 它就是「契約哪一條這樣要求」，
+          與事項本身出自同一次閱讀，此刻不記下來，日後要溯源就得重讀整份契約。
+          故列為必填，且緊接在 title 之後：先講出依據哪一條，
+          能逼模型回頭確認這項事項真的有契約根據，而非憑常識編的。
+        */
         propertyOrdering: [
           "code",
           "title",
+          "contractBasis",
           "stage",
-          "triggerType",
           "risk",
           "dueDate",
           "weight",
-          "commissioning",
         ],
       },
     },
@@ -1568,15 +1584,14 @@ export async function extractObligations(
     out.push({
       code: str(m.code),
       title,
+      contractBasis: str(m.contractBasis),
       stage: pickEnumValue(OBLIGATION_STAGES, m.stage),
-      triggerType: pickEnumValue(OBLIGATION_TRIGGERS, m.triggerType),
       risk: pickEnumValue(OBLIGATION_RISKS, m.risk),
       dueDate: str(m.dueDate),
       weight:
         m.weight != null && !Number.isNaN(Number(m.weight))
           ? Math.max(1, Math.round(Number(m.weight)))
           : undefined,
-      commissioning: m.commissioning === true,
       // 對應不到清單的參照丟棄，避免產生指向不存在標的的關聯
       scopeRef: validScope.has(str(m.scopeRef) ?? "") ? str(m.scopeRef) : undefined,
     });

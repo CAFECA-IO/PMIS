@@ -5,8 +5,6 @@ import type {
   ProjectProfileFields,
   WizardObligation,
   WizardScopeItem,
-  WizardWorkItem,
-  WizardWorkPackage,
 } from "@/service/faith.service";
 import { toFaithError } from "@/service/faith-error";
 import {
@@ -16,12 +14,9 @@ import {
   skipReason,
 } from "./wizard-source";
 import {
-  applyOwnerPatches,
   countFilled,
-  countWithOwner,
   mergeFields,
   mergeObligations,
-  mergeWorkItems,
   scopeNote,
   type WizardStepId,
 } from "./wizard-steps";
@@ -39,6 +34,7 @@ import {
 export const PROFILE_FIELD_KEYS = [
   "code",
   "name",
+  "contractNo",
   "location",
   "client",
   "contractor",
@@ -63,28 +59,28 @@ export type WizardEvent =
     }
   | { type: "status"; step: WizardStepId; state: "failed"; error: string }
   | { type: "status"; step: WizardStepId; state: "skipped"; reason: string }
-  /** 該段取得的資料，供前端即時併入表單。 */
+  /**
+   * 該段取得的資料。
+   *
+   * 刻意不再由前端「即時併入表單」—— 解析中直接改動使用者眼前的欄位，
+   * 使用者無從分辨哪個值是自己填的、哪個是模型填的，也無從拒絕。
+   * 前端只收集這些提議，待全部解析完成後交由使用者勾選匯入。
+   */
   | {
       type: "data";
       step: WizardStepId;
       fields?: ProjectProfileFields;
       obligations?: WizardObligation[];
-      workItems?: WizardWorkItem[];
-      /** 契約履約標的清單（階段一）。 */
+      /** 契約履約標的清單。 */
       scopeItems?: WizardScopeItem[];
-      /** 工程項目（階段二的規劃結果）。 */
-      packages?: WizardWorkPackage[];
     }
   | { type: "done"; failed: WizardStepId[] };
 
 export type WizardDraft = {
   fields: ProjectProfileFields;
   obligations: WizardObligation[];
-  workItems: WizardWorkItem[];
-  /** 階段一讀出的契約履約標的。 */
+  /** 讀出的契約履約標的。 */
   scopeItems?: WizardScopeItem[];
-  /** 階段二規劃的工程項目；分群資訊，非獨立層級。 */
-  packages?: WizardWorkPackage[];
 };
 
 export type ExtractOptions = {
@@ -105,15 +101,13 @@ function withKnownContext(
   const hasKnown =
     known &&
     (Object.keys(known.fields ?? {}).length > 0 ||
-      (known.obligations?.length ?? 0) > 0 ||
-      (known.workItems?.length ?? 0) > 0);
+      (known.obligations?.length ?? 0) > 0);
   if (!hasKnown) return messages;
   // scopeItems 是解析過程的來源清單，不是使用者確認的草稿內容；
   // 它會以專屬的「履約標的清單」段落傳給第四段，不放進這裡以免語意混淆
   const draft = {
     fields: known.fields,
     obligations: known.obligations,
-    workItems: known.workItems,
   };
   return [
     {
@@ -166,15 +160,12 @@ export async function* runExtraction(
   const draft: WizardDraft = {
     fields: { ...(opts.known?.fields ?? {}) },
     obligations: [...(opts.known?.obligations ?? [])],
-    workItems: [...(opts.known?.workItems ?? [])],
   };
   const failed: WizardStepId[] = [];
 
-  // 第二段抄出的履約標的，供第四段的工程分項沿用同一份來源。
-  // 單獨重試第四段時第二段不會執行，此時沿用前次傳回的清單。
+  // 履約標的是履約事項的推導依據。單獨重試履約事項時本段不會執行，
+  // 此時沿用前次傳回的清單，否則會因「沒有標的」而被略過。
   let scopeItems: WizardScopeItem[] = [...(opts.known?.scopeItems ?? [])];
-  // 階段二的規劃結果，供階段三細分；單獨重試階段三時沿用前次結果
-  let packages: WizardWorkPackage[] = [...(opts.known?.packages ?? [])];
 
   for (const step of steps) {
     /*
@@ -246,81 +237,6 @@ export async function* runExtraction(
           count: draft.obligations.length,
           total: scopeItems.length,
           note: scopeNote(scopeItems.length, draft.obligations.length, r.reply),
-        };
-        continue;
-      }
-
-      // 階段二：由契約內文與履約標的規劃具體工程項目
-      if (step === "packages") {
-        const r = await faith.planWorkPackages(input, scopeItems);
-        packages = r.data;
-        draft.packages = packages;
-        yield { type: "data", step, packages };
-        yield {
-          type: "status",
-          step,
-          state: "done",
-          count: packages.length,
-          note: r.reply,
-        };
-        continue;
-      }
-
-      // 後兩段需要履約事項名稱作為對應鍵
-      const titles = draft.obligations
-        .map((o) => o.title.trim())
-        .filter(Boolean);
-
-      if (step === "owners") {
-        if (titles.length === 0) {
-          yield {
-            type: "status",
-            step,
-            state: "skipped",
-            reason: "尚無履約事項可回填責任分工",
-          };
-          continue;
-        }
-        const r = await faith.extractObligationOwners(input, titles);
-        draft.obligations = applyOwnerPatches(draft.obligations, r.data);
-        yield { type: "data", step, obligations: draft.obligations };
-        yield {
-          type: "status",
-          step,
-          state: "done",
-          count: countWithOwner(draft.obligations),
-          total: draft.obligations.length,
-          note: r.reply,
-        };
-        continue;
-      }
-
-      // 階段三：把工程項目細分為可排程的工程分項
-      if (step === "workItems") {
-        if (packages.length === 0) {
-          yield {
-            type: "status",
-            step,
-            state: "skipped",
-            reason: "尚無工程項目可細分",
-          };
-          continue;
-        }
-        const r = await faith.extractWorkItems(input, titles, packages);
-        draft.workItems = mergeWorkItems(draft.workItems, r.data, titles);
-        // 補齊分項編號與起訖日（確定性推導，不猜測名稱）
-        draft.workItems = faith.finalizeWorkItems(
-          draft.fields,
-          draft.obligations,
-          draft.workItems,
-        );
-        yield { type: "data", step, workItems: draft.workItems };
-        yield {
-          type: "status",
-          step,
-          state: "done",
-          count: draft.workItems.length,
-          note: r.reply,
         };
       }
     } catch (e) {

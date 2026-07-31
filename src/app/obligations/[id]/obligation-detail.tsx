@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useConfirm } from "@/components/ui/confirm-provider";
 import { useNotification } from "@/components/ui/notification";
 import { useFormAssist } from "@/components/use-form-assist";
+import { FormActionBar } from "@/components/ui/form-action-bar";
 import { cn } from "@/lib/utils";
 import {
   obligationRiskMeta,
@@ -472,7 +473,8 @@ export function ObligationDetail({
                 </Field>
               </div>
 
-              <div className="flex justify-end gap-2 border-t pt-4">
+              {/* 動作列共用同一套版面規則：靠右並讓出費思的位置 */}
+              <FormActionBar className="-mx-5 -mb-5 px-5">
                 <Button type="submit" disabled={saving || locked}>
                   {saving ? (
                     <Loader2 className="size-4 animate-spin" />
@@ -481,7 +483,7 @@ export function ObligationDetail({
                   )}
                   儲存
                 </Button>
-              </div>
+              </FormActionBar>
             </form>
           </CardContent>
         </Card>

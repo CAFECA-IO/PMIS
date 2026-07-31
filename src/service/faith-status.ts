@@ -92,9 +92,16 @@ export function faithStatus(input: FaithStatusInput): FaithStatus {
   };
 }
 
-/** 狀態顯示是否需要展開為長條（idle 維持圓鈕）。 */
+/**
+ * 狀態顯示是否需要展開為長條。
+ *
+ * 只有 task 與 working 展開 —— 那兩者是「費思正在做什麼」，是真的狀態，
+ * 值得占位置。offer 維持圓鈕：同一時間已有一則彈出通知在說「需要協助嗎」
+ * 並附上接受按鈕，把按鈕也展開成膠囊等於同一件事說兩次，
+ * 而那個膠囊寬約 320px，正好蓋住頁面右下角的主要動作。
+ */
 export function isExpandedStatus(state: FaithState): boolean {
-  return state !== "idle";
+  return state === "task" || state === "working";
 }
 
 /** 判斷是否要在建置畫面出現時直接接手的輸入。 */

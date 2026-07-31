@@ -17,13 +17,7 @@ import { STEP_ORDER, type WizardStepId } from "./wizard-steps";
  */
 
 /** 依賴契約全文的段落。少了文件，這三段只能靠常識編造。 */
-const DOCUMENT_DEPENDENT: WizardStepId[] = [
-  "scope",
-  "obligations",
-  "owners",
-  "packages",
-  "workItems",
-];
+const DOCUMENT_DEPENDENT: WizardStepId[] = ["scope", "obligations"];
 
 /** 此段是否必須有契約文件才能執行。 */
 export function requiresDocument(step: WizardStepId): boolean {
@@ -31,7 +25,7 @@ export function requiresDocument(step: WizardStepId): boolean {
 }
 
 /** 需要「契約履約標的」作為推導依據的段落。 */
-const SCOPE_DEPENDENT: WizardStepId[] = ["obligations", "packages"];
+const SCOPE_DEPENDENT: WizardStepId[] = ["obligations"];
 
 /**
  * 此段是否必須先有履約標的。

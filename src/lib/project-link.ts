@@ -72,8 +72,24 @@ export function switchProjectHref(
 ): string {
   const sp = new URLSearchParams(currentQuery);
   const id = value?.trim();
-  if (!id || id === "all") sp.delete(PROJECT_PARAM);
+  const all = !id || id === "all";
+  if (all) sp.delete(PROJECT_PARAM);
   else sp.set(PROJECT_PARAM, id);
+
+  /*
+    專案頁的路徑本身就綁著一個專案 id。
+    在這種頁面上切換專案時只改查詢參數是不夠的 —— 路徑還指著舊的那件，
+    畫面也還是舊的那件。必須連路徑一起換，否則使用者會覺得切換沒有作用。
+    切到「全部專案」則回到清單（單一專案的頁面沒有「全部」可言）。
+  */
+  const detail = pathname.match(/^\/projects\/(?!new$)([^/]+)(\/.*)?$/);
+  if (detail) {
+    if (all) return "/projects";
+    const target = `/projects/${id}${detail[2] ?? ""}`;
+    const qs = sp.toString();
+    return qs ? `${target}?${qs}` : target;
+  }
+
   const qs = sp.toString();
   return qs ? `${pathname}?${qs}` : pathname;
 }

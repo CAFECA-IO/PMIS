@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "../src/generated/prisma/client";
+import { seedProjects } from "./seeds/projects";
 import type {
   ReminderCategory,
   ReminderStatus,
@@ -48,154 +49,84 @@ async function main() {
   await prisma.defect.deleteMany();
   await prisma.inspection.deleteMany();
   await prisma.workItem.deleteMany();
+  await prisma.contractScopeItem.deleteMany();
   await prisma.alertRule.deleteMany();
   await prisma.monitoringDevice.deleteMany();
   await prisma.project.deleteMany();
 
-  const metro = await prisma.project.create({
-    data: {
-      code: "PMIS-2026-001",
-      name: "捷運藍線 CJ302 標土建工程",
-      description: "地下車站與潛盾隧道土建工程監造",
-      location: "新北市中和區",
-      contractNo: "CJ302-C-1140001",
-      client: "交通部捷運工程局",
-      contractor: "大陸工程股份有限公司",
-      supervisor: "台灣世曦工程顧問",
-      budget: 4_850_000_000,
-      startDate: new Date("2025-03-01"),
-      endDate: new Date("2029-12-31"),
-      status: "ACTIVE",
-      workItems: {
-        create: [
-          { code: "WI-001", name: "連續壁施工", category: "結構", progress: 78, status: "IN_PROGRESS", plannedStart: new Date("2025-04-01"), plannedEnd: new Date("2026-10-31"), actualStart: new Date("2025-04-08") },
-          { code: "WI-002", name: "潛盾隧道推進", category: "隧道", progress: 42, status: "IN_PROGRESS", plannedStart: new Date("2025-09-01"), plannedEnd: new Date("2028-06-30"), actualStart: new Date("2025-09-15") },
-          { code: "WI-003", name: "車站主體結構", category: "結構", progress: 0, status: "NOT_STARTED", plannedStart: new Date("2026-11-01"), plannedEnd: new Date("2029-03-31") },
-        ],
-      },
-    },
-    include: { workItems: true },
-  });
+/*
+    專案層改由 seeds/projects.ts 建立。
+    那一層的數字互相牽制（分項數量×單價要等於契約金額、權重要加到 100、
+    每項履約事項都要有契約依據並指回某項合約標的），抽出去才能用
+    `npx tsx check-seed.ts` 在不碰資料庫的情況下核對一遍。
+  */
+  const P = await seedProjects(prisma);
+  const metro = P.mrt;
+  const bridge = P.bridge;
+  const supervision = P.supervision;
 
-  const bridge = await prisma.project.create({
-    data: {
-      code: "PMIS-2026-002",
-      name: "淡江大橋主橋段工程",
-      description: "斜張橋主塔與橋面版施工監造",
-      location: "新北市淡水區",
-      contractNo: "TSK-2024-BR-018",
-      client: "交通部公路局",
-      contractor: "麗明營造",
-      supervisor: "中興工程顧問",
-      budget: 2_300_000_000,
-      startDate: new Date("2024-06-01"),
-      endDate: new Date("2027-08-31"),
-      status: "ACTIVE",
-      workItems: {
-        create: [
-          { code: "WI-101", name: "主塔基礎", category: "基礎", progress: 100, status: "COMPLETED", actualEnd: new Date("2025-05-20") },
-          { code: "WI-102", name: "主塔柱身爬升", category: "結構", progress: 65, status: "DELAYED", plannedEnd: new Date("2026-06-30") },
-        ],
-      },
-    },
-    include: { workItems: true },
-  });
 
-  await prisma.project.create({
-    data: {
-      code: "PMIS-2026-003",
-      name: "市立醫院新建工程",
-      description: "地下 3 層、地上 12 層醫療大樓",
-      location: "桃園市中壢區",
-      client: "桃園市政府",
-      contractor: "根基營造",
-      supervisor: "亞新工程顧問",
-      budget: 1_650_000_000,
-      startDate: new Date("2026-09-01"),
-      status: "PLANNING",
-    },
-  });
-
-  // PMIS-07 Inspections + Defects
+// PMIS-07 查驗與缺失：對應新的工程分項
   const insp1 = await prisma.inspection.create({
-    data: { projectId: metro.id, workItemId: metro.workItems[0].id, type: "PROCESS", scheduledAt: new Date("2026-07-10T09:00:00"), inspector: "王監造", result: "PASSED", location: "B2 連續壁 P12", notes: "連續壁槽溝垂直度符合規範。" },
+    data: { projectId: metro.id, workItemId: metro.workItems["WI-003"], type: "PROCESS", scheduledAt: new Date("2026-07-10T09:00:00"), inspector: "張哲維", result: "PASSED", location: "潛盾隧道 K2+180", notes: "環片組裝精度與背填灌漿量符合規範。" },
   });
   await prisma.inspection.create({
-    data: { projectId: metro.id, workItemId: metro.workItems[1].id, type: "SAFETY", scheduledAt: new Date("2026-07-15T14:00:00"), inspector: "李工程師", result: "CONDITIONAL", location: "隧道 K12", notes: "隧道通風量需複測。" },
+    data: { projectId: metro.id, workItemId: metro.workItems["WI-007"], type: "SAFETY", scheduledAt: new Date("2026-07-15T14:00:00"), inspector: "周雅婷", result: "CONDITIONAL", location: "站區北側工作井", notes: "工作井通風量需複測後補正紀錄。" },
   });
   const insp3 = await prisma.inspection.create({
-    data: { projectId: bridge.id, workItemId: bridge.workItems[1].id, type: "ACCEPTANCE", scheduledAt: new Date("2026-07-18T10:30:00"), inspector: "陳主任", result: "FAILED", location: "主塔第 8 節", notes: "混凝土強度試體未達設計值。" },
+    data: { projectId: bridge.id, workItemId: bridge.workItems["WI-103"], type: "ACCEPTANCE", scheduledAt: new Date("2026-07-18T10:30:00"), inspector: "陳世昌", result: "FAILED", location: "P3 墩柱第 2 節", notes: "混凝土試體 28 天強度僅達設計值 85%。" },
+  });
+  await prisma.inspection.create({
+    data: { projectId: supervision.id, workItemId: supervision.workItems["SV-002"], type: "MATERIAL", scheduledAt: new Date("2026-07-21T09:30:00"), inspector: "鄭凱文", result: "PASSED", location: "擴建區 A 池", notes: "鋼筋抽驗合格，出廠證明齊備。" },
   });
 
   await prisma.defect.createMany({
     data: [
-      { projectId: metro.id, workItemId: metro.workItems[1].id, inspectionId: insp1.id, title: "隧道環片滲水", description: "K12+340 環片接縫輕微滲水，需注漿處理。", severity: "MEDIUM", status: "IN_PROGRESS", reportedBy: "王監造", assignedTo: "施工廠商", dueDate: new Date("2026-07-30") },
-      { projectId: bridge.id, workItemId: bridge.workItems[1].id, inspectionId: insp3.id, title: "主塔混凝土強度不足", description: "第 8 節柱身試體 28 天強度僅達 85%。", severity: "CRITICAL", status: "OPEN", reportedBy: "陳主任", assignedTo: "麗明營造", dueDate: new Date("2026-08-05") },
-      { projectId: metro.id, title: "施工圍籬破損", description: "工區北側圍籬受風災損壞。", severity: "LOW", status: "RESOLVED", reportedBy: "巡查員", resolvedAt: new Date("2026-07-12") },
+      { projectId: metro.id, workItemId: metro.workItems["WI-003"], inspectionId: insp1.id, title: "隧道環片接縫滲水", description: "K2+340 環片接縫輕微滲水，需補注止水材。", severity: "MEDIUM", status: "IN_PROGRESS", reportedBy: "張哲維", assignedTo: "大陸工程", dueDate: new Date("2026-07-30") },
+      { projectId: bridge.id, workItemId: bridge.workItems["WI-103"], inspectionId: insp3.id, title: "P3 墩柱混凝土強度不足", description: "第 2 節柱身試體 28 天強度僅達 85%，需辦理鑽心取樣複驗。", severity: "CRITICAL", status: "OPEN", reportedBy: "陳世昌", assignedTo: "麗明營造", dueDate: new Date("2026-08-05") },
+      { projectId: bridge.id, workItemId: bridge.workItems["WI-102"], title: "基樁樁頭破碎超挖", description: "P2-3 樁頭打除深度超過設計 15cm。", severity: "LOW", status: "RESOLVED", reportedBy: "許文彬", assignedTo: "麗明營造", resolvedAt: new Date("2026-06-30") },
+      { projectId: metro.id, title: "工區圍籬受風災損壞", description: "站區北側圍籬 12 公尺傾倒。", severity: "LOW", status: "RESOLVED", reportedBy: "周雅婷", resolvedAt: new Date("2026-07-12") },
     ],
   });
 
-  // PMIS-03 Contract changes / contract obligations / payment nodes
+  // PMIS-03 契約變更：金額須以新的契約金額為基準遞增
   await prisma.contractChange.createMany({
     data: [
-      { projectId: metro.id, sequence: 1, description: "增設連續壁監測井", amountAfter: 4_920_000_000, daysChanged: 30, approvedDate: new Date("2025-11-10"), docNo: "捷工字第1140012號" },
-      { projectId: bridge.id, sequence: 1, description: "主塔鋼構介面變更", amountAfter: 2_360_000_000, daysChanged: 45, approvedDate: new Date("2025-08-22"), docNo: "公路字第1140338號" },
+      { projectId: metro.id, sequence: 1, description: "增設站區地下水位監測井 6 口", amountAfter: 3_346_800_000, daysChanged: 30, approvedDate: new Date("2025-11-10"), docNo: "新捷工字第1140218號" },
+      { projectId: bridge.id, sequence: 1, description: "基樁遭遇卵礫石層，改採全套管施工", amountAfter: 1_043_600_000, daysChanged: 45, approvedDate: new Date("2025-09-22"), docNo: "中工字第1140338號" },
+      { projectId: bridge.id, sequence: 2, description: "凱米颱風災損修復及工期展延", amountAfter: 1_068_200_000, daysChanged: 32, approvedDate: new Date("2026-05-14"), docNo: "中工字第1150127號" },
     ],
   });
-  await prisma.contractObligation.createMany({
-    data: [
-      // 捷運：權重型履約事項（部分已達成，用於整體進度/差距）
-      { projectId: metro.id, code: "MRT-C-001", title: "開工", stage: "CONSTRUCTION", risk: "GREEN", status: "DONE", weight: 10, dueDate: new Date("2025-03-01"), actualDate: new Date("2025-03-01"), ownerUnit: "工務組", ownerName: "林監造", contractBasis: "契約第五條" },
-      { projectId: metro.id, code: "MRT-M-001", title: "供電系統試送電", stage: "COMMISSIONING", risk: "YELLOW", status: "DONE", weight: 5, dueDate: new Date("2026-07-01"), actualDate: new Date("2026-07-05"), commissioning: true, ownerUnit: "機電組", ownerName: "黃技師", contractBasis: "契約第十二條第三款" },
-      { projectId: metro.id, code: "MRT-C-002", title: "連續壁完成", stage: "CONSTRUCTION", risk: "ORANGE", status: "DONE", weight: 25, dueDate: new Date("2026-06-30"), actualDate: new Date("2026-07-10"), ownerUnit: "工務組", ownerName: "林監造", contractBasis: "契約第五條第二款" },
-      { projectId: metro.id, code: "MRT-C-003", title: "潛盾隧道貫通", stage: "CONSTRUCTION", risk: "RED", status: "OVERDUE", weight: 25, dueDate: new Date("2026-07-15"), ownerUnit: "隧道組", ownerName: "張工程師", contractBasis: "契約第五條第三款" },
-      { projectId: metro.id, code: "MRT-C-004", title: "車站主體結構完成", stage: "CONSTRUCTION", risk: "YELLOW", status: "IN_PROGRESS", weight: 20, dueDate: new Date("2028-06-30"), ownerUnit: "工務組", ownerName: "林監造", contractBasis: "契約第五條第四款" },
-      { projectId: metro.id, code: "MRT-M-002", title: "機電設備安裝完成", stage: "COMMISSIONING", risk: "GREEN", status: "NOT_STARTED", weight: 15, dueDate: new Date("2029-06-30"), commissioning: true, ownerUnit: "機電組", ownerName: "黃技師", contractBasis: "契約第十二條" },
-      { projectId: metro.id, code: "MRT-H-001", title: "試運轉完成", stage: "HANDOVER", risk: "PURPLE", triggerType: "CONDITION", status: "PENDING_EXTERNAL", weight: 5, dueDate: new Date("2029-12-31"), commissioning: true, ownerUnit: "營運籌備處", ownerName: "王專案經理", contractBasis: "契約第十八條", note: "須待主管機關履勘通過。" },
 
-      { projectId: bridge.id, code: "BRG-C-001", title: "主塔基礎完成", stage: "CONSTRUCTION", risk: "GREEN", status: "DONE", weight: 20, dueDate: new Date("2025-05-20"), actualDate: new Date("2025-05-20"), ownerUnit: "橋梁組", ownerName: "陳監造", contractBasis: "契約第四條" },
-      { projectId: bridge.id, code: "BRG-C-002", title: "主塔柱身完成", stage: "CONSTRUCTION", risk: "ORANGE", status: "IN_PROGRESS", weight: 30, dueDate: new Date("2026-06-30"), ownerUnit: "橋梁組", ownerName: "陳監造", contractBasis: "契約第四條第二款" },
-      { projectId: bridge.id, code: "BRG-C-003", title: "橋面版吊裝完成", stage: "CONSTRUCTION", risk: "YELLOW", status: "NOT_STARTED", weight: 30, dueDate: new Date("2027-03-31"), ownerUnit: "橋梁組", ownerName: "陳監造", contractBasis: "契約第四條第三款" },
-      { projectId: bridge.id, code: "BRG-H-001", title: "通車前試運轉", stage: "HANDOVER", risk: "GREEN", status: "NOT_STARTED", weight: 20, dueDate: new Date("2027-08-15"), commissioning: true, ownerUnit: "營運組", ownerName: "李副理", contractBasis: "契約第十七條" },
-      // 工期展延事項（以「其他」階段管制）
-      { projectId: bridge.id, code: "BRG-O-001", title: "颱風災損展延", stage: "OTHER", risk: "YELLOW", triggerType: "RELATIVE_DUE", status: "PENDING_REVIEW", weight: 1, offsetDays: 45, dueDate: new Date("2027-10-15"), docNo: "公路字第1150087號", ownerUnit: "工務組", contractBasis: "契約第二十二條", note: "因梅花颱風停工 45 天展延。" },
-    ],
-  });
-  // PMIS-04→履約事項 上捲：示範把捷運工程分項掛到對應履約事項
-  const wiObligationPairs: [string, string][] = [
-    ["連續壁施工", "MRT-C-002"],
-    ["潛盾隧道推進", "MRT-C-003"],
-    ["車站主體結構", "MRT-C-004"],
-  ];
-  for (const [wiName, obCode] of wiObligationPairs) {
-    const ob = await prisma.contractObligation.findUnique({
-      where: { projectId_code: { projectId: metro.id, code: obCode } },
-      select: { id: true },
-    });
-    if (!ob) continue;
-    await prisma.workItem.updateMany({
-      where: { projectId: metro.id, name: wiName },
-      data: { obligationId: ob.id },
-    });
-  }
+  /*
+    履約事項與合約標的已隨專案一併建立（見 seeds/projects.ts），
+    分項也在那裡就掛好了 obligationId —— 不必再回頭 update 一次。
+  */
 
   await prisma.paymentNode.createMany({
     data: [
-      { projectId: metro.id, name: "第 5 期估驗計價", amount: 320_000_000, plannedDate: new Date("2026-07-25"), status: "INVOICED" },
-      { projectId: metro.id, name: "第 4 期估驗計價", amount: 298_000_000, plannedDate: new Date("2026-06-25"), paidDate: new Date("2026-07-05"), status: "PAID" },
-      { projectId: bridge.id, name: "主塔基礎完成款", amount: 180_000_000, plannedDate: new Date("2026-08-10"), status: "PENDING" },
+      { projectId: metro.id, name: "第 8 期估驗計價", amount: 214_800_000, plannedDate: new Date("2026-07-25"), status: "INVOICED" },
+      { projectId: metro.id, name: "第 7 期估驗計價", amount: 186_400_000, plannedDate: new Date("2026-06-25"), paidDate: new Date("2026-07-08"), status: "PAID" },
+      { projectId: bridge.id, name: "第 5 期估驗計價", amount: 68_200_000, plannedDate: new Date("2026-08-10"), status: "PENDING" },
+      { projectId: supervision.id, name: "第 3 期服務費", amount: 5_120_000, plannedDate: new Date("2026-07-31"), status: "PENDING" },
+      { projectId: supervision.id, name: "第 2 期服務費", amount: 4_960_000, plannedDate: new Date("2026-06-30"), paidDate: new Date("2026-07-10"), status: "PAID" },
     ],
   });
 
+  
   // PMIS-03 Project documents (契約與文件)
   await prisma.projectDocument.createMany({
     data: [
-      { projectId: metro.id, category: "CONTRACT", name: "工程契約書", fileNo: "C-1140001", issuedDate: new Date("2025-02-20") },
+      { projectId: metro.id, category: "CONTRACT", name: "捷運環狀線南環段 CQ801 標工程契約", fileNo: "CQ801-C-1150012", issuedDate: new Date("2025-01-20") },
       { projectId: metro.id, category: "AMENDMENT", name: "第 1 次契約變更協議書", fileNo: "A-1140012", issuedDate: new Date("2025-11-10") },
-      { projectId: metro.id, category: "DRAWING", name: "連續壁設計圖說", fileNo: "D-CJ302-001", issuedDate: new Date("2025-03-15") },
+      { projectId: metro.id, category: "DRAWING", name: "車站區連續壁及支撐設計圖說", fileNo: "D-CQ801-001", issuedDate: new Date("2025-02-25") },
+      { projectId: metro.id, category: "REPORT", name: "站區地質鑽探及地下水位調查報告", fileNo: "R-2025-018", issuedDate: new Date("2025-03-12") },
       { projectId: metro.id, category: "PERMIT", name: "施工圍籬使用許可", fileNo: "P-2025-044", issuedDate: new Date("2025-03-25") },
-      { projectId: bridge.id, category: "CONTRACT", name: "淡江大橋主橋段工程契約", fileNo: "BR-018", issuedDate: new Date("2024-05-28") },
-      { projectId: bridge.id, category: "REPORT", name: "主塔基礎地質鑽探報告", fileNo: "R-2024-076", issuedDate: new Date("2024-07-02") },
+      { projectId: bridge.id, category: "CONTRACT", name: "後龍溪橋改建工程契約", fileNo: "WCH-115-BR-024", issuedDate: new Date("2024-11-08") },
+      { projectId: bridge.id, category: "AMENDMENT", name: "第 2 次契約變更協議書（颱風災損展延）", fileNo: "A-1150127", issuedDate: new Date("2026-05-14") },
+      { projectId: bridge.id, category: "REPORT", name: "橋址河床地質鑽探報告", fileNo: "R-2024-091", issuedDate: new Date("2024-12-20") },
+      { projectId: supervision.id, category: "CONTRACT", name: "烏日水資中心擴建監造技術服務契約", fileNo: "TCWR-115-S-007", issuedDate: new Date("2026-02-26") },
+      { projectId: supervision.id, category: "REPORT", name: "115 年 6 月監造月報", fileNo: "SR-115-06", issuedDate: new Date("2026-07-08") },
     ],
   });
 
@@ -210,7 +141,11 @@ async function main() {
     return "UPCOMING";
   };
 
-  const projectKey = { metro: metro.id, bridge: bridge.id };
+  const projectKey = {
+    metro: metro.id,
+    bridge: bridge.id,
+    supervision: supervision.id,
+  };
   const reminderSpecs: [
     keyof typeof projectKey,
     string,
@@ -236,15 +171,15 @@ async function main() {
     ["bridge", "上級機關工程查核", "2026-08-06", "AUDIT"],
     ["metro", "主體結構開工前會議", "2026-08-12", "MEETING"],
     ["metro", "第 6 期估驗計價", "2026-08-25", "DEADLINE"],
-    ["bridge", "主塔爬模施工計畫審查", "2026-08-18", "SUBMITTAL"],
+    ["bridge", "P3 墩柱鑽心複驗計畫審查", "2026-08-18", "SUBMITTAL"],
     ["metro", "8 月安衛環保稽核", "2026-08-29", "AUDIT"],
     ["bridge", "颱風季防災整備會議", "2026-09-02", "MEETING"],
-    ["metro", "連續壁完成查驗", "2026-09-15", "AUDIT"],
+    ["metro", "潛盾隧道環片抽驗", "2026-09-15", "AUDIT"],
     ["bridge", "橋面版預鑄件送審", "2026-09-22", "SUBMITTAL"],
     ["metro", "第 7 期估驗計價", "2026-09-25", "DEADLINE"],
     // Q4 2026
-    ["metro", "連續壁履約期限", "2026-10-31", "DEADLINE"],
-    ["bridge", "主塔柱身完成查核", "2026-10-15", "AUDIT"],
+    ["supervision", "每季履約督導會議", "2026-09-30", "MEETING"],
+    ["bridge", "橋墩帽梁完成查核", "2026-10-15", "AUDIT"],
     ["metro", "車站主體結構開工", "2026-11-01", "DEADLINE"],
     ["bridge", "年度履約檢討會議", "2026-11-20", "MEETING"],
     ["metro", "第 4 季安衛稽核", "2026-12-05", "AUDIT"],
@@ -256,8 +191,8 @@ async function main() {
     ["bridge", "主橋段合龍會議", "2027-03-10", "MEETING"],
     ["metro", "第 1 季安衛稽核", "2027-03-28", "AUDIT"],
     ["bridge", "橋面鋪裝送審", "2027-04-18", "SUBMITTAL"],
-    ["bridge", "淡江大橋完工查驗", "2027-08-15", "AUDIT"],
-    ["metro", "捷運藍線全案完工履約事項", "2027-12-31", "DEADLINE"],
+    ["bridge", "後龍溪橋通車前初驗", "2027-05-31", "AUDIT"],
+    ["metro", "潛盾隧道貫通履約期限", "2027-10-31", "DEADLINE"],
   ];
 
   await prisma.reminderEvent.createMany({
@@ -279,7 +214,7 @@ async function main() {
     data: [
       {
         projectId: bridge.id,
-        title: "主塔混凝土強度不足，需提送複驗計畫",
+        title: "P3 墩柱混凝土強度不足，需提送複驗計畫",
         detail:
           "第 8 節柱身試體 28 天強度僅達設計值 85%，已開立 NCR。請於期限前提送複驗計畫與補強方案，並安排監造會同取樣。",
         link: "/quality",
@@ -351,8 +286,8 @@ async function main() {
   await prisma.submittal.createMany({
     data: [
       { projectId: metro.id, category: "MATERIAL", name: "止水膨脹材送審", materialName: "遇水膨脹止水條", plannedSubmitDate: new Date("2026-07-08"), actualSubmitDate: new Date("2026-07-09"), reviewResult: "REJECTED", status: "RETURNED", note: "缺型錄與試驗報告。" },
-      { projectId: metro.id, category: "TEST_REPORT", name: "連續壁混凝土 28 天強度報告", plannedSubmitDate: new Date("2026-07-12"), actualSubmitDate: new Date("2026-07-12"), reviewDate: new Date("2026-07-15"), reviewResult: "APPROVED", status: "APPROVED", fileNo: "M-2026-0142" },
-      { projectId: bridge.id, category: "CONSTRUCTION", name: "主塔爬模施工計畫", plannedSubmitDate: new Date("2026-07-20"), status: "UNDER_REVIEW", reviewResult: "PENDING" },
+      { projectId: metro.id, category: "TEST_REPORT", name: "環片背填灌漿試驗報告", plannedSubmitDate: new Date("2026-07-12"), actualSubmitDate: new Date("2026-07-12"), reviewDate: new Date("2026-07-15"), reviewResult: "APPROVED", status: "APPROVED", fileNo: "M-2026-0142" },
+      { projectId: bridge.id, category: "CONSTRUCTION", name: "帽梁支撐架施工計畫", plannedSubmitDate: new Date("2026-07-20"), status: "UNDER_REVIEW", reviewResult: "PENDING" },
       { projectId: bridge.id, category: "MATERIAL", name: "預力鋼腱送審", materialName: "低鬆弛預力鋼絞線", plannedSubmitDate: new Date("2026-07-28"), status: "DRAFT", reviewResult: "PENDING" },
     ],
   });
@@ -361,16 +296,17 @@ async function main() {
   await prisma.mediaAsset.createMany({
     data: [
       { projectId: metro.id, title: "K12+340 環片滲水現況", type: "PHOTO", category: "缺失照片", fileSizeKb: 3120, uploadedBy: "王監造", capturedAt: new Date("2026-07-10") },
-      { projectId: metro.id, title: "連續壁灌漿作業縮時", type: "VIDEO", category: "施工影片", fileSizeKb: 154200, uploadedBy: "現場工程師", capturedAt: new Date("2026-07-09") },
+      { projectId: metro.id, title: "潛盾機推進作業縮時", type: "VIDEO", category: "施工影片", fileSizeKb: 154200, uploadedBy: "張哲維", capturedAt: new Date("2026-07-09") },
       { projectId: metro.id, title: "CJ302 竣工圖-B2層", type: "DRAWING", category: "圖說", fileSizeKb: 8600, uploadedBy: "設計單位" },
-      { projectId: bridge.id, title: "主塔混凝土試體報告", type: "REPORT", category: "試驗報告", fileSizeKb: 720, uploadedBy: "陳主任", capturedAt: new Date("2026-07-18") },
+      { projectId: bridge.id, title: "P3 墩柱混凝土試體報告", type: "REPORT", category: "試驗報告", fileSizeKb: 720, uploadedBy: "陳世昌", capturedAt: new Date("2026-07-18") },
     ],
   });
   await prisma.supervisionReport.createMany({
     data: [
-      { projectId: metro.id, reportDate: new Date("2026-07-18"), weather: "晴", summary: "連續壁 P13~P15 灌漿；隧道推進至 K12+360。", manpower: "現場 62 人", equipment: "潛盾機 1、吊車 2", keyNotes: "通風量複測待回報。", filedBy: "施工廠商", status: "SUBMITTED" },
-      { projectId: metro.id, reportDate: new Date("2026-07-17"), weather: "多雲", summary: "連續壁鋼筋籠吊放；環片運輸進場。", manpower: "現場 58 人", equipment: "吊車 2", filedBy: "施工廠商", status: "APPROVED" },
-      { projectId: bridge.id, reportDate: new Date("2026-07-18"), weather: "陰", summary: "主塔第 8 節鋼構組立；混凝土試體送驗。", manpower: "現場 40 人", equipment: "塔吊 1", keyNotes: "強度不足缺失待改善。", filedBy: "麗明營造", status: "DRAFT" },
+      { projectId: metro.id, reportDate: new Date("2026-07-18"), weather: "晴", summary: "潛盾推進至 K2+380，環片組裝 1120 環累計完成。", manpower: "現場 62 人", equipment: "潛盾機 1、吊車 2", keyNotes: "工作井通風量複測待回報。", filedBy: "大陸工程", status: "SUBMITTED" },
+      { projectId: metro.id, reportDate: new Date("2026-07-17"), weather: "多雲", summary: "環片運輸進場 40 環；背填灌漿作業。", manpower: "現場 58 人", equipment: "吊車 2", filedBy: "大陸工程", status: "APPROVED" },
+      { projectId: bridge.id, reportDate: new Date("2026-07-18"), weather: "陰", summary: "P3 墩柱第 2 節模板組立；混凝土試體送驗。", manpower: "現場 40 人", equipment: "塔吊 1", keyNotes: "強度不足缺失待改善。", filedBy: "麗明營造", status: "DRAFT" },
+      { projectId: supervision.id, reportDate: new Date("2026-07-18"), weather: "晴", summary: "擴建區 A 池鋼筋查驗；審核第 3 期估驗計價數量。", manpower: "監造 3 人", equipment: "—", keyNotes: "計價數量爭議待釐清。", filedBy: "亞新工程顧問", status: "SUBMITTED" },
     ],
   });
 
@@ -508,15 +444,18 @@ async function main() {
   };
   await prisma.projectMember.createMany({
     data: [
-      // 捷運藍線 CJ302
+      // 捷運環狀線南環段 CQ801 標
       { projectId: metro.id, accountId: accountId("wb.li@cafeca.com.tw"), role: "SUPERVISOR" },
       { projectId: metro.id, accountId: accountId("jh.wu@cafeca.com.tw"), role: "MEMBER" },
       { projectId: metro.id, accountId: accountId("yt.tsai@cafeca.com.tw"), role: "MEMBER" },
       { projectId: metro.id, accountId: accountId("gf.zeng@cafeca.com.tw"), role: "INSPECTOR" },
-      // 淡江大橋主橋段
+      // 後龍溪橋改建
       { projectId: bridge.id, accountId: accountId("kw.zheng@cafeca.com.tw"), role: "MANAGER" },
       { projectId: bridge.id, accountId: accountId("yt.hsu@cafeca.com.tw"), role: "MEMBER" },
       { projectId: bridge.id, accountId: accountId("sz.qiu@cafeca.com.tw"), role: "INSPECTOR" },
+      // 烏日水資中心擴建監造服務
+      { projectId: supervision.id, accountId: accountId("wb.li@cafeca.com.tw"), role: "MANAGER" },
+      { projectId: supervision.id, accountId: accountId("yt.hsu@cafeca.com.tw"), role: "SUPERVISOR" },
     ],
   });
 
@@ -725,7 +664,7 @@ async function main() {
       },
     });
 
-  await mkDoc({ title: "CJ302 連續壁施工計畫", applicant: "jh.wu@cafeca.com.tw", status: "PENDING", currentStep: 1, decisions: ["APPROVED", "PENDING", "PENDING"] });
+  await mkDoc({ title: "CQ801 連續壁及支撐施工計畫", applicant: "jh.wu@cafeca.com.tw", status: "PENDING", currentStep: 1, decisions: ["APPROVED", "PENDING", "PENDING"] });
   await mkDoc({ title: "潛盾隧道施工計畫", applicant: "zw.zhang@cafeca.com.tw", status: "APPROVED", currentStep: 3, decisions: ["APPROVED", "APPROVED", "APPROVED"] });
   await mkDoc({ title: "車站主體施工計畫（退回修正）", applicant: "yt.tsai@cafeca.com.tw", status: "REJECTED", currentStep: 1, decisions: ["APPROVED", "REJECTED", "PENDING"] });
   await mkDoc({ title: "假設工程施工計畫", applicant: "yt.tsai@cafeca.com.tw", status: "PENDING", currentStep: 0, decisions: ["PENDING", "PENDING", "PENDING"] });
@@ -789,15 +728,21 @@ async function main() {
   }
 
   // 專案工地座標 (WGS84)
-  await prisma.$executeRawUnsafe('UPDATE "Project" SET "lat"=?, "lng"=? WHERE "code"=?', 25.0021, 121.4995, "PMIS-2026-001");
-  await prisma.$executeRawUnsafe('UPDATE "Project" SET "lat"=?, "lng"=? WHERE "code"=?', 25.169, 121.447, "PMIS-2026-002");
-  await prisma.$executeRawUnsafe('UPDATE "Project" SET "lat"=?, "lng"=? WHERE "code"=?', 24.9536, 121.225, "PMIS-2026-003");
+  /*
+    座標已於 seeds/projects.ts 隨專案一併寫入，此處不再覆寫 ——
+    先前這兩行會把新的座標蓋成舊專案的位置，而地圖上看起來只是「位置怪」。
+  */
 
-  // 範例自訂圖徵（捷運藍線工地）
+  // 範例自訂圖徵（捷運環狀線站區工地）
   const gisFeatures: [string, string, string, string, string, string][] = [
-    ["gf_gate", "MARKER", "工地大門(門禁)", "#2563eb", "車輛進出管制，7:00-18:00", JSON.stringify({ type: "Point", coordinates: [121.4998, 25.0025] })],
-    ["gf_fence", "AREA", "施工圍籬範圍", "#7c3aed", "主要施工區警戒範圍", JSON.stringify({ type: "Polygon", coordinates: [[[121.4986, 25.0016], [121.5006, 25.0016], [121.5006, 25.0028], [121.4986, 25.0028], [121.4986, 25.0016]]] })],
-    ["gf_haul", "ROUTE", "工程車便道", "#ea580c", "進場動線，避開學校路段", JSON.stringify({ type: "LineString", coordinates: [[121.4975, 25.001], [121.4988, 25.0018], [121.4998, 25.0025]] })],
+    /*
+      座標須落在專案座標（板橋站區 121.4628, 25.0128）附近。
+      先前這組留在舊專案的位置，地圖上圖徵會離工地十幾公里 ——
+      而症狀只是「位置看起來怪」，沒有人會想到是 seed 沒跟著改。
+    */
+    ["gf_gate", "MARKER", "工地大門(門禁)", "#2563eb", "車輛進出管制，7:00-18:00", JSON.stringify({ type: "Point", coordinates: [121.4631, 25.0131] })],
+    ["gf_fence", "AREA", "施工圍籬範圍", "#7c3aed", "主要施工區警戒範圍", JSON.stringify({ type: "Polygon", coordinates: [[[121.4619, 25.0122], [121.4639, 25.0122], [121.4639, 25.0134], [121.4619, 25.0134], [121.4619, 25.0122]]] })],
+    ["gf_haul", "ROUTE", "工程車便道", "#ea580c", "進場動線，避開學校路段", JSON.stringify({ type: "LineString", coordinates: [[121.4608, 25.0116], [121.4621, 25.0124], [121.4631, 25.0131]] })],
   ];
   for (const [id, type, name, color, note, geojson] of gisFeatures) {
     await prisma.$executeRawUnsafe(
@@ -954,6 +899,7 @@ async function main() {
     缺失: await prisma.defect.count(),
     契約變更: await prisma.contractChange.count(),
     專案文件: await prisma.projectDocument.count(),
+    合約標的: await prisma.contractScopeItem.count(),
     履約事項: await prisma.contractObligation.count(),
     付款節點: await prisma.paymentNode.count(),
     行事曆: await prisma.reminderEvent.count(),

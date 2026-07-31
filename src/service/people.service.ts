@@ -1,6 +1,7 @@
 import * as orgRepo from "@/repository/orgUnit.repository";
 import * as positionRepo from "@/repository/position.repository";
 import * as accountRepo from "@/repository/account.repository";
+import * as projectMemberRepo from "@/repository/projectMember.repository";
 import { accountRoleMeta, accountStatusMeta } from "@/constant/people";
 import {
   PMIS_MODULES,
@@ -196,4 +197,14 @@ export function buildOrgChartMarkdown(units: OrgNode[]): string {
   }
 
   return ["## 組織架構圖", "", "```mermaid", ...lines, "```"].join("\n");
+}
+
+/**
+ * 各專案的人力配置，供帳號管理的「專案配置」分頁。
+ *
+ * 放在 people.service 而非 project.service：這件事的問題是
+ * 「誰能碰哪個案子」，屬於帳號與權限的範疇，而非某一個專案的內容。
+ */
+export function listProjectStaffing() {
+  return projectMemberRepo.listAllStaffing();
 }

@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import * as projectService from "@/service/project.service";
+import type {
+  Candidate,
+  DuplicateMatch,
+} from "@/service/project-duplicate";
 import * as faithUpload from "@/service/faithUpload.service";
 import * as workItemService from "@/service/workItem.service";
 import * as obligationService from "@/service/obligation.service";
@@ -116,6 +120,7 @@ export async function createProject(
 export type WizardProfile = {
   code?: string;
   name?: string;
+  contractNo?: string;
   location?: string;
   client?: string;
   contractor?: string;
@@ -129,7 +134,21 @@ export type WizardProfile = {
 
 export type CreateWizardResult =
   | { ok: true; id: string; assignedFiles: number }
-  | { ok: false; error: string };
+  | { ok: false; error: string; duplicates?: DuplicateMatch[] };
+
+/**
+ * 查詢可能重複的既有專案。
+ *
+ * 供建置頁在匯入解析結果後立即提醒 —— 讓使用者在還沒把履約事項核對完
+ * 之前就知道「這件可能已經建過了」，而不是填完才被擋。
+ * 這支只讀不寫，權限與列表頁一致（看得到專案列表就查得到）。
+ */
+export async function lookupDuplicateProjects(
+  candidate: Candidate,
+): Promise<DuplicateMatch[]> {
+  if (!(await canEdit())) return [];
+  return projectService.checkDuplicates(candidate);
+}
 
 export async function createProjectViaWizard(
   profile: WizardProfile,
@@ -139,6 +158,10 @@ export async function createProjectViaWizard(
   uploadIds: string[] = [],
   /** 契約履約標的（階段一）；履約事項與工程分項以此溯源。 */
   scopeItems: projectService.WizardScopeItemInput[] = [],
+  /** 使用者已在確認視窗同意「即使重複也要建立」。 */
+  allowDuplicate = false,
+  /** 本次解析使用的檔名，供重複判斷。 */
+  fileNames: string[] = [],
 ): Promise<CreateWizardResult> {
   if (!(await canEdit())) {
     return { ok: false, error: "權限不足，無法建立專案。" };
@@ -157,10 +180,13 @@ export async function createProjectViaWizard(
       startDate: profile.startDate,
       endDate: profile.endDate,
       status: profile.status,
+      contractNo: profile.contractNo,
     },
     obligations,
     workItems,
     scopeItems,
+    allowDuplicate,
+    fileNames,
   );
   if (!result.ok) return { ok: false, error: result.error };
 
@@ -257,23 +283,11 @@ export async function addContractChangeAction(formData: FormData) {
   refreshProject(projectId);
 }
 
-export async function addProjectMemberAction(formData: FormData) {
-  if (!(await canEdit())) return;
-  const projectId = field(formData, "projectId");
-  if (!projectId) return;
-  await projectService.addProjectMember({
-    projectId,
-    accountId: field(formData, "accountId"),
-    role: field(formData, "role"),
-  });
-  refreshProject(projectId);
-}
-
-export async function removeProjectMemberAction(id: string, projectId: string) {
-  if (!(await canEdit())) return;
-  await projectService.removeProjectMember(id);
-  refreshProject(projectId);
-}
+/*
+  人力配置的動作已移至帳號管理（src/app/people/actions.ts）。
+  這裡不留一份同名的 —— 兩處都能改成員時，權限規則遲早會漂移，
+  而漂移的後果是「某個入口能把自己加進任何專案」。
+*/
 
 export async function addDocumentAction(formData: FormData) {
   if (!(await canEdit())) return;

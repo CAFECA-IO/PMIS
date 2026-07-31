@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 import * as projectService from "@/service/project.service";
 import { requireUser } from "@/service/auth.service";
@@ -19,15 +20,39 @@ import {
 import { ProgressWithTarget } from "@/components/charts";
 import { projectStatusMeta } from "@/constant/pmis";
 import { formatDate } from "@/lib/utils";
+import { decideProjectsPage, projectHref } from "@/lib/project-route";
 import { ProjectCreateDialog } from "./project-create-dialog";
 
 export const dynamic = "force-dynamic";
 
-export default async function ProjectsPage() {
+/**
+ * 工程專案。
+ *
+ * 選定專案時本頁就是那個專案 —— 左上角選了某案，這一頁還列出全部，
+ * 使用者得再點一次才進得去，而其他每個模組都已經跟著選定收斂了。
+ * 未選定（全部專案）時才是清單。
+ */
+export default async function ProjectsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ project?: string }>;
+}) {
   const user = await requireUser();
   const perms = await assertModuleAccess(user, "/projects");
   const canEdit = canEditModule(perms, "/projects");
   const projects = await projectService.listProjects(user);
+  const { project: selected } = await searchParams;
+
+  /*
+    轉向前先確認該專案在使用者看得到的清單裡。
+    專案被刪或權限被移除時 ?project= 仍留在網址上，直接轉過去只會拿到
+    404 或權限錯誤 —— 而使用者只是點了左上角，不會知道網址上還掛著它。
+  */
+  const decision = decideProjectsPage(
+    selected,
+    projects.map((p) => p.id),
+  );
+  if (decision.kind === "redirect") redirect(decision.href);
 
   return (
     <>
@@ -89,7 +114,7 @@ export default async function ProjectsPage() {
                       </TableCell>
                       <TableCell className="font-medium">
                         <Link
-                          href={`/projects/${p.id}`}
+                          href={projectHref(p.id)}
                           className="text-primary hover:underline"
                         >
                           {p.name}
@@ -127,7 +152,7 @@ export default async function ProjectsPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <Button variant="outline" size="sm" asChild>
-                          <Link href={`/projects/${p.id}`}>管理</Link>
+                          <Link href={projectHref(p.id)}>管理</Link>
                         </Button>
                       </TableCell>
                     </TableRow>

@@ -18,6 +18,11 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import {
+  TOAST_BOTTOM,
+  TOAST_RIGHT_COLLAPSED,
+  TOAST_RIGHT_EXPANDED,
+} from "@/lib/faith-dock";
 import { useAiAssistant } from "@/components/ai-assistant-context";
 
 type Variant = "success" | "error" | "info";
@@ -59,8 +64,19 @@ export type ProgressHandle = {
 
 const EXIT_MS = 220; // Info: (20260721 - Luphia) 需與 .animate-bubble-out 時長一致
 
+/**
+ * 一則通知的權柄。
+ *
+ * 邀請型通知（如「需要費思協助嗎」）必須能被撤回：使用者可能改由別的入口
+ * 接受邀請（點右下角的費思、或費思已展開而自動接手），此時通知的內容
+ * 已經過期，卻仍留在畫面上邀請一件正在進行中的事。
+ * 先前 notify 不回傳任何東西，除了它自己的計時器與動作按鈕，
+ * 沒有人有辦法讓它消失。
+ */
+export type ToastHandle = { dismiss: () => void };
+
 const NotificationContext = createContext<{
-  notify: (options: NotifyOptions) => void;
+  notify: (options: NotifyOptions) => ToastHandle;
   notifyProgress: (options: {
     title: string;
     description?: string;
@@ -110,11 +126,18 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   );
 
   const notify = useCallback(
-    (options: NotifyOptions) => {
+    (options: NotifyOptions): ToastHandle => {
       const id = ++counter;
       setToasts((list) => [...list, { ...options, id }]);
       const duration = options.duration ?? (options.onAction ? 10000 : 6000);
-      setTimeout(() => dismiss(id), duration);
+      const timer = setTimeout(() => dismiss(id), duration);
+      return {
+        dismiss: () => {
+          // 一併清掉計時器，否則撤回後計時器仍會再跑一次 dismiss
+          clearTimeout(timer);
+          dismiss(id);
+        },
+      };
     },
     [dismiss],
   );
@@ -154,10 +177,18 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   return (
     <NotificationContext.Provider value={{ notify, notifyProgress }}>
       {children}
-      {/* Info: (20260721 - Luphia) 對話氣泡通知，錨定於右下角 AI 助理旁；助理卡展開時自動上移避開 */}
+      {/*
+        對話氣泡通知，錨定於右下角費思按鈕之上。
+        費思展開後往左退到面板之外 —— 先前是往上跳 600px，那是費思還是
+        浮動卡片時的高度；改成全高的右側欄之後，往上移不會離開它的範圍，
+        通知只是跑到畫面中央而已。
+      */}
       <div
-        className="pointer-events-none fixed right-6 z-[60] flex w-80 max-w-[calc(100vw-3rem)] flex-col items-end gap-2.5 transition-[bottom] duration-300 ease-out"
-        style={{ bottom: expanded ? "calc(600px + 2.25rem)" : "6rem" }}
+        className={cn(
+          "pointer-events-none fixed z-[60] flex w-80 max-w-[calc(100vw-3rem)] flex-col items-end gap-2.5 transition-[right,bottom] duration-300 ease-out",
+          expanded ? TOAST_RIGHT_EXPANDED : TOAST_RIGHT_COLLAPSED,
+        )}
+        style={{ bottom: TOAST_BOTTOM }}
       >
         {toasts.map((t) => {
           const variant = t.variant ?? "success";
