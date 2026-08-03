@@ -7,6 +7,7 @@ import {
   AI_IMAGE_ANALYSIS_PROMPT,
   AI_SCREEN_FOCUS_PROMPT,
   AI_REPORT_PROMPT,
+  AI_REPORT_BODY_PROMPT,
   AI_VOUCHER_PROMPT,
   AI_EHS_PROMPT,
   AI_PROJECT_WIZARD_PROMPT,
@@ -605,6 +606,30 @@ export async function generateReportNarrative(
     return text && text !== "（AI 沒有回覆內容）" ? text : fallback;
   } catch {
     return fallback;
+  }
+}
+
+// Info: (20260803 - Julian) 白名單版報告本體：LLM 主導撰寫，要圖時輸出 pmis-chart 指令；失敗回 null 供決定論 fallback
+export async function generateReportBody(
+  factsText: string,
+  catalogText: string,
+  typeLabel: string,
+): Promise<string | null> {
+  try {
+    getConfig();
+    const text = await ask({
+      instruction: AI_REPORT_BODY_PROMPT,
+      messages: [
+        {
+          role: "user",
+          text: `報告類型：${typeLabel}\n\n【關鍵數據】\n${factsText}\n\n【可用數據集目錄】\n${catalogText}`,
+        },
+      ],
+      maxOutputTokens: 2048,
+    });
+    return text && text !== "（AI 沒有回覆內容）" ? text : null;
+  } catch {
+    return null;
   }
 }
 

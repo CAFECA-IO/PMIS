@@ -129,17 +129,21 @@ generateReport
 
 六個數據集與對映（皆決定論、數字來自 DB）：`work_item_status`（圓餅）、`inspection_result`（圓餅）、`defects_period_compare`（龍捲風，本期 vs 上期）、`open_defect_matrix`（矩陣，嚴重度×逾期天數）、`defect_resolution_histogram`（直方，改善耗時）、`submittal_review_boxplot`（箱型，審查天數 by 類別）。
 
-### Phase C — LLM 主導本體 ⬜ 未開始
+### Phase C — LLM 主導本體 ✅ 完成
 
-| 步驟 | 內容 | 狀態 |
-| --- | --- | --- |
-| C1 | 白名單版圖表規則 prompt（指示 LLM 只輸出 `pmis-chart(dataset,type)`、不打數字） | ⬜ |
-| C2 | 改寫 `generateReport`：備料 → LLM 撰寫本體 → 展開器 → 渲染 | ⬜ |
-| C3 | 治理配套（AI 生成草稿標註、人在迴路確認狀態、稽核欄位；來源引用已於 B3 落地） | ⬜ |
+| 步驟 | 內容 | 產出檔案 | 狀態 |
+| --- | --- | --- | --- |
+| C1 | 白名單版報告本體 prompt（LLM 主導、要圖只輸出 `pmis-chart(dataset,type)`、不打數字） | `src/constant/ai.ts`（+`AI_REPORT_BODY_PROMPT`） | ✅ |
+| C2 | 改寫 `generateReport`：備白名單數據集 → LLM 撰寫本體 → `expandChartDirectives` 展開 → 決定論 fallback | `src/service/faith.service.ts`（+`generateReportBody`）、`src/service/report.service.ts`（重寫） | ✅ |
+| C3 | 治理配套：AI 草稿橫幅、資料來源清單、`GeneratedReport` 增 `isDraft`／`sources`／`aiAuthored` 稽核欄位（來源引用於 B3 落地） | `src/service/report.service.ts` | ✅ |
 
-### Phase D — 全面驗證 ⬜ 未開始
+備註：完整「草稿 → 已確認」狀態機與匯出 WORD/PDF/ODT 屬後續資料模型 + UI 工作，本次先以 `isDraft` 標記與草稿橫幅落地。
 
-`npm run build`／lint／`npm test`；含四圖的範例週報截圖；畸形 DSL fallback；高風險項子代理複驗。
+### Phase D — 驗證 ✅（單元 + 靜態）／⏳（端到端待本機）
+
+- ✅ ESLint 全數乾淨；`tsc --noEmit` src 無誤（僅 `.next` 過期產生檔誤報，`npm run build` 會重生）。
+- ✅ 單元測試（隔離環境）全綠：parser 9、custom-chart 渲染 4、expander 4（含序列化↔解析 round-trip）、report-datasets 7、圖表元件 render 6 — 共 30 項。
+- ⏳ 待本機：`npm run build`／`npm test`（沙盒無 better-sqlite3／tsx 原生模組）、真實 seed + LLM 的端到端週報與截圖、`/report-demo` 目視。
 
 ---
 

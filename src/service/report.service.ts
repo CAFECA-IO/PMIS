@@ -7,9 +7,18 @@ import * as calc from "@/service/carbon.calc";
 import * as faith from "@/service/faith.service";
 import { canSeeAllProjects } from "@/lib/auth";
 import {
+  assembleDatasets,
+  diffDays,
+  type ReportDataset,
+  type ReportDatasetInput,
+  type DatasetData,
+} from "@/service/report-datasets";
+import { expandChartDirectives } from "@/service/report-chart-expander";
+import {
   defectSeverityMeta,
   inspectionResultMeta,
   submittalStatusMeta,
+  submittalCategoryMeta,
   workItemStatusMeta,
   carbonScopeMeta,
   reportStatusMeta,
@@ -114,6 +123,12 @@ export type GeneratedReport = {
   periodLabel: string;
   typeLabel: string;
   markdown: string;
+  // Info: (20260803 - Julian) 治理：本產出為 AI 草稿，核定前需人工確認（人在迴路）
+  isDraft: boolean;
+  // Info: (20260803 - Julian) 治理：本次生成引用的數據集來源（稽核可回溯）
+  sources: string[];
+  // Info: (20260803 - Julian) 稽核：本體是否由 LLM 主導（false = 回退決定論組裝）
+  aiAuthored: boolean;
 };
 
 export async function generateReport(
@@ -211,17 +226,81 @@ export async function generateReport(
     Math.round((carbon.byScopeKg[s] / 1000) * 100) / 100,
   ]);
 
-  const md: string[] = [];
-  md.push(`# ${title}`);
-  md.push(
-    `> 專案編號 ${project.code}｜承包商 ${project.contractor ?? "—"}｜監造 ${project.supervisor ?? "—"}｜產生時間 ${formatDate(new Date())}`,
-  );
-  md.push("");
-  md.push("## 摘要");
-  md.push(narrative);
-  md.push("");
+  // ── 白名單數據集：上一期件數比較、改善耗時、審查天數需額外查詢 ──
+  const prev = periodRange(type, previousRef(type, ref));
+  const [
+    prevDefects,
+    prevInspections,
+    prevSubmittals,
+    prevEhs,
+    resolvedDefects,
+    reviewedSubmittals,
+  ] = await Promise.all([
+    reportRepo.defectsInPeriod(projectId, prev.start, prev.end),
+    reportRepo.inspectionsInPeriod(projectId, prev.start, prev.end),
+    reportRepo.submittalsInPeriod(projectId, prev.start, prev.end),
+    reportRepo.ehsInPeriod(projectId, prev.start, prev.end),
+    reportRepo.defectsResolvedInPeriod(projectId, start, end),
+    reportRepo.submittalsReviewedInPeriod(projectId, start, end),
+  ]);
 
-  if (dailyReports.length > 0) {
+  const resolutionDays = resolvedDefects
+    .filter((d) => d.resolvedAt)
+    .map((d) => diffDays(d.createdAt, d.resolvedAt as Date));
+
+  const reviewGroups = new Map<string, number[]>();
+  for (const s of reviewedSubmittals) {
+    if (!s.actualSubmitDate || !s.reviewDate) continue;
+    const cat = submittalCategoryMeta[s.category].label;
+    const arr = reviewGroups.get(cat) ?? [];
+    arr.push(diffDays(s.actualSubmitDate, s.reviewDate));
+    reviewGroups.set(cat, arr);
+  }
+
+  const datasetInput: ReportDatasetInput = {
+    workItemStatus: Object.entries(wiByStatus).map(([k, v]) => ({
+      label: workItemStatusMeta[k as keyof typeof workItemStatusMeta]?.label ?? k,
+      value: v,
+    })),
+    inspectionResult: Object.entries(insByResult).map(([k, v]) => ({
+      label:
+        inspectionResultMeta[k as keyof typeof inspectionResultMeta]?.label ?? k,
+      value: v,
+    })),
+    periodCompare: {
+      prevLabel: "上期",
+      curLabel: "本期",
+      rows: [
+        { category: "新增缺失", prev: prevDefects.length, cur: defects.length },
+        { category: "查驗", prev: prevInspections.length, cur: inspections.length },
+        { category: "送審", prev: prevSubmittals.length, cur: submittals.length },
+        { category: "環安衛稽核", prev: prevEhs.length, cur: ehs.length },
+      ],
+    },
+    openDefects: open.map((d) => ({
+      title: d.title,
+      severity: d.severity,
+      dueDate: d.dueDate,
+    })),
+    now: new Date(),
+    resolutionDays,
+    reviewDaysByCategory: [...reviewGroups.entries()].map(([category, days]) => ({
+      category,
+      days,
+    })),
+  };
+
+  const datasets = assembleDatasets(datasetInput);
+  const catalog = buildCatalogText(datasets);
+
+  // ── 決定論 fallback：LLM 失敗時沿用原本的組裝（已驗證可用）──
+  const deterministicBody = (): string => {
+    const md: string[] = [];
+    md.push("## 摘要");
+    md.push(narrative);
+    md.push("");
+
+    if (dailyReports.length > 0) {
     md.push(`## 監造日報彙整（本期 ${dailyReports.length} 篇）`);
     for (const r of dailyReports) {
       md.push(
@@ -321,8 +400,102 @@ export async function generateReport(
     md.push("");
   }
 
-  md.push("---");
-  md.push("_本報告由費思 AI 依系統紀錄自動生成，數據僅供監造參考。_");
+    return md.join("\n");
+  };
 
-  return { title, periodLabel: label, typeLabel, markdown: md.join("\n") };
+  const header = [
+    `# ${title}`,
+    `> 專案編號 ${project.code}｜承包商 ${project.contractor ?? "—"}｜監造 ${project.supervisor ?? "—"}｜產生時間 ${formatDate(new Date())}`,
+    "> **本報告為費思 AI 生成草稿；數據由系統彙整、圖表由既有數據集展開；核定前請人工確認。**",
+  ].join("\n");
+
+  // 主路徑：LLM 主導本體（含 pmis-chart 指令）→ 程式展開為真數據圖；失敗回退決定論組裝
+  const llmBody = await faith.generateReportBody(factsText, catalog, typeLabel);
+  const body = llmBody
+    ? expandChartDirectives(llmBody, datasets)
+    : deterministicBody();
+
+  const sources = datasets.map((d) => d.source);
+  const sourcesMd =
+    sources.length > 0
+      ? ["## 資料來源", ...datasets.map((d) => `- ${d.title}：${d.source}`)].join(
+          "\n",
+        )
+      : "";
+
+  const markdown = [
+    header,
+    "",
+    body,
+    ...(sourcesMd ? ["", sourcesMd] : []),
+    "",
+    "---",
+    "_本報告由費思 AI 依系統紀錄生成，屬草稿，數據僅供監造參考；核定前請人工確認。_",
+  ].join("\n");
+
+  return {
+    title,
+    periodLabel: label,
+    typeLabel,
+    markdown,
+    isDraft: true,
+    sources,
+    aiAuthored: Boolean(llmBody),
+  };
+}
+
+// Info: (20260803 - Julian) 取得上一期的參考日（供本期 vs 上期比較）
+function previousRef(type: ReportType, ref: Date): Date {
+  const d = new Date(ref);
+  switch (type) {
+    case "DAILY":
+      d.setDate(d.getDate() - 1);
+      break;
+    case "WEEKLY":
+      d.setDate(d.getDate() - 7);
+      break;
+    case "MONTHLY":
+      d.setMonth(d.getMonth() - 1);
+      break;
+    case "QUARTERLY":
+      d.setMonth(d.getMonth() - 3);
+      break;
+    case "ANNUAL":
+    default:
+      d.setFullYear(d.getFullYear() - 1);
+      break;
+  }
+  return d;
+}
+
+// Info: (20260803 - Julian) 把白名單數據集整理成給 LLM 的目錄文字（含實際數字供其行文引用）
+function buildCatalogText(datasets: ReportDataset[]): string {
+  if (datasets.length === 0) return "（本期無可用數據集）";
+  return datasets
+    .map(
+      (d) =>
+        `- id: ${d.id}｜${d.title}：${d.summary}｜可用圖種: ${d.allowedCharts.join(" / ")}\n  數據: ${previewData(d.data)}`,
+    )
+    .join("\n");
+}
+
+function previewData(data: DatasetData): string {
+  switch (data.shape) {
+    case "categorical":
+      return data.entries.map((e) => `${e.label} ${e.value}`).join("、");
+    case "paired":
+      return `${data.leftName} vs ${data.rightName}｜${data.rows
+        .map((r) => `${r.category} ${r.left}→${r.right}`)
+        .join("、")}`;
+    case "points":
+      return data.points.map((p) => `${p.label}(${p.x},${p.y})`).join("、");
+    case "bins":
+      return data.bins.map((b) => `${b.label}:${b.count}`).join("、");
+    case "boxes":
+      return data.boxes
+        .map((b) => `${b.label} ${b.min}/${b.q1}/${b.median}/${b.q3}/${b.max}`)
+        .join("；");
+    default:
+      return "";
+  }
 }
