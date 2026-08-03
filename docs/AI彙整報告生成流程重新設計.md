@@ -105,6 +105,42 @@ generateReport
 
 先做 Phase A 打通「custom-* → 渲染」，再實作「數據集 → DSL 展開器」與新 prompt，最後補上治理配套（AI 標註、草稿狀態、來源與稽核欄位）。每步可獨立驗收。
 
+## 實作進度（Phase A–D）
+
+> 施作拆分與狀態。截至 2026-08-03：Phase A、B 完成；Phase C、D 未開始。
+
+### Phase A — 渲染層基礎 ✅ 完成
+
+| 步驟 | 內容 | 產出檔案 | 狀態 |
+| --- | --- | --- | --- |
+| A1 | 圖表 DSL 常數（fence 語言、設定鍵、錯誤碼、格式） | `src/constant/custom-chart.ts` | ✅ |
+| A2 | DSL parser（`parseCustomChart`／`detectCustomChartType`，zod 改手寫守衛） | `src/lib/csv.ts`、`src/lib/custom-chart-parser.ts`（+ `.test.ts`，9/9 通過） | ✅ |
+| A3 | `CustomChart` 派發元件 + `markdown.tsx` 掛勾；範例報告頁 | `src/components/custom-chart.tsx`、修改 `src/components/markdown.tsx`（+ `.test.ts` 4/4 通過）、`src/app/report-demo/page.tsx` | ✅ |
+
+驗收：lint／`tsc --noEmit` 乾淨；`/report-demo` 可見 mermaid + 四種自訂圖 + 畸形 fallback。
+
+### Phase B — 白名單數據集與展開器 ✅ 完成
+
+| 步驟 | 內容 | 產出檔案 | 狀態 |
+| --- | --- | --- | --- |
+| B1 | `ReportDataset` 型別與白名單、`ChartKind`、`DatasetData` 判別聯集 | `src/service/report-datasets.ts` | ✅ |
+| B2 | 純函式 `assembleDatasets` + 統計助手（`quantile`／`fiveNumberSummary` Tukey 離群／`binValues` 決定論分箱／`diffDays`）；報表 repo 補查詢 | `src/service/report-datasets.ts`、修改 `src/repository/report.repository.ts`（+`defectsResolvedInPeriod`、`submittalsReviewedInPeriod`） | ✅ |
+| B3 | `datasetToDsl` 序列化 + `expandChartDirectives`（處理 `pmis-chart` 指令、未知 id／不允許 type 安全降級、圖後附來源引用） | `src/service/report-chart-expander.ts`（+ `.test.ts` 4/4 通過，含序列化↔解析 round-trip） | ✅ |
+
+六個數據集與對映（皆決定論、數字來自 DB）：`work_item_status`（圓餅）、`inspection_result`（圓餅）、`defects_period_compare`（龍捲風，本期 vs 上期）、`open_defect_matrix`（矩陣，嚴重度×逾期天數）、`defect_resolution_histogram`（直方，改善耗時）、`submittal_review_boxplot`（箱型，審查天數 by 類別）。
+
+### Phase C — LLM 主導本體 ⬜ 未開始
+
+| 步驟 | 內容 | 狀態 |
+| --- | --- | --- |
+| C1 | 白名單版圖表規則 prompt（指示 LLM 只輸出 `pmis-chart(dataset,type)`、不打數字） | ⬜ |
+| C2 | 改寫 `generateReport`：備料 → LLM 撰寫本體 → 展開器 → 渲染 | ⬜ |
+| C3 | 治理配套（AI 生成草稿標註、人在迴路確認狀態、稽核欄位；來源引用已於 B3 落地） | ⬜ |
+
+### Phase D — 全面驗證 ⬜ 未開始
+
+`npm run build`／lint／`npm test`；含四圖的範例週報截圖；畸形 DSL fallback；高風險項子代理複驗。
+
 ---
 
 ## 附錄一：iSunFA 探勘發現與渲染層基礎（Phase A）

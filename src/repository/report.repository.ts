@@ -49,6 +49,34 @@ export function ehsInPeriod(projectId: string, start: Date, end: Date) {
   });
 }
 
+// Info: (20260803 - Julian) 本期已結案缺失（供改善耗時直方圖）：resolvedAt 落在期間內
+export function defectsResolvedInPeriod(
+  projectId: string,
+  start: Date,
+  end: Date,
+) {
+  return prisma.defect.findMany({
+    where: { projectId, resolvedAt: { gte: start, lte: end } },
+    select: { createdAt: true, resolvedAt: true },
+  });
+}
+
+// Info: (20260803 - Julian) 本期完成審查的送審（供審查天數箱型圖）：需有實際送審日與審查日
+export function submittalsReviewedInPeriod(
+  projectId: string,
+  start: Date,
+  end: Date,
+) {
+  return prisma.submittal.findMany({
+    where: {
+      projectId,
+      reviewDate: { gte: start, lte: end },
+      actualSubmitDate: { not: null },
+    },
+    select: { category: true, actualSubmitDate: true, reviewDate: true },
+  });
+}
+
 export function carbonInventories(projectId: string) {
   return prisma.carbonInventory.findMany({
     where: { projectId, deletedAt: null },
