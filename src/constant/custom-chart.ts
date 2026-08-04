@@ -5,12 +5,16 @@
  * 圖種列舉值即等於 markdown fence 語言（```custom-matrix …），避免另做字串對照。
  */
 
-/** 四種自訂圖表的 fence 語言標籤（即圖種判別字串）。 */
+/** 自訂圖表的 fence 語言標籤（即圖種判別字串）。 */
 export const CUSTOM_CHART_TYPE = {
   MATRIX: "custom-matrix",
   TORNADO: "custom-tornado",
   HISTOGRAM: "custom-histogram",
   BOXPLOT: "custom-boxplot",
+  // Info: (20260803 - Julian) 進度 S-Curve（預定/實際/預測），取代 mermaid xychart（其 lexer 不支援中文標籤）
+  SCURVE: "custom-scurve",
+  // Info: (20260803 - Julian) 累計進度橫條，末端標示本期增量
+  PROGRESS: "custom-progress",
 } as const;
 
 export type CustomChartType =

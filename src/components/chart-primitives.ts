@@ -156,6 +156,43 @@ export interface HistogramChartData {
   bins: HistogramBin[];
 }
 
+/** S-Curve 單一時間點；預定為必填，實際與預測可缺（尚未發生）。 */
+export interface ScurvePoint {
+  label: string;
+  planned: number;
+  actual?: number;
+  forecast?: number;
+}
+
+/** 進度 S-Curve（預定／實際／預測累計曲線）資料。 */
+export interface ScurveChartData {
+  title?: string;
+  xAxis?: string;
+  yAxis?: string;
+  unit?: string;
+  points: ScurvePoint[];
+}
+
+/** 進度橫條單列：長度為累計值，末端標示本期增量。 */
+export interface ProgressItem {
+  label: string;
+  /** 累計完成值（長條總長） */
+  cumulative: number;
+  /** 本期增量（自累計中切出，以深色標示） */
+  current?: number;
+  /** 預定值；有值時畫目標標記線 */
+  planned?: number;
+}
+
+/** 累計進度橫條圖資料。 */
+export interface ProgressChartData {
+  title?: string;
+  unit?: string;
+  /** 座標上限；未給則取資料最大值（或 100，視 unit 而定） */
+  scale?: number;
+  items: ProgressItem[];
+}
+
 export interface BoxItem {
   label: string;
   min: number;

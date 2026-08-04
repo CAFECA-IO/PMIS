@@ -12,6 +12,8 @@ import { MatrixChart } from "@/components/matrix-chart";
 import { TornadoChart } from "@/components/tornado-chart";
 import { HistogramChart } from "@/components/histogram-chart";
 import { BoxPlotChart } from "@/components/box-plot-chart";
+import { ScurveChart } from "@/components/scurve-custom-chart";
+import { ProgressBarsChart } from "@/components/progress-bars-chart";
 
 function Frame({ children }: { children: React.ReactNode }) {
   return (
@@ -63,6 +65,18 @@ export function CustomChart({
       return (
         <Frame>
           <BoxPlotChart data={result.data} />
+        </Frame>
+      );
+    case CUSTOM_CHART_TYPE.SCURVE:
+      return (
+        <Frame>
+          <ScurveChart data={result.data} />
+        </Frame>
+      );
+    case CUSTOM_CHART_TYPE.PROGRESS:
+      return (
+        <Frame>
+          <ProgressBarsChart data={result.data} />
         </Frame>
       );
     default:

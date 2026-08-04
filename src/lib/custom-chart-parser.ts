@@ -23,6 +23,8 @@ import type {
   HistogramChartData,
   HistogramTrendType,
   BoxplotChartData,
+  ScurveChartData,
+  ProgressChartData,
 } from "@/components/chart-primitives";
 import { parseCsvLine } from "@/lib/csv";
 
@@ -63,6 +65,17 @@ const CONFIG_KEYS_BY_TYPE: Record<CustomChartType, Set<string>> = {
     CUSTOM_CHART_CONFIG_KEY.Y_AXIS,
     CUSTOM_CHART_CONFIG_KEY.UNIT,
   ]),
+  [CUSTOM_CHART_TYPE.SCURVE]: new Set<string>([
+    CUSTOM_CHART_CONFIG_KEY.TITLE,
+    CUSTOM_CHART_CONFIG_KEY.X_AXIS,
+    CUSTOM_CHART_CONFIG_KEY.Y_AXIS,
+    CUSTOM_CHART_CONFIG_KEY.UNIT,
+  ]),
+  [CUSTOM_CHART_TYPE.PROGRESS]: new Set<string>([
+    CUSTOM_CHART_CONFIG_KEY.TITLE,
+    CUSTOM_CHART_CONFIG_KEY.UNIT,
+    CUSTOM_CHART_CONFIG_KEY.X_SCALE,
+  ]),
 };
 
 /** 公開解析結果：成功時帶圖種與對應資料，失敗時帶錯誤碼與訊息。永不 throw。 */
@@ -75,6 +88,8 @@ export type CustomChartParseResult =
       data: HistogramChartData;
     }
   | { ok: true; type: typeof CUSTOM_CHART_TYPE.BOXPLOT; data: BoxplotChartData }
+  | { ok: true; type: typeof CUSTOM_CHART_TYPE.SCURVE; data: ScurveChartData }
+  | { ok: true; type: typeof CUSTOM_CHART_TYPE.PROGRESS; data: ProgressChartData }
   | { ok: false; code: CustomChartParseErrorCode; message: string };
 
 // Info: (20260803 - Julian) 內部解析錯誤，攜帶錯誤碼；於公開 API 邊界轉為結果物件
@@ -479,6 +494,89 @@ const buildBox = (
   };
 };
 
+const buildScurve = (
+  config: Map<string, string>,
+  dataLines: string[],
+): ScurveChartData => {
+  const title = config.get(CUSTOM_CHART_CONFIG_KEY.TITLE) || undefined;
+  const xAxis = config.get(CUSTOM_CHART_CONFIG_KEY.X_AXIS) || undefined;
+  const yAxis = config.get(CUSTOM_CHART_CONFIG_KEY.Y_AXIS) || undefined;
+  const unit = config.get(CUSTOM_CHART_CONFIG_KEY.UNIT) || undefined;
+
+  const points = dataLines.map((line) => {
+    const f = parseCsvLine(line);
+    if (f.length < 2 || f.length > 4) {
+      throw malformed(
+        `S-Curve 資料列需 2 至 4 欄（label, planned[, actual[, forecast]]）：「${line}」`,
+      );
+    }
+    const label = f[0];
+    if (!label) throw malformed(`S-Curve 資料列缺少時間標籤：「${line}」`);
+    const optAt = (i: number, ctx: string): number | undefined => {
+      const raw = f[i]?.trim();
+      return raw === undefined || raw === "" ? undefined : toNumber(raw, ctx);
+    };
+    const actual = optAt(2, "actual");
+    const forecast = optAt(3, "forecast");
+    return {
+      label,
+      planned: toNumber(f[1], "planned"),
+      ...(actual !== undefined ? { actual } : {}),
+      ...(forecast !== undefined ? { forecast } : {}),
+    };
+  });
+
+  return {
+    ...(title ? { title } : {}),
+    ...(xAxis ? { xAxis } : {}),
+    ...(yAxis ? { yAxis } : {}),
+    ...(unit ? { unit } : {}),
+    points,
+  };
+};
+
+const buildProgress = (
+  config: Map<string, string>,
+  dataLines: string[],
+): ProgressChartData => {
+  const title = config.get(CUSTOM_CHART_CONFIG_KEY.TITLE) || undefined;
+  const unit = config.get(CUSTOM_CHART_CONFIG_KEY.UNIT) || undefined;
+  const scale = optionalNumber(
+    config.get(CUSTOM_CHART_CONFIG_KEY.X_SCALE),
+    "xScale",
+  );
+
+  const items = dataLines.map((line) => {
+    const f = parseCsvLine(line);
+    if (f.length < 2 || f.length > 4) {
+      throw malformed(
+        `進度資料列需 2 至 4 欄（label, cumulative[, current[, planned]]）：「${line}」`,
+      );
+    }
+    const label = f[0];
+    if (!label) throw malformed(`進度資料列缺少項目名稱：「${line}」`);
+    const optAt = (i: number, ctx: string): number | undefined => {
+      const raw = f[i]?.trim();
+      return raw === undefined || raw === "" ? undefined : toNumber(raw, ctx);
+    };
+    const current = optAt(2, "current");
+    const planned = optAt(3, "planned");
+    return {
+      label,
+      cumulative: toNumber(f[1], "cumulative"),
+      ...(current !== undefined ? { current } : {}),
+      ...(planned !== undefined ? { planned } : {}),
+    };
+  });
+
+  return {
+    ...(title ? { title } : {}),
+    ...(unit ? { unit } : {}),
+    ...(scale !== undefined ? { scale } : {}),
+    items,
+  };
+};
+
 // ── 手寫結構守衛（取代 zod；確保陣列非空、必填數值有限、標籤非空）──────────
 const isFiniteNum = (v: unknown): v is number =>
   typeof v === "number" && Number.isFinite(v);
@@ -513,6 +611,26 @@ const validateBox = (d: BoxplotChartData): boolean =>
       isFiniteNum(b.q3) &&
       isFiniteNum(b.max) &&
       (b.outliers === undefined || b.outliers.every(isFiniteNum)),
+  );
+
+const validateScurve = (d: ScurveChartData): boolean =>
+  d.points.length > 0 &&
+  d.points.every(
+    (p) =>
+      isNonEmptyStr(p.label) &&
+      isFiniteNum(p.planned) &&
+      (p.actual === undefined || isFiniteNum(p.actual)) &&
+      (p.forecast === undefined || isFiniteNum(p.forecast)),
+  );
+
+const validateProgress = (d: ProgressChartData): boolean =>
+  d.items.length > 0 &&
+  d.items.every(
+    (it) =>
+      isNonEmptyStr(it.label) &&
+      isFiniteNum(it.cumulative) &&
+      (it.current === undefined || isFiniteNum(it.current)) &&
+      (it.planned === undefined || isFiniteNum(it.planned)),
   );
 
 /** 由 Markdown fence 語言判斷是否為自訂圖表；非自訂圖表回 null。 */
@@ -580,6 +698,20 @@ export function parseCustomChart(
           return fail(SCHEMA_VALIDATION_FAILED, "箱型圖結構驗證失敗");
         }
         return { ok: true, type: CUSTOM_CHART_TYPE.BOXPLOT, data };
+      }
+      case CUSTOM_CHART_TYPE.SCURVE: {
+        const data = buildScurve(config, dataLines);
+        if (!validateScurve(data)) {
+          return fail(SCHEMA_VALIDATION_FAILED, "S-Curve 結構驗證失敗");
+        }
+        return { ok: true, type: CUSTOM_CHART_TYPE.SCURVE, data };
+      }
+      case CUSTOM_CHART_TYPE.PROGRESS: {
+        const data = buildProgress(config, dataLines);
+        if (!validateProgress(data)) {
+          return fail(SCHEMA_VALIDATION_FAILED, "進度圖結構驗證失敗");
+        }
+        return { ok: true, type: CUSTOM_CHART_TYPE.PROGRESS, data };
       }
       default:
         return fail(
