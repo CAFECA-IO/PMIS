@@ -453,6 +453,7 @@ export default async function ProjectDetailPage({
                     startDate: dateInput(project.startDate),
                     endDate: dateInput(project.endDate),
                     description: project.description,
+                    keyRequirements: project.keyRequirements,
                   }}
                 />
 

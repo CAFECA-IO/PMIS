@@ -20,7 +20,12 @@ model Project {
   id          String        @id @default(cuid())
   code        String        @unique
   name        String
+  /// 工程摘要：工程性質與主要工項（兩三句）
   description String?
+  /// 關鍵要求重點：契約與規範中影響施工方式的關鍵條件。
+  /// 例如分段施工、汛期限制、交通維持、鄰房保護、夜間施工限制、特殊工法或材料要求。
+  /// 建立專案時一併記錄，後續產生施工設計與 3D 數位孿生動畫時作為依據。
+  keyRequirements String?
   location    String?
   contractNo  String?
   client      String?
@@ -67,6 +72,7 @@ model Project {
   faithUploads      FaithUpload[]
   fileFolders       FileFolder[]
   projectFiles      ProjectFile[]
+  designVersions    DesignVersion[]
 }
 
 /// Staffing — links an account to a project with a project-scoped role (配置人力).
@@ -445,6 +451,41 @@ model ContractScopeItem {
   obligations ContractObligation[]
   workItems   WorkItem[]
 
+  @@index([projectId])
+}
+
+/// 3D 施工設計的一個版本（由費思生成，PMIS-01 總覽與決策）。
+///
+/// 每次生成或修訂都留下一版，使用者可切換版本、基於某版繼續更新或完全重做。
+/// html 是可直接以 iframe 嵌入的完整網頁；design 是同一次產出的結構化設計
+/// （工程分項與里程碑）的 JSON 文字 —— 存字串而非 Json 型別，與本 schema
+/// 其餘部分一致（SQLite，全庫未使用 Json 欄位）。
+model DesignVersion {
+  id        String @id @default(cuid())
+  projectId String
+
+  /// 版本序號，同一專案內由 1 起遞增
+  version Int
+  /// 費思產生的完整動畫網頁（HTML 原始碼）
+  html String
+  /// 結構化施工設計的 JSON 文字（workItems 與 milestones）
+  design String
+  /// 費思對本次設計的說明
+  summary String?
+  /// 使用者本次要求的調整內容；完全重做時留空
+  instruction String?
+  /// 基於哪一版修訂而來；完全重做則為 null
+  baseVersion Int?
+  /// 產生者
+  createdById String?
+
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy Account? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([projectId, version])
   @@index([projectId])
 }
 
@@ -1016,6 +1057,7 @@ model Account {
   appliedDocuments ApprovalDocument[]     @relation("AppliedDocuments")
   signedSteps      ApprovalDocumentStep[] @relation("SignedSteps")
   projectMembers   ProjectMember[]
+  designVersions   DesignVersion[]
 
   @@index([orgUnitId])
   @@index([positionId])

@@ -19,7 +19,8 @@ import { cn } from "@/lib/utils";
 import { faithStatus, isExpandedStatus } from "@/service/faith-status";
 import { shouldSendOnEnter } from "@/lib/ime";
 import { Markdown } from "@/components/markdown";
-import { useAiAssistant } from "@/components/ai-assistant-context";
+import { useAiAssistant, type FaithStep } from "@/components/ai-assistant-context";
+import { FaithSteps } from "@/components/faith-steps";
 import { FAITH_DOCK_POSITION, PANE_WIDTH_CLASS } from "@/lib/faith-dock";
 
 /** 歸檔後的附件資訊，隨使用者訊息一起顯示，讓上傳者立刻知道檔案已入庫。 */
@@ -123,6 +124,10 @@ export function AiPanel() {
   const [dragOver, setDragOver] = useState(false);
   // 工作指示：暫時性狀態，不進入 messages，結束後清除
   const [activity, setActivity] = useState<string | null>(null);
+  // 通用多步驟進度：串流任務回報的最新步驟快照；與 activity 二選一呈現
+  const [activitySteps, setActivitySteps] = useState<FaithStep[] | null>(null);
+  // 進行中每 100ms 前進一次，驅動步驟卡的即時耗時顯示
+  const [nowTick, setNowTick] = useState<number>(() => Date.now());
   // 一般問答且已鎖定專案時，回答前會多一次「要不要調閱資料」的判斷
   const [retrieving, setRetrieving] = useState(false);
   // 負評時可補充原因（除錯價值最高的部分）；key 為訊息索引
@@ -167,7 +172,15 @@ export function AiPanel() {
     setLoading(false);
     setWorking(false);
     setActivity(null);
+    setActivitySteps(null);
   }, [task, setWorking]);
+
+  // 工作中才計時：驅動步驟卡即時耗時，閒置時不空轉
+  useEffect(() => {
+    if (!working) return;
+    const id = setInterval(() => setNowTick(Date.now()), 100);
+    return () => clearInterval(id);
+  }, [working]);
 
   function acceptFile(f: File | null | undefined) {
     if (!f) return;
@@ -232,6 +245,7 @@ export function AiPanel() {
     setLoading(false);
     setWorking(true);
     setActivity("正在讀取文件…");
+    setActivitySteps(null);
 
     const handle = (raw: string) => {
       let event: { type: string } & Record<string, unknown>;
@@ -267,6 +281,11 @@ export function AiPanel() {
         setActivity(outcome.text);
         return;
       }
+      // 通用多步驟進度：任務回報整份最新快照，覆蓋前一份
+      if (outcome.kind === "steps") {
+        setActivitySteps(outcome.steps);
+        return;
+      }
       if (outcome.kind === "message" && outcome.text.trim()) {
         posted = true;
         setMessages((prev) => [
@@ -294,6 +313,7 @@ export function AiPanel() {
       // 工作指示區為暫時性，結束一律清除
       setWorking(false);
       setActivity(null);
+      setActivitySteps(null);
       if (!posted) {
         setMessages((prev) => [
           ...prev,
@@ -809,19 +829,24 @@ export function AiPanel() {
         不會在對話中累積成一長串流水訊息。
       */}
       {working ? (
-        <div
-          role="status"
-          aria-live="polite"
-          className="mx-4 mb-2 flex items-center gap-2 rounded-md border border-dashed border-primary/40 bg-primary/5 px-3 py-2"
-        >
-          <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
-          <span className="min-w-0 flex-1 truncate text-xs text-foreground/80">
-            {activity ?? "費思正在處理…"}
-          </span>
-          <span className="shrink-0 text-[11px] font-medium text-primary">
-            工作中
-          </span>
-        </div>
+        activitySteps && activitySteps.length ? (
+          // 通用多步驟進度卡：拆細的小工作、目前到哪、各步驟耗時
+          <div className="mx-4 mb-2">
+            <FaithSteps steps={activitySteps} now={nowTick} />
+          </div>
+        ) : (
+          <div
+            role="status"
+            aria-live="polite"
+            className="mx-4 mb-2 flex items-center gap-2 rounded-md border border-dashed border-primary/40 bg-primary/5 px-3 py-2"
+          >
+            <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
+            <span className="min-w-0 flex-1 truncate text-xs text-foreground/80">
+              {activity ?? "費思正在處理…"}
+            </span>
+            <span className="shrink-0 text-[11px] font-medium text-primary">工作中</span>
+          </div>
+        )
       ) : null}
 
       {messages.length <= 1 ? (

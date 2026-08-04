@@ -5,6 +5,8 @@ export type CreateProjectData = {
   code: string;
   name: string;
   description?: string;
+  /** 關鍵要求重點：影響施工方式的契約／規範條件。 */
+  keyRequirements?: string;
   location?: string;
   contractNo?: string;
   client?: string;
@@ -22,6 +24,7 @@ export type CreateProjectData = {
 export type UpdateProjectData = {
   name?: string;
   description?: string | null;
+  keyRequirements?: string | null;
   location?: string | null;
   contractNo?: string | null;
   client?: string | null;

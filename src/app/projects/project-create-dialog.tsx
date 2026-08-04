@@ -74,6 +74,18 @@ export function ProjectCreateDialog() {
         <Label htmlFor="description">工程摘要</Label>
         <Textarea id="description" name="description" rows={3} />
       </div>
+      <div className="space-y-1.5 sm:col-span-2">
+        <Label htmlFor="keyRequirements">關鍵要求重點</Label>
+        <Textarea
+          id="keyRequirements"
+          name="keyRequirements"
+          rows={4}
+          placeholder="影響施工方式的契約／規範條件，一行一項，例如：&#10;・汛期（5–11 月）不得於河道內施工&#10;・分段施工，自下游往上游推進"
+        />
+        <p className="text-xs text-muted-foreground">
+          產生施工設計與 3D 數位孿生動畫時會以這些條件為依據。
+        </p>
+      </div>
     </CreateRecordDialog>
   );
 }
