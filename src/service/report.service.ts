@@ -3,28 +3,26 @@ import * as supervisionRepo from "@/repository/supervisionReport.repository";
 import * as memberRepo from "@/repository/projectMember.repository";
 import { getWorkItemDetails } from "@/service/project.service";
 import { rolledUpProgress } from "@/service/obligation-rollup";
-import * as calc from "@/service/carbon.calc";
 import * as faith from "@/service/faith.service";
 import { canSeeAllProjects } from "@/lib/auth";
+import { buildSCurve } from "@/service/scurve";
 import {
-  assembleDatasets,
-  diffDays,
-  type ReportDataset,
-  type ReportDatasetInput,
-  type DatasetData,
-} from "@/service/report-datasets";
-import { expandChartDirectives } from "@/service/report-chart-expander";
+  PERIOD_LABEL,
+  PERIOD_REPORT_NAME,
+  describeGap,
+  monthLabel,
+  periodProgressDelta,
+  summarizeDuration,
+  summarizeWorkDays,
+  trimCurveWindow,
+} from "@/service/report-period";
 import {
-  defectSeverityMeta,
-  inspectionResultMeta,
-  submittalStatusMeta,
-  submittalCategoryMeta,
-  workItemStatusMeta,
-  carbonScopeMeta,
-  reportStatusMeta,
-} from "@/constant/pmis";
+  buildReportMarkdown,
+  type ProgressCurvePoint,
+  type WorkItemRow,
+} from "@/service/report-template";
 import { formatDate } from "@/lib/utils";
-import type { AccountRole, CarbonScope } from "@/generated/prisma/enums";
+import type { AccountRole } from "@/generated/prisma/enums";
 
 export type ReportType = "DAILY" | "WEEKLY" | "MONTHLY" | "QUARTERLY" | "ANNUAL";
 export type Actor = { id: string; name: string; role: AccountRole };
@@ -90,28 +88,12 @@ function periodRange(type: ReportType, ref: Date) {
   }
 }
 
-function countBy<T>(items: T[], key: (t: T) => string): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const it of items) {
-    const k = key(it);
-    out[k] = (out[k] ?? 0) + 1;
-  }
-  return out;
-}
-
-// Info: (20260721 - Luphia) 產出 mermaid 圓餅圖區塊；無資料回傳空字串
-function pie(title: string, entries: [string, number][]): string {
-  const rows = entries.filter(([, v]) => v > 0);
-  if (rows.length === 0) return `_（本期無資料）_\n`;
-  return [
-    "```mermaid",
-    "pie showData",
-    `  title ${title}`,
-    ...rows.map(([l, v]) => `  "${l}" : ${v}`),
-    "```",
-    "",
-  ].join("\n");
-}
+/** Prisma Decimal → number（於 service 邊界轉換，沿用專案既有慣例）。 */
+const toNum = (v: unknown): number | null => {
+  if (v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
 
 export async function canAccess(projectId: string, actor: Actor) {
   if (canSeeAllProjects(actor.role)) return true;
@@ -131,6 +113,15 @@ export type GeneratedReport = {
   aiAuthored: boolean;
 };
 
+
+/**
+ * Info: (20260804 - Julian)
+ * 產出監造報表（週／月／季／年），採五層式監造月報範本。
+ *
+ * 報表結構屬法定格式，故骨架由程式決定論組裝（`report-template`），
+ * LLM 僅撰寫「期間評述」一段；評述失敗時以決定論句子回退，報表永遠可產出。
+ * 圖表以 custom-scurve / custom-progress / mermaid 圍欄嵌入，於前端渲染。
+ */
 export async function generateReport(
   projectId: string,
   type: ReportType,
@@ -144,358 +135,152 @@ export async function generateReport(
   const ref = refIso ? new Date(refIso) : new Date();
   const { start, end, label } = periodRange(type, ref);
   const typeLabel = TYPE_LABEL[type];
+  const periodWord = PERIOD_LABEL[type];
 
-  const [defects, open, inspections, submittals, ehs, inventories, dailyReports] =
-    await Promise.all([
-      reportRepo.defectsInPeriod(projectId, start, end),
-      reportRepo.openDefects(projectId),
-      reportRepo.inspectionsInPeriod(projectId, start, end),
-      reportRepo.submittalsInPeriod(projectId, start, end),
-      reportRepo.ehsInPeriod(projectId, start, end),
-      reportRepo.carbonInventories(projectId),
-      supervisionRepo.listByProjectInPeriod(projectId, start, end),
-    ]);
+  const dailyReports = await supervisionRepo.listByProjectInPeriod(
+    projectId,
+    start,
+    end,
+  );
 
+  // ── 進度：累計取既有上捲邏輯，本期增量由履約事項權重推導（無需期末快照）──
   const wiDetails = await getWorkItemDetails(projectId);
-  const progress = rolledUpProgress(project.obligations, wiDetails);
+  const rolled = rolledUpProgress(project.obligations, wiDetails);
+  const delta = periodProgressDelta(
+    project.obligations.map((o) => ({
+      weight: o.weight,
+      dueDate: o.dueDate,
+      actualDate: o.actualDate,
+    })),
+    start,
+    end,
+  );
 
-  const insByResult = countBy(inspections, (i) => i.result);
-  const passRate = (() => {
-    const decided =
-      (insByResult.PASSED ?? 0) +
-      (insByResult.CONDITIONAL ?? 0) +
-      (insByResult.FAILED ?? 0);
-    return decided > 0
-      ? Math.round(((insByResult.PASSED ?? 0) / decided) * 100)
-      : 0;
-  })();
-  const openBySeverity = countBy(open, (d) => d.severity);
-  const subByStatus = countBy(submittals, (s) => s.status);
-  const wiByStatus = countBy(project.workItems, (w) => w.status);
-
-  const carbonEntries = inventories.flatMap((inv) =>
-    inv.entries.map((e) => ({
-      scope: e.scope,
-      co2e: Number(e.co2e),
-      status: e.status,
+  // ── S-Curve：以本專案履約事項建曲線，截取期末前後區間 ──
+  const curveAll = buildSCurve(
+    project.obligations.map((o) => ({
+      weight: o.weight,
+      plannedDate: o.dueDate,
+      actualDate: o.actualDate,
     })),
   );
-  const carbon = calc.summarizeEntries(carbonEntries);
+  const curve: ProgressCurvePoint[] = trimCurveWindow(
+    curveAll,
+    monthLabel(end),
+    6,
+  ).map((p) => ({
+    label: p.label,
+    planned: p.planned,
+    ...(p.actual != null ? { actual: p.actual } : {}),
+  }));
 
-  const inRange = (d: Date | null) =>
-    d != null && new Date(d) >= start && new Date(d) <= end;
-  const msDue = project.obligations.filter((m) => inRange(m.dueDate));
-  const msDone = project.obligations.filter((m) => inRange(m.actualDate));
+  // ── 工項估驗明細：金額由契約數量×單價推導；本期完成需期末快照，暫為 null ──
+  const workItems: WorkItemRow[] = project.workItems.map((w) => {
+    const qty = toNum(w.contractQty);
+    const price = toNum(w.unitPrice);
+    const done = toNum(w.completedQty);
+    const contractAmount = qty != null && price != null ? qty * price : null;
+    const cumulativeAmount = done != null && price != null ? done * price : null;
+    return {
+      code: w.wbsCode ?? w.code ?? null,
+      name: w.name,
+      contractAmount,
+      cumulativePercent: Number.isFinite(w.progress) ? w.progress : null,
+      cumulativeAmount,
+      currentPercent: null,
+      currentAmount: null,
+    };
+  });
 
-  // Info: 監造日報（人工填報）彙整——供 AI 週/月/季/年報以實際填報內容為依據
-  const dailyDigest = dailyReports
-    .map(
-      (r) =>
-        `${formatDate(r.reportDate)}${r.weather ? `(${r.weather})` : ""}：${
-          r.summary?.trim() || "—"
-        }${r.keyNotes?.trim() ? `；重要：${r.keyNotes.trim()}` : ""}`,
-    )
-    .join("\n");
+  const duration = summarizeDuration(
+    project.startDate,
+    end,
+    project.contractWorkDays ?? null,
+  );
+  const workDays = summarizeWorkDays(
+    dailyReports.map((r) => ({
+      reportDate: r.reportDate,
+      weather: r.weather,
+      summary: r.summary,
+    })),
+  );
 
-  // Info: (20260721 - Luphia) AI 摘要（失敗時以模板回退）
+  // ── 期間評述：僅餵摘要層既算數字，LLM 不得引入其他資訊 ──
+  const gap = rolled.overall - rolled.planned;
   const factsText = [
     `專案：${project.name}（${project.code}）`,
     `期間：${label}（${typeLabel}）`,
-    `整體進度 ${progress.overall}%，預定 ${progress.planned}%，落差 ${progress.gap}%`,
-    `本期查驗 ${inspections.length} 件，合格率 ${passRate}%`,
-    `未結案缺失 ${open.length} 件，本期新增缺失 ${defects.length} 件`,
-    `本期送審 ${submittals.length} 件`,
-    `本期環安衛稽核 ${ehs.length} 件`,
-    `碳排累計 ${carbon.totalTonnes} tCO₂e`,
-    `本期預定履約事項 ${msDue.length} 項、達成 ${msDone.length} 項`,
-    `本期監造日報 ${dailyReports.length} 篇${
-      dailyDigest ? `，內容如下（請據此彙整重點）：\n${dailyDigest}` : ""
-    }`,
+    `${periodWord}預定進度 ${delta.planned ?? "—"}%，${periodWord}完成進度 ${delta.actual ?? "—"}%`,
+    `累計預定進度 ${rolled.planned}%，累計完成進度 ${rolled.overall}%，${describeGap(gap)}`,
+    duration.elapsed != null && duration.total != null
+      ? `工期使用 ${duration.elapsed} / ${duration.total} 天，剩餘 ${duration.remaining} 天`
+      : "工期資料不完整（契約工期或開工日未填）",
+    `${periodWord}監造日報 ${workDays.total} 篇：施工 ${workDays.working} 天、雨天停工 ${workDays.rainStop} 天、例假日 ${workDays.holiday} 天`,
+    workItems.length > 0
+      ? `工程分項 ${workItems.length} 項，累計完成百分比：${workItems
+          .map((w) => `${w.name} ${w.cumulativePercent ?? "—"}%`)
+          .join("、")}`
+      : "本期無工程分項資料",
   ].join("\n");
-  const narrative = await faith.generateReportNarrative(
+
+  const review = await faith.generatePeriodReview(
     factsText,
-    typeLabel,
+    periodWord,
+    PERIOD_REPORT_NAME[type],
   );
 
-  const title = `${project.name}｜${label}${typeLabel}`;
-
-  const scopeEntries: [string, number][] = (
-    Object.keys(carbon.byScopeKg) as CarbonScope[]
-  ).map((s) => [
-    carbonScopeMeta[s].label,
-    Math.round((carbon.byScopeKg[s] / 1000) * 100) / 100,
-  ]);
-
-  // ── 白名單數據集：上一期件數比較、改善耗時、審查天數需額外查詢 ──
-  const prev = periodRange(type, previousRef(type, ref));
-  const [
-    prevDefects,
-    prevInspections,
-    prevSubmittals,
-    prevEhs,
-    resolvedDefects,
-    reviewedSubmittals,
-  ] = await Promise.all([
-    reportRepo.defectsInPeriod(projectId, prev.start, prev.end),
-    reportRepo.inspectionsInPeriod(projectId, prev.start, prev.end),
-    reportRepo.submittalsInPeriod(projectId, prev.start, prev.end),
-    reportRepo.ehsInPeriod(projectId, prev.start, prev.end),
-    reportRepo.defectsResolvedInPeriod(projectId, start, end),
-    reportRepo.submittalsReviewedInPeriod(projectId, start, end),
-  ]);
-
-  const resolutionDays = resolvedDefects
-    .filter((d) => d.resolvedAt)
-    .map((d) => diffDays(d.createdAt, d.resolvedAt as Date));
-
-  const reviewGroups = new Map<string, number[]>();
-  for (const s of reviewedSubmittals) {
-    if (!s.actualSubmitDate || !s.reviewDate) continue;
-    const cat = submittalCategoryMeta[s.category].label;
-    const arr = reviewGroups.get(cat) ?? [];
-    arr.push(diffDays(s.actualSubmitDate, s.reviewDate));
-    reviewGroups.set(cat, arr);
-  }
-
-  const datasetInput: ReportDatasetInput = {
-    workItemStatus: Object.entries(wiByStatus).map(([k, v]) => ({
-      label: workItemStatusMeta[k as keyof typeof workItemStatusMeta]?.label ?? k,
-      value: v,
-    })),
-    inspectionResult: Object.entries(insByResult).map(([k, v]) => ({
-      label:
-        inspectionResultMeta[k as keyof typeof inspectionResultMeta]?.label ?? k,
-      value: v,
-    })),
-    periodCompare: {
-      prevLabel: "上期",
-      curLabel: "本期",
-      rows: [
-        { category: "新增缺失", prev: prevDefects.length, cur: defects.length },
-        { category: "查驗", prev: prevInspections.length, cur: inspections.length },
-        { category: "送審", prev: prevSubmittals.length, cur: submittals.length },
-        { category: "環安衛稽核", prev: prevEhs.length, cur: ehs.length },
-      ],
+  const markdown = buildReportMarkdown({
+    type,
+    periodLabel: label,
+    periodStart: start,
+    periodEnd: end,
+    generatedAt: new Date(),
+    project: {
+      name: project.name,
+      code: project.code,
+      client: project.client,
+      contractor: project.contractor,
+      supervisor: project.supervisor,
+      budget: toNum(project.budget),
+      startDate: project.startDate,
+      endDate: project.endDate,
     },
-    openDefects: open.map((d) => ({
-      title: d.title,
-      severity: d.severity,
-      dueDate: d.dueDate,
+    scopeItems: project.scopeItems.map((s) => s.title),
+    duration,
+    progress: {
+      currentPlanned: delta.planned,
+      currentActual: delta.actual,
+      cumulativePlanned: rolled.planned,
+      cumulativeActual: rolled.overall,
+    },
+    curve,
+    workItems,
+    workDays,
+    dailyLogs: dailyReports.map((r) => ({
+      reportDate: r.reportDate,
+      weather: r.weather,
+      summary: r.summary,
+      keyNotes: r.keyNotes,
     })),
-    now: new Date(),
-    resolutionDays,
-    reviewDaysByCategory: [...reviewGroups.entries()].map(([category, days]) => ({
-      category,
-      days,
-    })),
-  };
+    review,
+  });
 
-  const datasets = assembleDatasets(datasetInput);
-  const catalog = buildCatalogText(datasets);
-
-  // ── 決定論 fallback：LLM 失敗時沿用原本的組裝（已驗證可用）──
-  const deterministicBody = (): string => {
-    const md: string[] = [];
-    md.push("## 摘要");
-    md.push(narrative);
-    md.push("");
-
-    if (dailyReports.length > 0) {
-    md.push(`## 監造日報彙整（本期 ${dailyReports.length} 篇）`);
-    for (const r of dailyReports) {
-      md.push(
-        `- **${formatDate(r.reportDate)}**${
-          r.weather ? `（${r.weather}）` : ""
-        } ${reportStatusMeta[r.status].label}：${r.summary?.trim() || "—"}${
-          r.keyNotes?.trim() ? ` ｜ 重要：${r.keyNotes.trim()}` : ""
-        }`,
-      );
-    }
-    md.push("");
-  }
-
-  md.push("## 工程進度");
-  md.push(
-    `- 整體進度 **${progress.overall}%**（預定 ${progress.planned}%，落差 ${progress.gap}%）`,
-  );
-  md.push(`- 工期：${formatDate(project.startDate)} ~ ${formatDate(project.endDate)}`);
-  md.push("");
-  md.push(
-    pie(
-      "工程分項狀態",
-      Object.entries(wiByStatus).map(([k, v]) => [
-        workItemStatusMeta[k as keyof typeof workItemStatusMeta]?.label ?? k,
-        v,
-      ]),
-    ),
-  );
-
-  md.push("## 品質稽核");
-  md.push(`- 本期查驗 ${inspections.length} 件，合格率 ${passRate}%`);
-  md.push(`- 未結案缺失 ${open.length} 件，本期新增 ${defects.length} 件`);
-  md.push("");
-  md.push(
-    pie(
-      "本期查驗結果",
-      Object.entries(insByResult).map(([k, v]) => [
-        inspectionResultMeta[k as keyof typeof inspectionResultMeta]?.label ?? k,
-        v,
-      ]),
-    ),
-  );
-  md.push(
-    pie(
-      "未結案缺失嚴重度",
-      Object.entries(openBySeverity).map(([k, v]) => [
-        defectSeverityMeta[k as keyof typeof defectSeverityMeta]?.label ?? k,
-        v,
-      ]),
-    ),
-  );
-
-  md.push("## 送審管理");
-  md.push(`- 本期送審 ${submittals.length} 件`);
-  md.push("");
-  md.push(
-    pie(
-      "本期送審狀態",
-      Object.entries(subByStatus).map(([k, v]) => [
-        submittalStatusMeta[k as keyof typeof submittalStatusMeta]?.label ?? k,
-        v,
-      ]),
-    ),
-  );
-
-  md.push("## 環安衛");
-  md.push(`- 本期稽核 ${ehs.length} 件`);
-  md.push("");
-
-  md.push("## 碳排放");
-  md.push(`- 累計排放 **${carbon.totalTonnes} tCO₂e**`);
-  md.push("");
-  md.push(pie("碳排放範疇分布 (tCO₂e)", scopeEntries));
-
-  md.push("## 履約事項");
-  md.push(`- 本期預定 ${msDue.length} 項、達成 ${msDone.length} 項`);
-  if (msDue.length > 0 || msDone.length > 0) {
-    md.push("");
-    md.push("| 履約事項 | 期限 | 實際達成 |");
-    md.push("| --- | --- | --- |");
-    const shown = [...new Set([...msDue, ...msDone])].slice(0, 12);
-    for (const m of shown) {
-      md.push(
-        `| ${m.title} | ${formatDate(m.dueDate)} | ${m.actualDate ? formatDate(m.actualDate) : "—"} |`,
-      );
-    }
-  }
-  md.push("");
-
-  if (open.length > 0) {
-    md.push("## 待改善缺失（前 5 筆）");
-    for (const d of open.slice(0, 5)) {
-      md.push(
-        `- ${d.title}（${defectSeverityMeta[d.severity].label}，期限 ${d.dueDate ? formatDate(d.dueDate) : "未定"}）`,
-      );
-    }
-    md.push("");
-  }
-
-    return md.join("\n");
-  };
-
-  const header = [
-    `# ${title}`,
-    `> 專案編號 ${project.code}｜承包商 ${project.contractor ?? "—"}｜監造 ${project.supervisor ?? "—"}｜產生時間 ${formatDate(new Date())}`,
-    "> **本報告為費思 AI 生成草稿；數據由系統彙整、圖表由既有數據集展開；核定前請人工確認。**",
-  ].join("\n");
-
-  // 主路徑：LLM 主導本體（含 pmis-chart 指令）→ 程式展開為真數據圖；失敗回退決定論組裝
-  const llmBody = await faith.generateReportBody(factsText, catalog, typeLabel);
-  const body = llmBody
-    ? expandChartDirectives(llmBody, datasets)
-    : deterministicBody();
-
-  const sources = datasets.map((d) => d.source);
-  const sourcesMd =
-    sources.length > 0
-      ? ["## 資料來源", ...datasets.map((d) => `- ${d.title}：${d.source}`)].join(
-          "\n",
-        )
-      : "";
-
-  const markdown = [
-    header,
-    "",
-    body,
-    ...(sourcesMd ? ["", sourcesMd] : []),
-    "",
-    "---",
-    "_本報告由費思 AI 依系統紀錄生成，屬草稿，數據僅供監造參考；核定前請人工確認。_",
-  ].join("\n");
+  // Info: (20260804 - Julian) 治理：留存本次引用的資料來源，供稽核回溯
+  const sources = [
+    "專案基本資料（Project）",
+    "契約標的－工程概要（ContractScopeItem.title）",
+    "履約事項權重與期限（ContractObligation）",
+    "工程分項估驗台帳（WorkItem）",
+    "監造日報（SupervisionReport）",
+  ];
 
   return {
-    title,
+    title: `${project.name}｜${label}${typeLabel}`,
     periodLabel: label,
     typeLabel,
     markdown,
     isDraft: true,
     sources,
-    aiAuthored: Boolean(llmBody),
+    aiAuthored: Boolean(review),
   };
-}
-
-// Info: (20260803 - Julian) 取得上一期的參考日（供本期 vs 上期比較）
-function previousRef(type: ReportType, ref: Date): Date {
-  const d = new Date(ref);
-  switch (type) {
-    case "DAILY":
-      d.setDate(d.getDate() - 1);
-      break;
-    case "WEEKLY":
-      d.setDate(d.getDate() - 7);
-      break;
-    case "MONTHLY":
-      d.setMonth(d.getMonth() - 1);
-      break;
-    case "QUARTERLY":
-      d.setMonth(d.getMonth() - 3);
-      break;
-    case "ANNUAL":
-    default:
-      d.setFullYear(d.getFullYear() - 1);
-      break;
-  }
-  return d;
-}
-
-// Info: (20260803 - Julian) 把白名單數據集整理成給 LLM 的目錄文字（含實際數字供其行文引用）
-function buildCatalogText(datasets: ReportDataset[]): string {
-  if (datasets.length === 0) return "（本期無可用數據集）";
-  return datasets
-    .map(
-      (d) =>
-        `- id: ${d.id}｜${d.title}：${d.summary}｜可用圖種: ${d.allowedCharts.join(" / ")}\n  數據: ${previewData(d.data)}`,
-    )
-    .join("\n");
-}
-
-function previewData(data: DatasetData): string {
-  switch (data.shape) {
-    case "categorical":
-      return data.entries.map((e) => `${e.label} ${e.value}`).join("、");
-    case "paired":
-      return `${data.leftName} vs ${data.rightName}｜${data.rows
-        .map((r) => `${r.category} ${r.left}→${r.right}`)
-        .join("、")}`;
-    case "points":
-      return data.points.map((p) => `${p.label}(${p.x},${p.y})`).join("、");
-    case "bins":
-      return data.bins.map((b) => `${b.label}:${b.count}`).join("、");
-    case "boxes":
-      return data.boxes
-        .map((b) => `${b.label} ${b.min}/${b.q1}/${b.median}/${b.q3}/${b.max}`)
-        .join("；");
-    default:
-      return "";
-  }
 }

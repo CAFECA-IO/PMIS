@@ -99,6 +99,32 @@ generateReport(type, refDate)
 
 建議順序：M1 → M3 → M2 → M4 → M5 → M6 → M7 → M8。M3／M6 可與 M2 並行。
 
+## 執行進度
+
+> 截至 2026-08-04：M1–M8 全部完成。全專案 lint／`tsc --noEmit` 乾淨；單元測試 34 項全綠；
+> 骨架輸出的 `custom-scurve` / `custom-progress` 圍欄已通過端到端解析與渲染驗證。
+
+| 步驟 | 狀態 | 產出 |
+| --- | --- | --- |
+| M1 | ✅ | `Project.contractWorkDays`（遷移已執行，DB 欄位與 generated client 皆確認） |
+| M2 | ✅ | `getProject` 增 `scopeItems`（依 `sortOrder`，供工程概要） |
+| M3 | ✅ | `src/service/report-period.ts`：`PERIOD_LABEL`／`summarizeDuration`／`classifyWorkDay`／`summarizeWorkDays`／`describeGap`／`periodProgressDelta`／`trimCurveWindow`／`monthLabel`（13 項測試） |
+| M4 | ✅ | `src/service/report-template.ts`：五層骨架純函式（12 項測試） |
+| M5 | ✅ | S-Curve 以 `buildSCurve` + `trimCurveWindow` 接單一專案；進度橫條接工項累計；工作日組成 mermaid 圓餅 |
+| M6 | ✅ | `AI_REPORT_REVIEW_PROMPT`（含硬性禁止條款）、`faith.generatePeriodReview()`（含圍欄／標題剝除防禦） |
+| M7 | ✅ | `generateReport` 改為「骨架 + 圖表 + 評述」，移除 `pie()`／`countBy()` 與自由格式組裝 |
+| M8 | ✅ | lint／tsc／34 項單元測試／端到端圍欄渲染驗證 |
+
+### 實作中的關鍵發現
+
+**本期進度增量不需要期末快照。** 原計劃假設「本期完成」全都需要快照，但實作時發現：以「期間內到期／實際完成的履約事項權重占全案總權重」即可決定論算出本期預定與完成增量，且對週／月／季／年皆成立（`periodProgressDelta`）。故第 2 層摘要與 3.1 整體進度的本期欄位**都有真實數值**，僅 3.3 的「逐工項本期完成」仍缺快照而顯示 `—`。
+
+### 後續事項
+
+- `report-datasets.ts` 與 `report-chart-expander.ts`（前一版「LLM 主導本體」設計的產物）已不在報告主線上，但保留且測試仍綠，可供日後「AI 選配補充圖表」使用。若確定不需要，可另行移除。
+- 待辦：`WorkItemPeriodSnapshot` 月結快照，用以補齊逐工項本期完成百分比／金額。
+- 待確認：工作日判定規則（雨天停工／例假日）宜請監造確認；`contractWorkDays` 於既有專案為空值，需提供填寫入口。
+
 ## 風險與待確認
 
 - **M1 需本機執行遷移**：沙盒無 better-sqlite3 原生模組，schema 改動後的 `db push` / `generate` 需你在本機跑。

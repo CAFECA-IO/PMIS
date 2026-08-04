@@ -8,6 +8,7 @@ import {
   AI_SCREEN_FOCUS_PROMPT,
   AI_REPORT_PROMPT,
   AI_REPORT_BODY_PROMPT,
+  AI_REPORT_REVIEW_PROMPT,
   AI_VOUCHER_PROMPT,
   AI_EHS_PROMPT,
   AI_PROJECT_WIZARD_PROMPT,
@@ -606,6 +607,40 @@ export async function generateReportNarrative(
     return text && text !== "（AI 沒有回覆內容）" ? text : fallback;
   } catch {
     return fallback;
+  }
+}
+
+/**
+ * Info: (20260804 - Julian)
+ * 監造報表的期間評述。報表骨架由程式組裝，此處僅取一段文字；
+ * 失敗回 null，由呼叫端以決定論句子回退，確保報表永遠可產出。
+ */
+export async function generatePeriodReview(
+  factsText: string,
+  periodLabel: string,
+  reportName: string,
+): Promise<string | null> {
+  try {
+    getConfig();
+    const text = await ask({
+      instruction: AI_REPORT_REVIEW_PROMPT,
+      messages: [
+        {
+          role: "user",
+          text: `報表類型：${reportName}\n週期標籤：${periodLabel}\n\n【關鍵數據】\n${factsText}`,
+        },
+      ],
+      maxOutputTokens: 512,
+    });
+    if (!text || text === "（AI 沒有回覆內容）") return null;
+    // Info: (20260804 - Julian) 防禦：LLM 若仍輸出圍欄或標題，於此剝除，避免破壞法定版面
+    const cleaned = text
+      .replace(/```[\s\S]*?```/g, "")
+      .replace(/^#{1,6}\s+/gm, "")
+      .trim();
+    return cleaned || null;
+  } catch {
+    return null;
   }
 }
 

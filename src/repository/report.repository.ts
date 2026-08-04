@@ -8,6 +8,13 @@ export function getProject(id: string) {
     include: {
       obligations: { where: { deletedAt: null }, orderBy: { dueDate: "asc" } },
       workItems: { orderBy: { createdAt: "asc" } },
+      // Info: (20260804 - Julian) 契約標的即監造月報的「工程概要」；
+      // title 已含品項與數量（如「人孔 20 座」），依契約原始順序輸出
+      scopeItems: {
+        where: { deletedAt: null },
+        orderBy: { sortOrder: "asc" },
+        select: { code: true, title: true, sortOrder: true },
+      },
     },
   });
 }

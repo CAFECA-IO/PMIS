@@ -36,6 +36,9 @@ model Project {
   signedDate DateTime?
   /// 開工命令日（機關通知開工之日），同樣是常見的期限起算基準
   noticeDate DateTime?
+  /// 契約工期（工作天）。監造月報的累積／剩餘工期以此為分母；
+  /// 「工作天」與「日曆天」在契約上不同義，故不可由起訖日期相減推得。
+  contractWorkDays Int?
   status      ProjectStatus @default(PLANNING)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
