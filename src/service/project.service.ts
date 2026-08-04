@@ -328,7 +328,10 @@ export async function removeProjectMember(id: string) {
 export type CreateProjectInput = {
   code?: string;
   name?: string;
+  /** 工程摘要。 */
   description?: string;
+  /** 關鍵要求重點：影響施工方式的契約／規範條件，供施工設計與數位孿生動畫使用。 */
+  keyRequirements?: string;
   location?: string;
   contractNo?: string;
   client?: string;
@@ -371,6 +374,7 @@ export async function createProject(
     code,
     name,
     description: input.description?.trim() || undefined,
+    keyRequirements: input.keyRequirements?.trim() || undefined,
     location: input.location?.trim() || undefined,
     contractNo: input.contractNo?.trim() || undefined,
     client: input.client?.trim() || undefined,
@@ -601,6 +605,7 @@ export async function updateProject(id: string, input: UpdateProjectInput) {
   const data: UpdateProjectData = {
     name: requiredText(input.name),
     description: optionalText(input.description),
+    keyRequirements: optionalText(input.keyRequirements),
     location: optionalText(input.location),
     contractNo: optionalText(input.contractNo),
     client: optionalText(input.client),

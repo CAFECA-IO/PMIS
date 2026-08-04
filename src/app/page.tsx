@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   AlertCircle,
   ArrowRight,
+  Box,
   type LucideIcon,
 } from "lucide-react";
 
@@ -315,6 +316,24 @@ export default async function DashboardPage({
             </CardContent>
           </Card>
         </section>
+
+        {/* 3D 工程視覺入口 */}
+        <Link href="/overview-3d" className="block">
+          <Card className="group overflow-hidden border-primary/30 bg-gradient-to-r from-primary/[0.06] to-transparent transition-colors hover:border-primary/60">
+            <CardContent className="flex items-center gap-4 p-5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Box className="size-6" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-base font-semibold">3D 工程視覺</div>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  以 WebGL 立體呈現施工流程與時程動畫，並可交由費思規劃工程分項與時程草案
+                </p>
+              </div>
+              <ArrowRight className="size-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
+            </CardContent>
+          </Card>
+        </Link>
 
         {/* 依資料範圍變動的區塊（虛線框 + 底色標示影響範圍） */}
         <section className="space-y-4 rounded-xl border-2 border-dashed border-primary/40 bg-primary/[0.04] p-5">

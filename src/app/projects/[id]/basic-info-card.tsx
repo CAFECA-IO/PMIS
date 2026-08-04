@@ -42,6 +42,7 @@ export type BasicInfo = {
   startDate: string;
   endDate: string;
   description: string | null;
+  keyRequirements: string | null;
 };
 
 /** 顯示順序：識別 → 關係人 → 日期 → 金額。與表單一致，比對時不必找。 */
@@ -184,6 +185,19 @@ export function BasicInfoCard({
                 defaultValue={info.description ?? ""}
               />
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="keyRequirements">關鍵要求重點</Label>
+              <Textarea
+                id="keyRequirements"
+                name="keyRequirements"
+                rows={4}
+                placeholder="影響施工方式的契約／規範條件，一行一項"
+                defaultValue={info.keyRequirements ?? ""}
+              />
+              <p className="text-xs text-muted-foreground">
+                產生施工設計與 3D 數位孿生動畫時會以這些條件為依據。
+              </p>
+            </div>
             <div className="flex items-center gap-3 border-t pt-4">
               <Button type="submit">儲存</Button>
               <Button
@@ -218,6 +232,14 @@ export function BasicInfoCard({
                 <dt className="text-xs text-muted-foreground">工程摘要</dt>
                 <dd className="mt-1 whitespace-pre-line text-sm leading-relaxed">
                   {info.description}
+                </dd>
+              </div>
+            ) : null}
+            {info.keyRequirements?.trim() ? (
+              <div className="mt-4 border-t pt-4">
+                <dt className="text-xs text-muted-foreground">關鍵要求重點</dt>
+                <dd className="mt-1 whitespace-pre-line text-sm leading-relaxed">
+                  {info.keyRequirements}
                 </dd>
               </div>
             ) : null}

@@ -201,7 +201,10 @@ export const AI_WIZARD_PROFILE_PROMPT = `${WIZARD_BASE}
 - budget 契約金額或預算（僅數字，新台幣元，不含逗號與單位）
 - startDate 開工日、endDate 完工日（YYYY-MM-DD；僅有工期天數時，以開工日推算）
 - status 專案狀態
-- description 工程摘要（兩三句，說明工程性質與主要工項）`;
+- description 工程摘要（兩三句，說明工程性質與主要工項）
+- keyRequirements 關鍵要求重點（契約與規範中會影響「如何施工」的關鍵條件，逐項條列，每項一行並以「・」開頭）
+
+keyRequirements 要抓的是施工實務上的限制與要求，例如：分段或分區施工的順序、汛期或枯水期限制、交通維持與改道、鄰近結構物或管線保護、噪音振動與夜間施工限制、指定工法或材料、環境保護與水土保持、用地取得或既有設施遷移、里程碑罰則。契約未提及者不要杜撰；完全找不到就留空字串。`;
 
 export const AI_WIZARD_OBLIGATIONS_PROMPT = `${WIZARD_BASE}
 

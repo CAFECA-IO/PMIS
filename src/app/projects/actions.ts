@@ -101,6 +101,7 @@ export async function createProject(
     code: field(formData, "code"),
     name: field(formData, "name"),
     description: field(formData, "description"),
+    keyRequirements: field(formData, "keyRequirements"),
     location: field(formData, "location"),
     client: field(formData, "client"),
     contractor: field(formData, "contractor"),
@@ -130,6 +131,8 @@ export type WizardProfile = {
   endDate?: string;
   status?: string;
   description?: string;
+  /** 關鍵要求重點：影響施工方式的契約／規範條件。 */
+  keyRequirements?: string;
 };
 
 export type CreateWizardResult =
@@ -172,6 +175,7 @@ export async function createProjectViaWizard(
       code: profile.code,
       name: profile.name,
       description: profile.description,
+      keyRequirements: profile.keyRequirements,
       location: profile.location,
       client: profile.client,
       contractor: profile.contractor,
@@ -221,6 +225,7 @@ export async function updateProjectAction(formData: FormData) {
   await projectService.updateProject(id, {
     name: field(formData, "name"),
     description: field(formData, "description"),
+    keyRequirements: field(formData, "keyRequirements"),
     location: field(formData, "location"),
     contractNo: field(formData, "contractNo"),
     client: field(formData, "client"),

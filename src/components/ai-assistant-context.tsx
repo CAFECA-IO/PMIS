@@ -33,13 +33,37 @@ export type AiTaskRequest = {
 export type AiStreamEvent = { type: string } & Record<string, unknown>;
 
 /**
+/**
+ * 通用「多步驟進度」的單一步驟。
+ *
+ * 任何串流任務都可把耗時工作拆成數個小步驟，於對話中以進度卡呈現：
+ * 目前進行到哪一步、各步驟花了多久。狀態機刻意極簡（active／done），
+ * pending 由呈現端依既有清單推得，任務只需回報「開始／完成」。
+ */
+export type FaithStep = {
+  /** 穩定鍵，用於對應同一步驟的 start/done。 */
+  key: string;
+  /** 顯示名稱，如「規劃工程分項」。 */
+  label: string;
+  status: "active" | "done";
+  /** 開始時間（ms）；供呈現端計算進行中步驟的即時耗時。 */
+  startedAt?: number;
+  /** 完成耗時（ms）；done 時填入。 */
+  elapsedMs?: number;
+  /** 補充說明，如完成數量。 */
+  detail?: string;
+};
+
+/**
  * 事件的去向。刻意區分「暫時的工作狀態」與「留在對話中的訊息」：
  *  - activity：顯示於工作指示區，隨下一則狀態覆蓋，結束後消失，不進對話紀錄
+ *  - steps：以「多步驟進度卡」呈現（通用元件）；每次回報整份最新快照，結束後消失
  *  - message：寫入對話，永久保留（如最後的執行結果總結）
  *  - ignore：不呈現（如純資料事件）
  */
 export type AiEventOutcome =
   | { kind: "activity"; text: string }
+  | { kind: "steps"; steps: FaithStep[] }
   | { kind: "message"; text: string }
   | { kind: "ignore" };
 
