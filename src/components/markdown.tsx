@@ -5,7 +5,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { slugifyHeading } from "@/lib/doc-toc";
-import { Mermaid } from "./mermaid";
+import { detectCustomChartType } from "@/lib/custom-chart-parser";
+import { Mermaid } from "@/components/mermaid";
+import { CustomChart } from "@/components/custom-chart";
 
 type CodeProps = { className?: string; children?: unknown };
 
@@ -26,21 +28,23 @@ export function Markdown({ content }: { content: string }) {
         remarkPlugins={[remarkGfm]}
         components={{
           h2({ children }) {
-            return (
-              <h2 id={slugifyHeading(nodeText(children))}>{children}</h2>
-            );
+            return <h2 id={slugifyHeading(nodeText(children))}>{children}</h2>;
           },
           h3({ children }) {
-            return (
-              <h3 id={slugifyHeading(nodeText(children))}>{children}</h3>
-            );
+            return <h3 id={slugifyHeading(nodeText(children))}>{children}</h3>;
           },
           pre({ children }) {
             const child = Children.toArray(children)[0] ?? children;
             const props = (child as ReactElement<CodeProps>)?.props;
             const className = props?.className ?? "";
+            const source = String(props?.children ?? "").trim();
             if (/language-mermaid/.test(className)) {
-              return <Mermaid chart={String(props?.children ?? "").trim()} />;
+              return <Mermaid chart={source} />;
+            }
+            // Info: (20260803 - Julian) 四種自訂圖表 fence（custom-matrix 等）比照 mermaid 掛勾
+            const lang = /language-([\w-]+)/.exec(className)?.[1] ?? "";
+            if (detectCustomChartType(lang)) {
+              return <CustomChart lang={lang} source={source} />;
             }
             return <pre>{children}</pre>;
           },

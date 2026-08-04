@@ -1,0 +1,354 @@
+/**
+ * Info: (20260804 - Julian)
+ * 監造報表（週／月／季／年）五層骨架組裝器。
+ *
+ * 純函式、決定論：輸入已備妥的資料，輸出完整 markdown。不碰 DB、不呼叫 LLM。
+ * 報告結構屬法定格式，故骨架由程式產生、不交由 LLM 自由發揮；LLM 僅提供「期間評述」一段文字。
+ * 圖表以 PMIS 現有圍欄語法（```custom-scurve / ```custom-progress / ```mermaid）嵌入，於前端渲染。
+ */
+import type { ReportType } from "@/service/report.service";
+import {
+  PERIOD_LABEL,
+  PERIOD_REPORT_NAME,
+  describeGap,
+  type DurationSummary,
+  type WorkDayStats,
+} from "@/service/report-period";
+
+const NA = "—";
+
+/** 工項明細一列；金額與百分比由呼叫端算好（Decimal 於邊界轉 number）。 */
+export interface WorkItemRow {
+  /** 項次（WBS 代碼；無則由組裝器以序號補） */
+  code: string | null;
+  name: string;
+  /** 合約金額 = 契約數量 × 單價 */
+  contractAmount: number | null;
+  /** 累計完成百分比 */
+  cumulativePercent: number | null;
+  /** 累計完成金額 */
+  cumulativeAmount: number | null;
+  /**
+   * 本期完成百分比／金額。需期末快照才能取得差額，目前 schema 無快照表，
+   * 故一律為 null 並於報告註明；待 WorkItemPeriodSnapshot 上線後補齊。
+   */
+  currentPercent: number | null;
+  currentAmount: number | null;
+}
+
+/** 逐日日誌一列（明細層，完整保留）。 */
+export interface DailyLogRow {
+  reportDate: Date;
+  weather: string | null;
+  summary: string | null;
+  keyNotes: string | null;
+}
+
+/** S-Curve 一點；預定為必填。 */
+export interface ProgressCurvePoint {
+  label: string;
+  planned: number;
+  actual?: number;
+  forecast?: number;
+}
+
+export interface ReportTemplateInput {
+  type: ReportType;
+  /** 期間標籤，如「2026 年 5 月」 */
+  periodLabel: string;
+  periodStart: Date;
+  periodEnd: Date;
+  generatedAt: Date;
+
+  project: {
+    name: string;
+    code: string;
+    client: string | null;
+    contractor: string | null;
+    supervisor: string | null;
+    /** 契約金額 */
+    budget: number | null;
+    startDate: Date | null;
+    endDate: Date | null;
+  };
+  /** 工程概要：每項一句（如「人孔 20 座」），取自契約標的 title */
+  scopeItems: string[];
+
+  duration: DurationSummary;
+  progress: {
+    /** 本期預定／完成增量（百分點）；無法計算時為 null */
+    currentPlanned: number | null;
+    currentActual: number | null;
+    /** 累計預定／完成（%） */
+    cumulativePlanned: number;
+    cumulativeActual: number;
+  };
+  curve: ProgressCurvePoint[];
+
+  workItems: WorkItemRow[];
+  workDays: WorkDayStats;
+  dailyLogs: DailyLogRow[];
+
+  /** LLM 產出的期間評述；null 時以決定論句子回退 */
+  review: string | null;
+}
+
+// ── 格式化助手 ────────────────────────────────────────────────
+const fmtInt = (n: number | null): string =>
+  n == null ? NA : n.toLocaleString("zh-TW");
+
+const fmtPct = (n: number | null, digits = 2): string =>
+  n == null ? NA : `${n.toFixed(digits)}%`;
+
+const fmtDate = (d: Date | null): string => {
+  if (d == null) return NA;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+const WEEKDAY = ["日", "一", "二", "三", "四", "五", "六"];
+const fmtMonthDay = (d: Date): string =>
+  `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
+
+/** 表格單元內換行需用 <br>；同時避免 | 破壞表格結構。 */
+const cell = (text: string): string =>
+  text.replace(/\|/g, "／").replace(/\n+/g, "<br>");
+
+// ── 各層組裝 ──────────────────────────────────────────────────
+
+function sectionHeader(input: ReportTemplateInput): string[] {
+  const name = PERIOD_REPORT_NAME[input.type];
+  return [
+    `# ${input.project.name}｜${input.periodLabel}${name}`,
+    "",
+    `> 報告期間 ${fmtDate(input.periodStart)} ~ ${fmtDate(input.periodEnd)}｜產生時間 ${fmtDate(input.generatedAt)}`,
+    "> **本報告為費思 AI 生成草稿；數字由系統彙整、圖表由既有數據集展開；核定前請人工確認。**",
+    "",
+  ];
+}
+
+function sectionBasics(input: ReportTemplateInput): string[] {
+  const p = input.project;
+  const out = [
+    "## 一、工程基本資料",
+    "",
+    "| 項目 | 內容 | 項目 | 內容 |",
+    "| --- | --- | --- | --- |",
+    `| 主辦單位 | ${cell(p.client ?? NA)} | 監造單位 | ${cell(p.supervisor ?? NA)} |`,
+    `| 承攬廠商 | ${cell(p.contractor ?? NA)} | 工程名稱 | ${cell(p.name)} |`,
+    `| 開工日期 | ${fmtDate(p.startDate)} | 預定完工日期 | ${fmtDate(p.endDate)} |`,
+    `| 契約金額 | ${p.budget == null ? NA : `${fmtInt(p.budget)} 元`} | 契約工期 | ${
+      input.duration.total == null ? NA : `${fmtInt(input.duration.total)} 工作天`
+    } |`,
+    "",
+  ];
+
+  if (input.scopeItems.length > 0) {
+    out.push("**工程概要**", "");
+    for (const item of input.scopeItems) out.push(`- ${item}`);
+    out.push("");
+  }
+  return out;
+}
+
+function sectionSummary(input: ReportTemplateInput): string[] {
+  const period = PERIOD_LABEL[input.type];
+  const { progress, duration } = input;
+  const gap = progress.cumulativeActual - progress.cumulativePlanned;
+
+  const out = [
+    `## 二、${period}摘要`,
+    "",
+    `| 指標 | ${period} | 累計 | 落差（完成 − 預定） |`,
+    "| --- | --- | --- | --- |",
+    `| 預定進度 | ${fmtPct(progress.currentPlanned)} | ${fmtPct(progress.cumulativePlanned)} | ${NA} |`,
+    `| 完成進度 | ${fmtPct(progress.currentActual)} | ${fmtPct(progress.cumulativeActual)} | 累計 **${describeGap(gap)}** |`,
+    `| 工期使用 | ${NA} | ${
+      duration.elapsed == null || duration.total == null
+        ? NA
+        : `${fmtInt(duration.elapsed)} / ${fmtInt(duration.total)} 天（${duration.usedPercent ?? NA}%）`
+    } | ${duration.remaining == null ? NA : `剩餘 ${fmtInt(duration.remaining)} 天`} |`,
+    "",
+  ];
+
+  if (input.curve.length > 0) {
+    out.push("**累計進度趨勢**", "");
+    out.push("```custom-scurve");
+    out.push("title: 累計進度趨勢");
+    out.push("yAxis: 累計進度");
+    out.push("unit: %");
+    for (const pt of input.curve) {
+      const cols = [pt.label, String(pt.planned)];
+      if (pt.actual !== undefined) cols.push(String(pt.actual));
+      if (pt.forecast !== undefined) {
+        if (pt.actual === undefined) cols.push("");
+        cols.push(String(pt.forecast));
+      }
+      out.push(cols.join(", "));
+    }
+    out.push("```", "");
+  }
+
+  out.push(`**${period}評述**`, "");
+  out.push(
+    input.review?.trim() ||
+      `${period}累計完成 ${fmtPct(progress.cumulativeActual)}，累計預定 ${fmtPct(progress.cumulativePlanned)}，${describeGap(gap)}。詳細數據見以下各節。`,
+  );
+  out.push("");
+  return out;
+}
+
+function sectionProgress(input: ReportTemplateInput): string[] {
+  const period = PERIOD_LABEL[input.type];
+  const { progress, duration, workItems } = input;
+
+  const out = [
+    "## 三、進度分析",
+    "",
+    "### 3.1 整體進度",
+    "",
+    "| 項目 | 數值 | 項目 | 數值 |",
+    "| --- | --- | --- | --- |",
+    `| 累積工期 | ${duration.elapsed == null ? NA : `${fmtInt(duration.elapsed)} 天`} | 剩餘工期 | ${
+      duration.remaining == null ? NA : `${fmtInt(duration.remaining)} 天`
+    } |`,
+    `| ${period}預定進度 | ${fmtPct(progress.currentPlanned)} | 累計預定進度 | ${fmtPct(progress.cumulativePlanned)} |`,
+    `| ${period}完成進度 | ${fmtPct(progress.currentActual)} | 累計完成進度 | ${fmtPct(progress.cumulativeActual)} |`,
+    "",
+  ];
+
+  if (workItems.length === 0) {
+    out.push("_本期無工程分項資料。_", "");
+    return out;
+  }
+
+  // 3.2 累計進度橫條（本期增量待快照，暫不提供）
+  const chartRows = workItems.filter((w) => w.cumulativePercent != null);
+  if (chartRows.length > 0) {
+    out.push("### 3.2 各工程項目完成情形", "");
+    out.push("```custom-progress");
+    out.push("title: 各工程項目累計完成百分比");
+    out.push("unit: %");
+    out.push("xScale: 100");
+    for (const w of chartRows) {
+      const cols = [w.name.replace(/,/g, "、"), String(w.cumulativePercent)];
+      if (w.currentPercent != null) cols.push(String(w.currentPercent));
+      out.push(cols.join(", "));
+    }
+    out.push("```", "");
+  }
+
+  // 3.3 法定明細表 + 合計
+  out.push("### 3.3 工程項目估驗明細", "");
+  out.push(
+    `| 項次 | 工程項目 | 單位權重 | 合約金額 | ${period}完成百分比 | 累計完成百分比 | ${period}完成金額 | 累計完成金額 |`,
+  );
+  out.push("| --- | --- | --- | --- | --- | --- | --- | --- |");
+
+  const totalContract = workItems.reduce(
+    (s, w) => s + (w.contractAmount ?? 0),
+    0,
+  );
+  let totalCumAmount = 0;
+  let totalCurAmount = 0;
+  let hasCurAmount = false;
+
+  workItems.forEach((w, i) => {
+    const weight =
+      totalContract > 0 && w.contractAmount != null
+        ? (w.contractAmount / totalContract) * 100
+        : null;
+    totalCumAmount += w.cumulativeAmount ?? 0;
+    if (w.currentAmount != null) {
+      totalCurAmount += w.currentAmount;
+      hasCurAmount = true;
+    }
+    out.push(
+      `| ${w.code ?? String(i + 1)} | ${cell(w.name)} | ${fmtPct(weight, 1)} | ${fmtInt(w.contractAmount)} | ${fmtPct(w.currentPercent)} | ${fmtPct(w.cumulativePercent)} | ${fmtInt(w.currentAmount)} | ${fmtInt(w.cumulativeAmount)} |`,
+    );
+  });
+
+  out.push(
+    `| ${NA} | **合計** | **${totalContract > 0 ? "100.0%" : NA}** | **${fmtInt(totalContract || null)}** | ${NA} | ${NA} | **${hasCurAmount ? fmtInt(totalCurAmount) : NA}** | **${fmtInt(totalCumAmount || null)}** |`,
+  );
+  out.push("");
+
+  const lacksCurrent = workItems.every((w) => w.currentPercent == null);
+  if (lacksCurrent) {
+    out.push(
+      `> ${period}完成百分比與金額需期末快照方能計算，功能開發中，暫以 ${NA} 表示；累計欄位為系統即時彙整值。`,
+      "",
+    );
+  }
+  return out;
+}
+
+function sectionWorkLog(input: ReportTemplateInput): string[] {
+  const period = PERIOD_LABEL[input.type];
+  const { workDays, dailyLogs } = input;
+
+  const out = ["## 四、工作事項", "", "### 4.1 工作統計", ""];
+  out.push("| 項目 | 數量 | 說明 |");
+  out.push("| --- | --- | --- |");
+  out.push(`| 施工天數 | ${workDays.working} 天 | 有施工紀錄之日數 |`);
+  out.push(`| 雨天停工 | ${workDays.rainStop} 天 | 因天候暫停施工之日數 |`);
+  out.push(`| 例假日 | ${workDays.holiday} 天 | 未排工日數 |`);
+  out.push(`| 填報日數 | ${workDays.total} 天 | ${period}監造日報篇數 |`);
+  out.push("");
+
+  if (workDays.total > 0) {
+    out.push("```mermaid");
+    out.push("pie showData");
+    out.push(`  title ${period}工作日組成`);
+    if (workDays.working > 0) out.push(`  "施工" : ${workDays.working}`);
+    if (workDays.rainStop > 0) out.push(`  "雨天停工" : ${workDays.rainStop}`);
+    if (workDays.holiday > 0) out.push(`  "例假日" : ${workDays.holiday}`);
+    out.push("```", "");
+  }
+
+  out.push("### 4.2 逐日工作事項明細", "");
+  if (dailyLogs.length === 0) {
+    out.push("_本期無監造日報填報紀錄。_", "");
+    return out;
+  }
+
+  out.push("| 日期 | 星期 | 天氣 | 工作事項 |");
+  out.push("| --- | --- | --- | --- |");
+  for (const log of dailyLogs) {
+    const notes = log.keyNotes?.trim()
+      ? `${log.summary?.trim() || NA}<br>重要：${log.keyNotes.trim()}`
+      : log.summary?.trim() || NA;
+    out.push(
+      `| ${fmtMonthDay(log.reportDate)} | ${WEEKDAY[log.reportDate.getDay()]} | ${cell(log.weather ?? NA)} | ${cell(notes)} |`,
+    );
+  }
+  out.push("");
+  return out;
+}
+
+function sectionSignature(): string[] {
+  return [
+    "## 五、簽章",
+    "",
+    "| 監造單位 | 承攬廠商 | 主辦單位 |",
+    "| --- | --- | --- |",
+    "| （簽章） | （簽章） | （簽章） |",
+    "",
+    "---",
+    "_本報告由費思 AI 依系統紀錄生成，屬草稿，數據僅供監造參考；核定前請人工確認。_",
+  ];
+}
+
+/** 組出完整五層監造報表 markdown。 */
+export function buildReportMarkdown(input: ReportTemplateInput): string {
+  return [
+    ...sectionHeader(input),
+    ...sectionBasics(input),
+    ...sectionSummary(input),
+    ...sectionProgress(input),
+    ...sectionWorkLog(input),
+    ...sectionSignature(),
+  ].join("\n");
+}

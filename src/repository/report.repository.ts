@@ -8,6 +8,13 @@ export function getProject(id: string) {
     include: {
       obligations: { where: { deletedAt: null }, orderBy: { dueDate: "asc" } },
       workItems: { orderBy: { createdAt: "asc" } },
+      // Info: (20260804 - Julian) 契約標的即監造月報的「工程概要」；
+      // title 已含品項與數量（如「人孔 20 座」），依契約原始順序輸出
+      scopeItems: {
+        where: { deletedAt: null },
+        orderBy: { sortOrder: "asc" },
+        select: { code: true, title: true, sortOrder: true },
+      },
     },
   });
 }
@@ -46,6 +53,34 @@ export function ehsInPeriod(projectId: string, start: Date, end: Date) {
   return prisma.ehsAudit.findMany({
     where: { projectId, auditedAt: { gte: start, lte: end } },
     select: { result: true },
+  });
+}
+
+// Info: (20260803 - Julian) 本期已結案缺失（供改善耗時直方圖）：resolvedAt 落在期間內
+export function defectsResolvedInPeriod(
+  projectId: string,
+  start: Date,
+  end: Date,
+) {
+  return prisma.defect.findMany({
+    where: { projectId, resolvedAt: { gte: start, lte: end } },
+    select: { createdAt: true, resolvedAt: true },
+  });
+}
+
+// Info: (20260803 - Julian) 本期完成審查的送審（供審查天數箱型圖）：需有實際送審日與審查日
+export function submittalsReviewedInPeriod(
+  projectId: string,
+  start: Date,
+  end: Date,
+) {
+  return prisma.submittal.findMany({
+    where: {
+      projectId,
+      reviewDate: { gte: start, lte: end },
+      actualSubmitDate: { not: null },
+    },
+    select: { category: true, actualSubmitDate: true, reviewDate: true },
   });
 }
 
