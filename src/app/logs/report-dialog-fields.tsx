@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Sparkles } from "lucide-react";
+import { Cloud, Sparkles, Sun, Umbrella } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { reportStatusMeta } from "@/constant/pmis";
 import { suggestReportAction } from "./actions";
+
+/** 天氣選項。value 直接就是存進 DB 與報表呈現的字串（列表與月報都原樣輸出）。 */
+const WEATHER_OPTIONS = [
+  { value: "晴", Icon: Sun },
+  { value: "陰", Icon: Cloud },
+  { value: "雨", Icon: Umbrella },
+] as const;
 
 /**
  * 日報欄位（供 CreateRecordDialog 作為 children 使用）。
@@ -54,15 +61,25 @@ export function ReportDialogFields({
           required
         />
       </label>
-      <label className="space-y-1 text-xs">
+      <div className="space-y-1 text-xs">
         <span className="text-muted-foreground">天氣</span>
-        <Input
-          name="weather"
-          value={weather}
-          onChange={(e) => setWeather(e.target.value)}
-          placeholder="晴／陰／雨"
-        />
-      </label>
+        <input type="hidden" name="weather" value={weather} />
+        <div className="flex gap-2" role="group" aria-label="天氣">
+          {WEATHER_OPTIONS.map(({ value, Icon }) => (
+            <Button
+              key={value}
+              type="button"
+              size="sm"
+              variant={weather === value ? "default" : "outline"}
+              aria-pressed={weather === value}
+              onClick={() => setWeather(value)}
+            >
+              <Icon />
+              <span>{value}</span>
+            </Button>
+          ))}
+        </div>
+      </div>
       <label className="space-y-1 text-xs">
         <span className="text-muted-foreground">狀態</span>
         <Select
