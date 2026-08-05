@@ -21,6 +21,7 @@ import {
   NotebookPen,
   Wallet,
   Building2,
+  Box,
   Wand2,
   ChevronsUpDown,
   X,
@@ -49,6 +50,7 @@ type NavSectionView = { title: string; items: NavItem[] };
 // Info: 分區結構來自 @/constant/navigation（單一來源），此處只補上圖示。
 const ICONS: Record<string, LucideIcon> = {
   "/": LayoutDashboard,
+  "/overview-3d": Box,
   "/projects": FileText,
   "/schedule": Activity,
   "/obligations": ClipboardList,

@@ -136,6 +136,9 @@ const FIELD_DEFS: { key: keyof Fields; label: string; required?: boolean }[] = [
   { key: "endDate", label: "完工日" },
   { key: "status", label: "狀態" },
   { key: "description", label: "工程摘要" },
+  // 影響「如何施工」的契約條件。記錄下來，後續產生施工設計與 3D 數位孿生
+  // 動畫時才有依據 —— 否則模型只能照工項名稱猜施工方式。
+  { key: "keyRequirements", label: "關鍵要求重點" },
 ];
 
 /**
@@ -218,6 +221,7 @@ export function ProjectBuild() {
   // 各階段的上游輸入，單獨重試下游時必須回傳，否則該段會因缺上游而略過
   const scopeRef = useRef<WizardScopeItem[]>([]);
   const fieldsRef = useRef<Fields>({});
+
 
   /*
     費思的提議。刻意與表單分開存放 ——
@@ -683,7 +687,7 @@ export function ProjectBuild() {
         /*
           建置階段不處理工程分項：分項要有數量、單價與預定起訖才有意義，
           那些資料來自預算書與施工排程，不在簽約當下的契約裡。
-          專案建立後於專案頁與估驗台帳維護。
+          專案建立後於專案頁與估驗台帳維護（或由「3D 工程視覺」定案加入）。
         */
         [],
         uploadIdsRef.current,
@@ -954,7 +958,10 @@ export function ProjectBuild() {
                     </p>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {FIELD_DEFS.filter(
-                        (f) => f.key !== "status" && f.key !== "description",
+                        (f) =>
+                          f.key !== "status" &&
+                          f.key !== "description" &&
+                          f.key !== "keyRequirements",
                       ).map((f) => (
                         <div key={f.key} className="space-y-1.5">
                           <Label htmlFor={`w-${f.key}`}>
@@ -1004,6 +1011,21 @@ export function ProjectBuild() {
                             setField("description", e.target.value)
                           }
                         />
+                      </div>
+                      <div className="space-y-1.5 sm:col-span-2">
+                        <Label htmlFor="w-keyRequirements">關鍵要求重點</Label>
+                        <Textarea
+                          id="w-keyRequirements"
+                          rows={4}
+                          placeholder="影響施工方式的契約／規範條件，一行一項，例如：&#10;・汛期（5–11 月）不得於河道內施工&#10;・護岸自下游往上游分兩段施工&#10;・鄰接民宅側須設置擋土支撐與沉陷監測"
+                          value={String(fields.keyRequirements ?? "")}
+                          onChange={(e) =>
+                            setField("keyRequirements", e.target.value)
+                          }
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          這些條件會作為產生施工設計與 3D 數位孿生動畫的依據。
+                        </p>
                       </div>
                     </div>
                   </div>

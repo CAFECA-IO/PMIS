@@ -14,7 +14,10 @@ export type NavSection = { title: string; items: NavEntry[] };
 export const NAV_SECTIONS: NavSection[] = [
   {
     title: "01 總覽與決策",
-    items: [{ href: "/", label: "專案戰情室", always: true }],
+    items: [
+      { href: "/", label: "專案戰情室", always: true },
+      { href: "/overview-3d", label: "3D 工程視覺", always: true },
+    ],
   },
   {
     title: "02 契約與時程管理",

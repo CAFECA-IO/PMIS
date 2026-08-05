@@ -2,6 +2,7 @@ import * as workItemRepo from "@/repository/workItem.repository";
 import * as memberRepo from "@/repository/projectMember.repository";
 import * as obligationRepo from "@/repository/obligation.repository";
 import { canSeeAllProjects } from "@/lib/auth";
+import { lookupReference } from "@/constant/domain-knowledge";
 import { workItemStatusMeta } from "@/constant/pmis";
 import type { AccountRole, WorkItemStatus } from "@/generated/prisma/enums";
 
@@ -73,6 +74,67 @@ export async function addWorkItem(input: WorkItemInput, actor: Actor) {
     obligationId: await resolveObligation(input.obligationId, input.projectId),
   });
   return true;
+}
+
+/** 由 3D 施工設計定案帶入的單一分項。 */
+export type DesignedWorkItem = {
+  name: string;
+  category?: string;
+  unit?: string;
+  contractQty?: number;
+  plannedStart?: string;
+  plannedEnd?: string;
+};
+
+/**
+ * 批次把「3D 施工設計」定案的工程分項加入既有專案。
+ *
+ * 與 addWorkItem 分開是因為語意不同：此處是一次匯入一整份設計，
+ * 需要回報「實際加入幾項、跳過幾項」讓使用者知道結果；
+ * 且分項來自設計而非台帳，故只寫入名稱、類別、單位、契約數量與預定起訖，
+ * 完成量與估驗量一律留空（尚未施作，填 0 會像是已對過帳）。
+ *
+ * 同名分項視為已存在而跳過 —— 重複按下定案不應該把台帳灌成兩倍。
+ */
+export async function addDesignedWorkItems(
+  projectId: string,
+  items: DesignedWorkItem[],
+  actor: Actor,
+): Promise<{ ok: boolean; added: number; skipped: number; error?: string }> {
+  if (!projectId) return { ok: false, added: 0, skipped: 0, error: "缺少專案。" };
+  if (!(await canAccess(projectId, actor))) {
+    return { ok: false, added: 0, skipped: 0, error: "權限不足，無法加入此專案的工程分項。" };
+  }
+
+  const existing = await workItemRepo.listByProject(projectId);
+  const taken = new Set(existing.map((w) => w.name.trim()));
+
+  let added = 0;
+  let skipped = 0;
+  for (const item of items) {
+    const name = item.name?.trim();
+    if (!name || taken.has(name)) {
+      skipped += 1;
+      continue;
+    }
+    taken.add(name);
+    await workItemRepo.create({
+      projectId,
+      name,
+      category: item.category?.trim() || null,
+      unit: item.unit?.trim() || null,
+      contractQty: item.contractQty ?? null,
+      plannedStart: parseDate(item.plannedStart) ?? null,
+      plannedEnd: parseDate(item.plannedEnd) ?? null,
+      progress: 0,
+      status: "NOT_STARTED",
+      // 名稱對得上知識庫才給 WBS 類別；猜錯會讓彙總失真，故寧可留空
+      wbsCategory: lookupReference(name)?.wbs ?? null,
+    });
+    added += 1;
+  }
+
+  return { ok: true, added, skipped };
 }
 
 export async function updateWorkItem(

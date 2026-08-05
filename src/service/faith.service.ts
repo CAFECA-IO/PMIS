@@ -810,6 +810,8 @@ export type ProjectProfileFields = {
   endDate?: string;
   status?: string;
   description?: string;
+  /** 關鍵要求重點：影響施工方式的契約／規範條件。 */
+  keyRequirements?: string;
 };
 
 export type WizardObligation = {
@@ -1313,6 +1315,9 @@ const PROFILE_SCHEMA: ResponseSchema = {
         endDate: S("完工日 YYYY-MM-DD"),
         status: { type: "STRING", enum: PROJECT_STATUSES },
         description: S("工程摘要"),
+        keyRequirements: S(
+          "關鍵要求重點：契約與規範中影響施工方式的關鍵條件，逐項條列，每項一行以「・」開頭；無則空字串",
+        ),
       },
       propertyOrdering: [
         "code",
@@ -1326,6 +1331,7 @@ const PROFILE_SCHEMA: ResponseSchema = {
         "endDate",
         "status",
         "description",
+        "keyRequirements",
       ],
     },
   },
@@ -1370,6 +1376,7 @@ export async function extractProjectFields(
     endDate: str(rf.endDate),
     status: pickEnumValue(PROJECT_STATUSES, rf.status),
     description: str(rf.description),
+    keyRequirements: str(rf.keyRequirements),
   };
   for (const k of Object.keys(fields) as (keyof ProjectProfileFields)[]) {
     if (fields[k] === undefined) delete fields[k];
