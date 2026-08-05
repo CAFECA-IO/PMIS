@@ -4,6 +4,12 @@
 > 日期：2026-08-04
 > 前置：`監造月報範本（五層式）.md`（版面已定案）、`AI彙整報告生成流程重新設計.md`（白名單數據集流程，Phase A–C 已完成）
 
+> **後續定案（2026-08-05，詳見 `日報月報計劃整合檢視.md`）**：`監造日報填報擴充規劃.md` 定案後，日報成為月報的**單一真實來源**，本文 M1–M8 已上線碼須配合回改——
+> - **累計/逐工項完成**：改接**日報數量加總**（`SupervisionReportItem.dailyQty`），`WorkItem.completedQty` 由權威降為推導；下方 §C 的 `WorkItemPeriodSnapshot` 待辦**取消**（由日報 E1 取代）。
+> - **S-Curve**：**實際線**改接日報加總；**預定線**改接新增的專案「預定進度設定」（取代 `periodProgressDelta` 履約事項權重推導）。
+> - **工作日判定**：`classifyWorkDay()` **移除天氣訊號**（天氣僅供紀錄），改以日報 `summary` ＋ E5 `excludedFromDuration`／E3 `NO_WORK` 顯式旗標為準。
+> - **逐日日誌**：隨日報 E2/E4 欄位拆分同步改讀新欄位（漸進遷移、legacy fallback）。
+
 ## 已確認決策
 
 | 項目 | 決定 |
@@ -38,6 +44,8 @@
 「逐工項本月完成百分比／金額」需要上期存底才能算差額，但 `WorkItem.completedQty` 是單一累計值、會被覆寫，schema 無任何快照或歷史表。本次於表格該欄顯示 `—`，並在報告加註「本期完成需月結快照，功能開發中」。同理，`custom-progress` 圖的「本期增量」欄留空（該圖已支援只給累計值）。
 
 > 下一階段建議：新增 `WorkItemPeriodSnapshot`（projectId / workItemId / periodStart / completedQty / valuatedQty），於期末或報告生成時寫入，即可回推任一期間的差額。
+>
+> **【2026-08-05 取消】** 此快照方案改由日報 E1「逐日數量表」加總取代（本期完成量＝期間內該工項 `dailyQty` 之和），不再新建 `WorkItemPeriodSnapshot`。詳見 `日報月報計劃整合檢視.md` 決策 A。
 
 ## 目標架構
 
@@ -122,14 +130,14 @@ generateReport(type, refDate)
 ### 後續事項
 
 - `report-datasets.ts` 與 `report-chart-expander.ts`（前一版「LLM 主導本體」設計的產物）已不在報告主線上，但保留且測試仍綠，可供日後「AI 選配補充圖表」使用。若確定不需要，可另行移除。
-- 待辦：`WorkItemPeriodSnapshot` 月結快照，用以補齊逐工項本期完成百分比／金額。
+- ~~待辦：`WorkItemPeriodSnapshot` 月結快照~~ → **取消**，改由日報 E1 數量表加總補齊逐工項本期完成（決策 A）。
 - 待確認：工作日判定規則（雨天停工／例假日）宜請監造確認；`contractWorkDays` 於既有專案為空值，需提供填寫入口。
 
 ## 風險與待確認
 
 - **M1 需本機執行遷移**：沙盒無 better-sqlite3 原生模組，schema 改動後的 `db push` / `generate` 需你在本機跑。
 - **「本期完成」暫缺**：工項明細表該欄顯示 `—`。若審核方不接受空欄，替代方案是改列「累計完成」單一欄位並註明，待快照功能上線再補齊。
-- **工作日判定規則**：施工／雨天停工／例假日的認定需定案。初版建議：日誌 `weather` 含「雨」且 `summary` 提及暫停 → 雨天停工；`summary` 為空或含「例假」→ 例假日；其餘為施工日。此規則會影響工期展延爭議，宜請監造確認。
+- **工作日判定規則**：施工／雨天停工／例假日的認定需定案。~~初版建議：日誌 `weather` 含「雨」且 `summary` 提及暫停 → 雨天停工~~。**【2026-08-05 定案 D】天氣不作判定依據（僅供紀錄）**；改以日報 `summary` ＋ E5 `excludedFromDuration`／E3 `NO_WORK` 顯式旗標為準，`summary` 為輔。此規則會影響工期展延爭議，宜請監造確認。
 - **契約工期回填**：新增 `contractWorkDays` 後，既有專案該欄為空，累積／剩餘工期無法計算。需提供填寫入口或以日曆天暫代並標註。
 - **S-Curve 目前為全案彙總**：`getSCurve()` 是跨專案 dashboard 用；需改寫為單一專案版本（或加參數）。
 - **簽章欄位**：範本的簽章列目前是空白格。若需接既有簽核流程（`ApprovalDocument`），屬後續整合，本次僅保留版面。

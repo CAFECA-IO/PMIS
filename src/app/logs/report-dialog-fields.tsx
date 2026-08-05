@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Cloud, Sparkles, Sun, Umbrella } from "lucide-react";
+import { Cloud, Sparkles, Sun, Umbrella, Wind } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ const WEATHER_OPTIONS = [
   { value: "晴", Icon: Sun },
   { value: "陰", Icon: Cloud },
   { value: "雨", Icon: Umbrella },
+  { value: "颱風", Icon: Wind },
 ] as const;
 
 /**
@@ -63,8 +64,7 @@ export function ReportDialogFields({
       </label>
       <div className="space-y-1 text-xs">
         <span className="text-muted-foreground">天氣</span>
-        <input type="hidden" name="weather" value={weather} />
-        <div className="flex gap-2" role="group" aria-label="天氣">
+        <div className="grid grid-cols-4 gap-1" role="group" aria-label="天氣">
           {WEATHER_OPTIONS.map(({ value, Icon }) => (
             <Button
               key={value}
