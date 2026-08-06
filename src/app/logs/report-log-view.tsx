@@ -7,7 +7,7 @@
  * 月份與檢視模式皆走 URL（?month=YYYY-MM、?view=calendar|list），由伺服器每月查詢；
  * 切月／切檢視互不重置。新建與編輯沿用既有 CreateRecordDialog 與 ReportEditForm，不動共用元件。
  */
-import { useState } from "react";
+import { createElement, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarDays, List, ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -19,6 +19,7 @@ import { formatDate } from "@/lib/utils";
 import { ReportDialogFields } from "./report-dialog-fields";
 import { ReportEditForm } from "./report-edit-form";
 import { fileReportAction } from "./actions";
+import { getWeatherIcon } from "@/constant/weather";
 
 export type DayReport = {
   id: string;
@@ -34,8 +35,32 @@ export type DayReport = {
 
 const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
 
+// Info: (20260806 - Julian) 月曆格底色依日報狀態：已核備（完稿）橘、已提送淡橘、草稿灰、無報告白。
+const STATUS_CELL_BG: Record<keyof typeof reportStatusMeta, string> = {
+  APPROVED: "bg-primary/20",
+  SUBMITTED: "bg-primary/10",
+  DRAFT: "bg-sky-100/70",
+};
+
 function pad(n: number): string {
   return String(n).padStart(2, "0");
+}
+
+/** 天氣標籤：圖示 + 文字（圖示未命中則僅文字）。 */
+function WeatherTag({ weather }: { weather: string }) {
+  if (!weather) return null;
+  const icon = getWeatherIcon(weather);
+  return (
+    <span className="inline-flex items-center gap-1 text-muted-foreground">
+      {icon
+        ? createElement(icon, {
+            className: "size-3.5 shrink-0",
+            "aria-hidden": true,
+          })
+        : null}
+      {weather}
+    </span>
+  );
 }
 
 function todayISO(): string {
@@ -142,11 +167,7 @@ export function ReportLogView({
           onSelect={setSelected}
         />
       ) : (
-        <ReportList
-          reports={reports}
-          projectId={projectId}
-          canEdit={canEdit}
-        />
+        <ReportList reports={reports} projectId={projectId} canEdit={canEdit} />
       )}
 
       {/* 月曆模式：選取日的明細（檢視／編輯／新建） */}
@@ -200,7 +221,7 @@ function CalendarGrid({
             return (
               <div
                 key={`blank-${i}`}
-                className="min-h-20 border-b border-r bg-muted/10 last:border-r-0"
+                className="min-h-20 border-b border-r bg-muted last:border-r-0"
               />
             );
           }
@@ -208,6 +229,8 @@ function CalendarGrid({
           const r = byDate.get(iso);
           const isToday = iso === today;
           const isSelected = iso === selected;
+          const weatherIcon = r?.weather ? getWeatherIcon(r.weather) : null;
+          const statusBg = r ? STATUS_CELL_BG[r.status] : "";
           return (
             <button
               key={iso}
@@ -215,8 +238,9 @@ function CalendarGrid({
               onClick={() => onSelect(iso)}
               className={[
                 "min-h-20 border-b border-r p-1.5 text-left align-top transition-colors last:border-r-0",
-                "hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                isSelected ? "bg-primary/10 ring-1 ring-primary" : "",
+                "hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                statusBg,
+                isSelected ? "ring-1 ring-inset ring-primary" : "",
               ].join(" ")}
             >
               <div className="flex items-center justify-between">
@@ -230,18 +254,18 @@ function CalendarGrid({
                 >
                   {day}
                 </span>
-                {r ? (
-                  <span
-                    className="size-1.5 rounded-full bg-primary"
-                    aria-hidden
-                  />
-                ) : null}
               </div>
               {r ? (
                 <div className="mt-1 space-y-0.5">
                   {r.weather ? (
-                    <div className="truncate text-[11px] text-muted-foreground">
-                      {r.weather}
+                    <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                      {weatherIcon
+                        ? createElement(weatherIcon, {
+                            className: "size-3 shrink-0",
+                            "aria-hidden": true,
+                          })
+                        : null}
+                      <span className="truncate">{r.weather}</span>
                     </div>
                   ) : null}
                   <Badge
@@ -276,9 +300,7 @@ function DayDetail({
   if (!report) {
     return (
       <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed p-3">
-        <span className="text-sm text-muted-foreground">
-          {label}　尚無日報
-        </span>
+        <span className="text-sm text-muted-foreground">{label}　尚無日報</span>
         {canEdit ? (
           <CreateRecordDialog
             title="填報日報"
@@ -299,9 +321,7 @@ function DayDetail({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm">
           <span className="font-medium tabular-nums">{label}</span>
-          {report.weather ? (
-            <span className="text-muted-foreground">{report.weather}</span>
-          ) : null}
+          <WeatherTag weather={report.weather} />
           <Badge variant={reportStatusMeta[report.status].variant}>
             {reportStatusMeta[report.status].label}
           </Badge>
@@ -363,9 +383,7 @@ function ReportList({
               <span className="font-medium tabular-nums">
                 {formatDate(new Date(r.dateISO))}
               </span>
-              {r.weather ? (
-                <span className="text-muted-foreground">{r.weather}</span>
-              ) : null}
+              <WeatherTag weather={r.weather} />
               <Badge variant={reportStatusMeta[r.status].variant}>
                 {reportStatusMeta[r.status].label}
               </Badge>
