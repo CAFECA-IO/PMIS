@@ -1,22 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Cloud, Sparkles, Sun, Umbrella, Wind } from "lucide-react";
-
+import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { reportStatusMeta } from "@/constant/pmis";
-import { suggestReportAction } from "./actions";
-
-/** 天氣選項。value 直接就是存進 DB 與報表呈現的字串（列表與月報都原樣輸出）。 */
-const WEATHER_OPTIONS = [
-  { value: "晴", Icon: Sun },
-  { value: "陰", Icon: Cloud },
-  { value: "雨", Icon: Umbrella },
-  { value: "颱風", Icon: Wind },
-] as const;
+import { suggestReportAction } from "@/app/logs/actions";
+import { WEATHER_OPTIONS } from "@/constant/weather";
 
 /**
  * 日報欄位（供 CreateRecordDialog 作為 children 使用）。
@@ -52,6 +44,7 @@ export function ReportDialogFields({
   return (
     <>
       <input type="hidden" name="projectId" value={projectId} />
+      <input type="hidden" name="weather" value={weather} />
       <label className="space-y-1 text-xs">
         <span className="text-muted-foreground">報表日期</span>
         <Input
@@ -97,7 +90,6 @@ export function ReportDialogFields({
       <div className="flex items-end">
         <Button
           type="button"
-          variant="outline"
           size="sm"
           onClick={pull}
           disabled={loading || !reportDate}

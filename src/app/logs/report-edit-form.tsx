@@ -2,14 +2,14 @@
 
 import { useState } from "react";
 import { Sparkles } from "lucide-react";
-
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { reportStatusMeta } from "@/constant/pmis";
-import { updateReportAction, suggestReportAction } from "./actions";
-import { ReportDeleteButton } from "./report-delete-button";
+import { updateReportAction, suggestReportAction } from "@/app/logs/actions";
+import { ReportDeleteButton } from "@/app/logs/report-delete-button";
+import { WEATHER_OPTIONS } from "@/constant/weather";
 
 export function ReportEditForm({
   id,
@@ -55,14 +55,25 @@ export function ReportEditForm({
       className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2"
     >
       <input type="hidden" name="id" value={id} />
-      <label className="space-y-1 text-xs">
+      <input type="hidden" name="weather" value={weather} />
+      <div className="space-y-1 text-xs">
         <span className="text-muted-foreground">天氣</span>
-        <Input
-          name="weather"
-          value={weather}
-          onChange={(e) => setWeather(e.target.value)}
-        />
-      </label>
+        <div className="grid grid-cols-4 gap-1" role="group" aria-label="天氣">
+          {WEATHER_OPTIONS.map(({ value, Icon }) => (
+            <Button
+              key={value}
+              type="button"
+              size="sm"
+              variant={weather === value ? "default" : "outline"}
+              aria-pressed={weather === value}
+              onClick={() => setWeather(value)}
+            >
+              <Icon />
+              <span>{value}</span>
+            </Button>
+          ))}
+        </div>
+      </div>
       <label className="space-y-1 text-xs">
         <span className="text-muted-foreground">狀態</span>
         <Select
@@ -78,13 +89,7 @@ export function ReportEditForm({
         </Select>
       </label>
       <div className="flex items-end sm:col-span-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={pull}
-          disabled={loading}
-        >
+        <Button type="button" size="sm" onClick={pull} disabled={loading}>
           <Sparkles className="size-4" />
           {loading ? "帶入中…" : "帶入當日查驗/缺失"}
         </Button>
