@@ -9,13 +9,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { reportStatusMeta } from "@/constant/pmis";
-import { formatDate } from "@/lib/utils";
 import { CreateRecordDialog } from "@/components/ui/create-record-dialog";
 import { ReportGenerator } from "./report-generator";
 import { ReportDialogFields } from "./report-dialog-fields";
-import { ReportEditForm } from "./report-edit-form";
+import { ReportLogView, type DayReport } from "./report-log-view";
 import { fileReportAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -29,15 +26,28 @@ function toDateInput(d: Date | null | undefined): string | undefined {
   ).padStart(2, "0")}`;
 }
 
+// Info: (20260806 - Julian) 解析 ?month=YYYY-MM；非法或缺省時回當月
+function parseMonth(raw: string | undefined): { year: number; month: number } {
+  const now = new Date();
+  const m = /^(\d{4})-(\d{2})$/.exec(raw ?? "");
+  if (!m) return { year: now.getFullYear(), month: now.getMonth() + 1 };
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  if (month < 1 || month > 12) {
+    return { year: now.getFullYear(), month: now.getMonth() + 1 };
+  }
+  return { year, month };
+}
+
 export default async function LogsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ project?: string }>;
+  searchParams: Promise<{ project?: string; month?: string; view?: string }>;
 }) {
   const user = await requireUser();
   const perms = await assertModuleAccess(user, "/logs");
   const canEdit = canEditModule(perms, "/logs");
-  const { project } = await searchParams;
+  const { project, month: monthParam, view: viewParam } = await searchParams;
   const projectList = await projectService.listProjects(user);
 
   if (projectList.length === 0) {
@@ -61,7 +71,27 @@ export default async function LogsPage({
 
   const selected =
     (project && projectList.find((p) => p.id === project)) || projectList[0];
-  const reports = await reportService.listReports(selected.id);
+
+  const { year, month } = parseMonth(monthParam);
+  const view = viewParam === "list" ? "list" : "calendar";
+  const monthStart = new Date(year, month - 1, 1, 0, 0, 0, 0);
+  const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
+  const monthReports = await reportService.listReportsInPeriod(
+    selected.id,
+    monthStart,
+    monthEnd,
+  );
+  const dayReports: DayReport[] = monthReports.map((r) => ({
+    id: r.id,
+    dateISO: toDateInput(r.reportDate) ?? "",
+    weather: r.weather ?? "",
+    status: r.status,
+    summary: r.summary ?? "",
+    manpower: r.manpower ?? "",
+    equipment: r.equipment ?? "",
+    keyNotes: r.keyNotes ?? "",
+    filedBy: r.filedBy ?? null,
+  }));
   const today = toDateInput(new Date());
 
   return (
@@ -87,64 +117,15 @@ export default async function LogsPage({
               </CreateRecordDialog>
             )}
           </CardHeader>
-          <CardContent className="space-y-4">
-            {reports.length > 0 && (
-              <div className="space-y-2">
-                {reports.map((r) => (
-                  <div key={r.id} className="rounded-lg border p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="font-medium tabular-nums">
-                          {formatDate(r.reportDate)}
-                        </span>
-                        {r.weather ? (
-                          <span className="text-muted-foreground">
-                            {r.weather}
-                          </span>
-                        ) : null}
-                        <Badge variant={reportStatusMeta[r.status].variant}>
-                          {reportStatusMeta[r.status].label}
-                        </Badge>
-                      </div>
-                      <span className="text-xs text-muted-foreground">
-                        {r.filedBy ?? "—"}
-                      </span>
-                    </div>
-                    {r.summary ? (
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {r.summary}
-                      </p>
-                    ) : null}
-                    {canEdit && (
-                      <details className="mt-2">
-                        <summary className="cursor-pointer text-xs text-primary hover:underline">
-                          編輯 / 刪除
-                        </summary>
-                        <ReportEditForm
-                          id={r.id}
-                          projectId={selected.id}
-                          dateISO={toDateInput(r.reportDate) ?? ""}
-                          dateLabel={formatDate(r.reportDate)}
-                          initial={{
-                            weather: r.weather ?? "",
-                            status: r.status,
-                            summary: r.summary ?? "",
-                            manpower: r.manpower ?? "",
-                            equipment: r.equipment ?? "",
-                            keyNotes: r.keyNotes ?? "",
-                          }}
-                        />
-                      </details>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-            {reports.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                {canEdit ? "尚無日報，點右上「新建日報」填報。" : "尚無日報。"}
-              </p>
-            )}
+          <CardContent>
+            <ReportLogView
+              projectId={selected.id}
+              canEdit={canEdit}
+              year={year}
+              month={month}
+              reports={dayReports}
+              view={view}
+            />
           </CardContent>
         </Card>
 
