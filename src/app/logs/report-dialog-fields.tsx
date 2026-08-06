@@ -57,7 +57,7 @@ export function ReportDialogFields({
       </label>
       <div className="space-y-1 text-xs">
         <span className="text-muted-foreground">天氣</span>
-        <div className="grid grid-cols-4 gap-1" role="group" aria-label="天氣">
+        <div className="grid grid-cols-3 gap-1" role="group" aria-label="天氣">
           {WEATHER_OPTIONS.map(({ value, Icon }) => (
             <Button
               key={value}
