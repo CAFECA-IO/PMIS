@@ -52,4 +52,4 @@ next-env.d.ts
 /storage
 
 # package-lock
-package-lock.json
+.package-lock.json
