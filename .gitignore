@@ -50,3 +50,6 @@ next-env.d.ts
 
 # uploaded files (local storage)
 /storage
+
+# package-lock
+package-lock.json
