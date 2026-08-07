@@ -67,6 +67,23 @@ export function findById(id: string) {
   return prisma.generatedReport.findUnique({ where: { id } });
 }
 
+/** 清單用的欄位；刻意不含 `markdown`（見 listByProject）。 */
+const LIST_SELECT = {
+  id: true,
+  type: true,
+  periodStart: true,
+  periodEnd: true,
+  periodLabel: true,
+  title: true,
+  status: true,
+  aiAuthored: true,
+  generatedAt: true,
+  generatedBy: true,
+  confirmedAt: true,
+  confirmedBy: true,
+  createdAt: true,
+} as const;
+
 /**
  * 某專案的報表留存，依**產出時間**新到舊。
  *
@@ -75,29 +92,43 @@ export function findById(id: string) {
  * 沉到清單下方，離它對應的預覽最遠 —— 正好與使用者要找它的路徑相反。
  *
  * 刻意**不取 `markdown`**：清單只需要辨識用的欄位，而全文動輒數十 KB，
- * 一次載入 50 份會把整個報表庫送到瀏覽器。要讀內容請用 `findById`
+ * 一次載入全部會把整個報表庫送到瀏覽器。要讀內容請用 `findById`
  * （對應 `openSavedReportAction`），一次只取一份。
  */
-export function listByProject(projectId: string, take = 50) {
-  return prisma.generatedReport.findMany({
-    where: { projectId },
-    orderBy: { generatedAt: "desc" },
-    take,
-    select: {
-      id: true,
-      type: true,
-      periodStart: true,
-      periodEnd: true,
-      periodLabel: true,
-      title: true,
-      status: true,
-      aiAuthored: true,
-      generatedAt: true,
-      generatedBy: true,
-      confirmedAt: true,
-      confirmedBy: true,
-      createdAt: true,
-    },
+export async function listByProject(projectId: string, draftTake = 30) {
+  /*
+    定稿與草稿分開查再合併，而非單一 take。
+
+    定稿是送審依據，且清單是唯一能開啟它們的 UI；若與草稿共用同一個
+    take，草稿一多就會把去年的定稿擠出清單，等於讓已送審的文件在系統中消失。
+    草稿可再生、可刪除，該被截斷的是草稿。
+  */
+  const [confirmed, drafts] = await Promise.all([
+    prisma.generatedReport.findMany({
+      where: { projectId, status: "CONFIRMED" },
+      orderBy: { generatedAt: "desc" },
+      select: LIST_SELECT,
+    }),
+    prisma.generatedReport.findMany({
+      where: { projectId, status: "DRAFT" },
+      orderBy: { generatedAt: "desc" },
+      take: draftTake,
+      select: LIST_SELECT,
+    }),
+  ]);
+  return [...confirmed, ...drafts].sort(
+    (a, b) => b.generatedAt.getTime() - a.generatedAt.getTime(),
+  );
+}
+
+/** 同一專案、同週期、同期間的草稿留存（同期只保留一份）。 */
+export function findDraftForPeriod(
+  projectId: string,
+  type: PeriodReportType,
+  periodStart: Date,
+) {
+  return prisma.generatedReport.findFirst({
+    where: { projectId, type, periodStart, status: "DRAFT" },
   });
 }
 

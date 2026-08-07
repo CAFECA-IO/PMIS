@@ -64,6 +64,31 @@ const startOfDay = (d: Date) =>
 const endOfDay = (d: Date) =>
   new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
 
+/**
+ * 基準日的合理範圍。
+ *
+ * `<input type="date">` 在年份欄位逐鍵輸入時會**每按一鍵就送出一次**
+ * 完整日期：輸入 2026 依序產生 0002／0020／0202／2026 年。
+ * 沒有守門的話，西元 2 年、20 年、202 年會各自成為一個「期間」而各留一份報表。
+ * 用戶端防抖只能減少次數，不能保證 —— 守門必須在伺服器端。
+ */
+const MIN_YEAR = 2000;
+const MAX_YEAR = 2100;
+
+/**
+ * 解析基準日；無效或超出合理範圍時回 `null`（呼叫端應拒絕該請求）。
+ *
+ * 未給定則以今日為準 —— 那是使用者沒有指定期間時唯一合理的預設。
+ */
+export function parseRefDate(refIso: string | undefined): Date | null {
+  if (!refIso) return new Date();
+  const d = new Date(refIso);
+  if (Number.isNaN(d.getTime())) return null;
+  const y = d.getFullYear();
+  if (y < MIN_YEAR || y > MAX_YEAR) return null;
+  return d;
+}
+
 function periodRange(type: ReportType, ref: Date) {
   const y = ref.getFullYear();
   const m = ref.getMonth();
@@ -148,7 +173,8 @@ export async function generateReport(
   const project = await reportRepo.getProject(projectId);
   if (!project) return null;
 
-  const ref = refIso ? new Date(refIso) : new Date();
+  const ref = parseRefDate(refIso);
+  if (!ref) return null;
   const { start, end, label } = periodRange(type, ref);
   const typeLabel = TYPE_LABEL[type];
   const periodWord = PERIOD_LABEL[type];
@@ -456,10 +482,12 @@ export async function generateReportView(
   /** 無編輯權限者只讀不寫：純瀏覽不應在留存清單留下紀錄。 */
   persist: boolean,
 ): Promise<ReportView | null> {
+  const ref = parseRefDate(refIso);
+  if (!ref) return null;
+
   const report = await generateReport(projectId, type, refIso, actor);
   if (!report) return null;
 
-  const ref = refIso ? new Date(refIso) : new Date();
   const { start, end } = periodRange(type, ref);
 
   const confirmed = await savedReportRepo.findConfirmedForPeriod(
@@ -487,6 +515,49 @@ export async function generateReportView(
   return { report, savedId: saved.id, confirmedId: null };
 }
 
+/**
+ * 某期間**已留存**的報表（唯讀）。
+ *
+ * 存在的理由是把「看報表」與「產報表」拆開。產製一份報表要呼叫 LLM
+ * 並寫一列留存，兩者都是有代價的副作用，不該由開啟頁面或改一個日期觸發
+ * —— 先前正是如此：光是打開 /logs 就跑一次付費產製並留下一列草稿，
+ * 而在日期欄逐鍵輸入年份會連續產生四份。
+ *
+ * 因此畫面掛載與切換期間一律走本函式（純讀取，不呼叫 LLM、不寫入），
+ * 只有使用者明確按下「產生」才走 `generateReportView`。
+ *
+ * 同期同時有定稿與草稿時回定稿：定稿才是該期間的送審依據。
+ */
+export async function getPeriodReport(
+  projectId: string,
+  type: ReportType,
+  refIso: string | undefined,
+  actor: Actor,
+) {
+  if (!(await canAccess(projectId, actor))) return null;
+  const ref = parseRefDate(refIso);
+  if (!ref) return null;
+  const { start, label } = periodRange(type, ref);
+
+  const row =
+    (await savedReportRepo.findConfirmedForPeriod(projectId, type, start)) ??
+    (await savedReportRepo.findDraftForPeriod(projectId, type, start));
+  if (!row) return { periodLabel: label, saved: null };
+
+  return {
+    periodLabel: label,
+    saved: {
+      id: row.id,
+      title: row.title,
+      status: row.status,
+      markdown: row.markdown,
+      generatedAt: row.generatedAt,
+      generatedBy: row.generatedBy,
+      aiAuthored: row.aiAuthored,
+    },
+  };
+}
+
 export async function listSavedReports(projectId: string, actor: Actor) {
   if (!(await canAccess(projectId, actor))) return [];
   return savedReportRepo.listByProject(projectId);
@@ -500,16 +571,31 @@ export async function getSavedReport(id: string, actor: Actor) {
 
 export type ConfirmResult = { ok: true } | { ok: false; error: string };
 
+/** 錯誤訊息用的時間格式；要讓使用者對得上畫面上的「產生於」。 */
+const formatStamp = (d: Date): string => {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
 /**
  * 人工確認定稿。
  *
  * 確認後內容即為當時送審依據的快照，不可再修改或刪除；
  * 需要更新請重新產生一份。同一期間僅允許一份定稿 ——
  * 兩份都宣稱是「那個月的報表」時，無從判斷以何者為準。
+ *
+ * **`expectedGeneratedAt` 是必填的版本守門，不是可選的保險。**
+ * 草稿是同一列原地覆寫（`upsertDraft`），所以 id 不足以指明「哪一版」：
+ * A 分頁 09:00 看到的草稿，可能在 09:05 被另一個分頁或同事的重新生成
+ * 覆寫成完全不同的內容；A 分頁的畫面與 id 都沒變，按下確認就凍結了
+ * 一份沒人讀過的送審文件。呼叫端一律傳入「畫面上那一份」的產出時間，
+ * 對不上就拒絕 —— 寧可要求使用者重看一次，也不要凍結他沒讀過的東西。
  */
 export async function confirmSavedReport(
   id: string,
   actor: Actor,
+  /** 畫面上那一份的 `generatedAt`（毫秒）。 */
+  expectedGeneratedAt: number,
 ): Promise<ConfirmResult> {
   const row = await savedReportRepo.findById(id);
   if (!row) return { ok: false, error: "找不到此報表。" };
@@ -517,6 +603,13 @@ export async function confirmSavedReport(
     return { ok: false, error: "無權確認此報表。" };
   }
   if (isPeriodReportFrozen(row.status)) return { ok: true };
+
+  if (row.generatedAt.getTime() !== expectedGeneratedAt) {
+    return {
+      ok: false,
+      error: `此草稿已於 ${formatStamp(row.generatedAt)} 被重新產生，內容與你看到的不同。請重新檢視最新版本後再確認定稿。`,
+    };
+  }
 
   const existing = await savedReportRepo.findConfirmedForPeriod(
     row.projectId,

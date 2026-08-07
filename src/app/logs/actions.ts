@@ -115,6 +115,25 @@ export async function loadDailyProgressAction(
 // 留存不再是獨立動作：報表產出時即留存（見 /api/report 與
 // report.service.generateReportView），故此處只有讀取、確認與刪除。
 
+/**
+ * 某期間已留存的報表（唯讀）。
+ *
+ * 供畫面掛載與切換期間使用：純讀取，不呼叫 LLM、不寫入任何紀錄。
+ * 產製一份新的請走 `/api/report`（使用者明確按下「產生」時）。
+ */
+export async function loadPeriodReportAction(
+  projectId: string,
+  type: periodReportService.ReportType,
+  refDate: string | undefined,
+) {
+  return periodReportService.getPeriodReport(
+    projectId,
+    type,
+    refDate,
+    await actor(),
+  );
+}
+
 export async function listSavedReportsAction(projectId: string) {
   return periodReportService.listSavedReports(projectId, await actor());
 }
@@ -141,11 +160,24 @@ export async function openSavedReportAction(id: string) {
   };
 }
 
-export async function confirmSavedReportAction(id: string) {
+/**
+ * 確認定稿。
+ *
+ * `expectedGeneratedAt` 是畫面上那一份的產出時間 —— 草稿為原地覆寫，
+ * 光憑 id 無法指明版本（見 confirmSavedReport 的說明）。
+ */
+export async function confirmSavedReportAction(
+  id: string,
+  expectedGeneratedAt: number,
+) {
   if (!(await currentUserCanEdit("/logs"))) {
     return { ok: false as const, error: "無編輯權限。" };
   }
-  const r = await periodReportService.confirmSavedReport(id, await actor());
+  const r = await periodReportService.confirmSavedReport(
+    id,
+    await actor(),
+    expectedGeneratedAt,
+  );
   refresh();
   return r;
 }

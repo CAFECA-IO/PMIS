@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronRight, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,17 @@ import type { PeriodReportStatus } from "@/generated/prisma/enums";
   顯示到分鐘。清單依產出時間排序，而同一天內反覆重新生成是常態；
   只顯示日期會讓相鄰兩列看起來同時產生，排序失去可驗證性。
 */
+/** 版本識別用的時間戳（毫秒）。 */
+const stampOf = (v: Date | string) => new Date(v).getTime();
+
+/** 展開中的內容，連同讀取當下的版本。 */
+type Opened = {
+  id: string;
+  markdown: string;
+  /** 讀取當下該列的 generatedAt（毫秒）；用以偵測內容已被覆寫。 */
+  generatedAt: number;
+};
+
 const stamp = (v: Date | string) => {
   const d = new Date(v);
   const hh = String(d.getHours()).padStart(2, "0");
@@ -72,16 +83,49 @@ export function ReportArchive({
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  /** 展開中的那一份的全文；一次只開一份，避免長文互相干擾。 */
-  const [opened, setOpened] = useState<{ id: string; markdown: string } | null>(
-    null,
-  );
+  /**
+   * 展開中的那一份的全文；一次只開一份，避免長文互相干擾。
+   *
+   * 連同讀取當下的 `generatedAt` 一起記住：草稿是同一列原地覆寫，
+   * 別處按下重新生成後，這個面板的內容就與該列的「產生於」對不上了。
+   * 先前只在展開時設定一次，於是列上的時間跳到新版、面板卻仍渲染舊內容
+   * —— 使用者讀舊的、對著新的按確認定稿。
+   */
+  const [opened, setOpened] = useState<Opened | null>(null);
+  /** 因內容已被重新產生而被收起的那一份；提示使用者重新開啟。 */
+  const [staleId, setStaleId] = useState<string | null>(null);
+
+  /*
+    以 ref 讀取當前展開狀態：load 不能把 opened 放進相依陣列
+    （否則展開／收合都會重新載入清單），但又必須拿到最新值來比對版本。
+  */
+  const openedRef = useRef<Opened | null>(null);
+  useEffect(() => {
+    openedRef.current = opened;
+  }, [opened]);
 
   const key = `${projectId}|${reloadToken}`;
 
   const load = useCallback(() => {
     listSavedReportsAction(projectId).then((data) => {
-      setRows(data as Row[]);
+      const fresh = data as Row[];
+      setRows(fresh);
+
+      /*
+        清單每次重載都要重新驗證展開中的內容是否仍是同一版。
+        不驗證的話，畫面上會同時出現新版的「產生於」與舊版的內文。
+      */
+      const open = openedRef.current;
+      if (open) {
+        const row = fresh.find((r) => r.id === open.id);
+        if (!row) {
+          setOpened(null);
+        } else if (stampOf(row.generatedAt) !== open.generatedAt) {
+          // 不靜默換掉眼前的內容：收起並要求重新開啟，讓重讀是個明確動作
+          setOpened(null);
+          setStaleId(open.id);
+        }
+      }
       setLoadedKey(key);
     });
   }, [projectId, key]);
@@ -103,16 +147,31 @@ export function ReportArchive({
       setError("無法開啟此報表。");
       return;
     }
-    setOpened({ id, markdown: row.markdown });
+    if (staleId === id) setStaleId(null);
+    // 記下讀取當下的版本，供後續比對與定稿守門
+    setOpened({
+      id,
+      markdown: row.markdown,
+      generatedAt: stampOf(row.generatedAt),
+    });
   }
 
-  async function onConfirm(id: string) {
-    setBusy(id);
+  async function onConfirm(r: Row) {
+    setBusy(r.id);
     setError(null);
-    const r = await confirmSavedReportAction(id);
+    /*
+      送出「使用者眼前這一份」的版本。展開讀過的以面板為準，
+      否則以列上顯示的產出時間為準 —— 兩者都是畫面上看得到的值。
+      伺服器比對不符即拒絕（見 confirmSavedReport）。
+    */
+    const expected =
+      opened?.id === r.id ? opened.generatedAt : stampOf(r.generatedAt);
+    const res = await confirmSavedReportAction(r.id, expected);
     setBusy(null);
-    if (!r.ok) setError(r.error);
-    else {
+    if (!res.ok) {
+      setError(res.error);
+      load(); // 讓畫面追上實際版本，使用者才知道自己看的是舊的
+    } else {
       load();
       onChanged?.();
     }
@@ -202,7 +261,7 @@ export function ReportArchive({
                       size="sm"
                       variant="outline"
                       disabled={busy === r.id}
-                      onClick={() => onConfirm(r.id)}
+                      onClick={() => onConfirm(r)}
                     >
                       <Check className="size-3.5" />
                       確認定稿
@@ -231,6 +290,11 @@ export function ReportArchive({
               {isOpen && (
                 <div className="border-t bg-muted/30 p-4">
                   <Markdown content={opened.markdown} />
+                </div>
+              )}
+              {staleId === r.id && (
+                <div className="border-t bg-warning/10 px-4 py-2 text-[11px] text-muted-foreground">
+                  此報表已被重新產生，先前展開的內容已非最新版；請重新開啟以讀取現在的內容。
                 </div>
               )}
             </div>

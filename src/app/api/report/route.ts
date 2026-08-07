@@ -28,6 +28,17 @@ export async function POST(request: Request) {
       : "MONTHLY";
 
     /*
+      基準日不合理就拒絕，不要退回「今天」——
+      使用者以為在產 2026 年 8 月，系統卻默默產了本月，那比報錯更糟。
+    */
+    if (reportService.parseRefDate(body.refDate) === null) {
+      return NextResponse.json(
+        { error: "基準日不正確，請確認年份。" },
+        { status: 400 },
+      );
+    }
+
+    /*
       產出即留存（決策 J-a）：回傳的 markdown 與寫進 GeneratedReport 的
       是同一個字串，故「畫面上這一版」與「留存的那一版」不可能不同。
       僅有編輯權限者會留存 —— 純瀏覽不應在留存清單留下紀錄。
