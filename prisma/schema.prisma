@@ -301,7 +301,14 @@ model WorkItem {
   plannedEnd   DateTime?
   actualStart  DateTime?
   actualEnd    DateTime?
-  progress     Int            @default(0) // percent 0-100
+  /// 人工填報進度（0-100）。
+  ///
+  /// 決策 F（2026-08-05）：本欄是**未計量工項**（無 contractQty／unit，
+  /// 例如自表單新增而尚未登錄數量者）的唯一進度來源，亦為已計量工項的後備值。
+  /// 已計量工項的進度以數量推導為準，見 work-item-effective.effectiveProgress；
+  /// 推導值刻意**不回寫**本欄，故本欄不代表當前有效進度。
+  /// 下游（S 曲線、履約事項上捲）應讀有效進度而非本欄。
+  progress     Int            @default(0)
   status       WorkItemStatus @default(NOT_STARTED)
 
   // ── 數量與估驗（詳細工項數量與估驗台帳）──────────────────
@@ -313,7 +320,14 @@ model WorkItem {
   unit         String? // 計量單位，如 m3、m、組、式
   contractQty  Decimal? // 契約數量
   unitPrice    Decimal? // 單價
-  completedQty Decimal? // 累計完成量（人工更新）
+  /// 期初累計完成量。
+  ///
+  /// 語意已於 2026-08-05（決策 A）改變：此欄不再是「當前累計完成量」，
+  /// 而是「開始以日報填報之前的累計基準」。當前有效累計量為
+  ///   期初(本欄) + Σ 日報 SupervisionReportItem.dailyQty
+  /// 由 work-item-effective.effectiveCompletedQty 推導，不回寫本欄。
+  /// 人工寫入入口已關閉（台帳改唯讀），避免與日報加總並存成為第二個來源。
+  completedQty Decimal?
   inspectedQty Decimal? // 查驗合格量
   valuatedQty  Decimal? // 累計估驗量
 
@@ -326,6 +340,8 @@ model WorkItem {
   inspections  Inspection[]
   defects      Defect[]
   carbonEntries CarbonEntry[]
+  /// 日報數量表中引用本分項的列（累計完成量的來源）。
+  reportItems  SupervisionReportItem[]
 
   @@index([projectId])
   @@index([obligationId])
@@ -864,9 +880,53 @@ model SupervisionReport {
   createdAt  DateTime     @default(now())
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// 數量表：本日各施工項目的完成數量。
+  items   SupervisionReportItem[]
 
   @@unique([projectId, reportDate])
   @@index([projectId])
+}
+
+/// 監造日報的數量表一列（E1）。
+///
+/// 只存「本日完成量」，不存累計 —— 累計 = 期初 + Σ 本日。
+/// 兩者都存必然對不起來，而對帳時無從判斷哪個是真的
+/// （與 WorkItem 數量欄位「推導而不儲存」的原則一致）。
+///
+/// 依決策 A，本表的加總是月報累計完成量與逐工項本期完成的**權威來源**，
+/// 取代原先規劃的 WorkItemPeriodSnapshot 月結快照。
+model SupervisionReportItem {
+  id       String @id @default(cuid())
+  reportId String
+
+  /// 對應的工程分項。
+  ///
+  /// 允許為 null 以容納契約外的臨時項目（如未登錄於台帳的「化冀池打除」）。
+  /// null 的列僅存在於該日報中，**不計入任何工項的累計量**
+  /// —— 否則日報會成為繞過契約管控、憑空建立工項的旁路。
+  workItemId String?
+
+  /// 施工項目名稱快照。
+  ///
+  /// 刻意複製而非僅靠關聯：工程分項日後更名或刪除後，
+  /// 歷史日報仍須還原當時的內容（法定文件不可回溯改寫）。
+  itemName String
+  /// 計量單位快照；應取自 WorkItem.unit，不由使用者自填，
+  /// 否則同一工項在不同日報用不同單位而無法加總。
+  unit     String?
+  /// 本日完成數量。
+  dailyQty Decimal
+  note     String?
+  /// 表單與報表中的排列順序。
+  sortOrder Int @default(0)
+
+  report   SupervisionReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  /// SetNull 而非 Cascade：工項被刪除時，該日的施工紀錄仍是法定文件的一部分，
+  /// 應保留並以 itemName 快照呈現，不可連帶消失。
+  workItem WorkItem?         @relation(fields: [workItemId], references: [id], onDelete: SetNull)
+
+  @@index([reportId])
+  @@index([workItemId])
 }
 
 // ─────────────────────────────────────────────────────────────
