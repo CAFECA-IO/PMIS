@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   actionsFor,
   describeCreation,
+  describeDeletion,
   describeFieldChanges,
   describeQtyChanges,
   type QtySnapshotRow,
@@ -156,6 +157,51 @@ test("describeCreation 全空時仍產出可辨識的紀錄", () => {
 test("describeCreation 截斷過長內容", () => {
   const d = describeCreation({ summary: "很長".repeat(500) }, []);
   assert.ok(d.length <= 501, "單筆軌跡不應塞入整段敘述");
+});
+
+// ── describeDeletion ───────────────────────────────────────
+
+const deletion = (over: Partial<Parameters<typeof describeDeletion>[0]> = {}) =>
+  describeDeletion({
+    reportDateLabel: "2026-03-14",
+    statusLabel: "已提送",
+    fields: { summary: "澆置", excludedFromDuration: "否" },
+    items: [row("a", "管線", 10)],
+    ...over,
+  });
+
+test("describeDeletion 記下是哪一天的日報", () => {
+  // 本表無外鍵，刪除後 reportId 已無對應；沒有日期就不知道哪一天的量不見了
+  assert.ok(deletion().summary.includes("2026-03-14"));
+  assert.ok(deletion().summary.includes("已提送"), "狀態決定它是否曾計入累計");
+});
+
+test("describeDeletion 一律列出免計工期宣告，即使為否", () => {
+  // 免計工期在展延爭議中有金額意義；「沒有宣告」本身也是要留存的事實
+  assert.ok(deletion().summary.includes("免計工期：否"));
+  const withBasis = deletion({
+    fields: { excludedFromDuration: "是", exclusionBasis: "契約第 12 條" },
+  });
+  assert.ok(withBasis.summary.includes("免計工期：是（契約第 12 條）"));
+  const missing = deletion({ fields: { summary: "澆置" } });
+  assert.ok(
+    missing.summary.includes("免計工期：未載明"),
+    "欄位缺值不可靜默略過",
+  );
+});
+
+test("describeDeletion 保存欄位與數量表的完整快照", () => {
+  const d = deletion();
+  const parsed = JSON.parse(d.before) as {
+    fields: Record<string, string | null>;
+    items: unknown[];
+  };
+  assert.equal(parsed.fields.summary, "澆置", "文字內容刪除後只剩這份快照");
+  assert.deepEqual(parsed.items, [row("a", "管線", 10)]);
+});
+
+test("describeDeletion 無數量表時寫明，不留空白", () => {
+  assert.ok(deletion({ items: [] }).summary.includes("無數量表"));
 });
 
 // ── actionsFor ──────────────────────────────────────────────

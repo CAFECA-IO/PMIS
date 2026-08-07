@@ -163,3 +163,13 @@ export async function deleteSavedReportAction(id: string) {
 export async function listReportAuditAction(reportId: string) {
   return reportService.listReportAudit(reportId, await actor());
 }
+
+/**
+ * 某專案的日報變更軌跡（含已刪除的日報）。
+ *
+ * 已刪除日報的軌跡只能由此讀到 —— 逐份查詢需要 reportId，
+ * 而日報刪除後使用者已無從得知那個 id。
+ */
+export async function listProjectAuditAction(projectId: string) {
+  return reportService.listProjectAudit(projectId, await actor());
+}

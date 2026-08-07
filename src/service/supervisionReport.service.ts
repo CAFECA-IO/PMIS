@@ -7,6 +7,7 @@ import * as auditRepo from "@/repository/supervisionReportAudit.repository";
 import {
   actionsFor,
   describeCreation,
+  describeDeletion,
   describeFieldChanges,
   describeQtyChanges,
   type ComparableFields,
@@ -391,6 +392,7 @@ export async function fileReport(input: ReportInput, actor: Actor) {
   await writeAudit({
     reportId,
     projectId: input.projectId,
+    reportDate,
     actor,
     isNew: !existing,
     beforeFields,
@@ -412,6 +414,8 @@ export async function fileReport(input: ReportInput, actor: Actor) {
 async function writeAudit(input: {
   reportId: string;
   projectId: string;
+  /** 該日報的報表日期；使軌跡在日報刪除後仍看得出是哪一天。 */
+  reportDate: Date;
   actor: Actor;
   isNew: boolean;
   beforeFields: ComparableFields | null;
@@ -441,6 +445,7 @@ async function writeAudit(input: {
   const base = {
     reportId: input.reportId,
     projectId: input.projectId,
+    reportDate: input.reportDate,
     actorId: input.actor.id,
     actorName: input.actor.name ?? null,
   };
@@ -513,6 +518,7 @@ export async function updateReport(
   await writeAudit({
     reportId: id,
     projectId: existing.projectId,
+    reportDate: existing.reportDate,
     actor,
     isNew: false,
     beforeFields,
@@ -539,25 +545,43 @@ export async function deleteReport(id: string, actor: Actor) {
   if (!existing || !(await canAccess(existing.projectId, actor))) return false;
 
   /*
-    刪除前先保存數量明細：日報數量是月報金額的來源（決策 A），
+    刪除前先保存完整內容：日報數量是月報金額的來源（決策 A），
     整份刪除會改變彙整結果，這正是最需要留下軌跡的事件。
-    軌跡表刻意不設外鍵，故此紀錄在日報刪除後仍存在。
+    軌跡表刻意不設外鍵，故此紀錄在日報刪除後仍存在；
+    也因此日期與欄位內容都必須寫進軌跡本身，不能指望回查已不存在的那一列。
   */
   const items = toSnapshot(await reportRepo.listItems(id));
+  const detail = describeDeletion({
+    reportDateLabel: ymd(existing.reportDate),
+    statusLabel: reportStatusMeta[existing.status].label,
+    fields: comparable(existing),
+    items,
+  });
+
   await reportRepo.remove(id);
   await auditRepo.create({
     reportId: id,
     projectId: existing.projectId,
+    reportDate: existing.reportDate,
     action: "DELETE",
     actorId: actor.id,
     actorName: actor.name ?? null,
     fromStatus: existing.status,
-    detail:
-      items.length > 0
-        ? `刪除日報，含數量表 ${items.length} 列\n${JSON.stringify(items)}`
-        : "刪除日報（無數量表）",
+    detail: `${detail.summary}\n${detail.before}`,
   });
   return true;
+}
+
+/**
+ * 某專案的日報變更軌跡（含已刪除的日報）。
+ *
+ * 沒有這個入口，已刪除日報的軌跡等於不存在：`listReportAudit` 需要
+ * `reportId`，而日報一旦刪除，使用者已無從得知那個 id。
+ * 而刪除正是最需要被看見的事件 —— 它會改變月報金額。
+ */
+export async function listProjectAudit(projectId: string, actor: Actor) {
+  if (!(await canAccess(projectId, actor))) return [];
+  return auditRepo.listByProject(projectId);
 }
 
 /** 某份日報的變更軌跡（決策 J-b）。 */

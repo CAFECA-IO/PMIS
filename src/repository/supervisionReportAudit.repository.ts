@@ -6,6 +6,8 @@ export type AuditAction = "CREATE" | "UPDATE" | "STATUS" | "ITEMS" | "DELETE";
 export type CreateAuditData = {
   reportId: string;
   projectId: string;
+  /** 該日報的報表日期；刪除後 reportId 已無對應，靠本欄辨識是哪一天。 */
+  reportDate?: Date | null;
   itemId?: string | null;
   action: AuditAction;
   actorId?: string | null;
@@ -33,7 +35,12 @@ export function listByReport(reportId: string) {
   });
 }
 
-/** 某專案的軌跡（含已刪除日報的紀錄）。 */
+/**
+ * 某專案的軌跡（含已刪除日報的紀錄）。
+ *
+ * 已刪除日報的軌跡只能由此讀到 —— `listByReport` 需要 reportId，
+ * 而日報一旦刪除，使用者已無從得知那個 id。
+ */
 export function listByProject(projectId: string, take = 200) {
   return prisma.supervisionReportAuditLog.findMany({
     where: { projectId },

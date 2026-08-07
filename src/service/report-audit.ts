@@ -163,6 +163,48 @@ export function describeCreation(
   return clip(`建立日報｜${body}`, 500);
 }
 
+/**
+ * 刪除一份日報時的完整描述。
+ *
+ * 刪除是唯一「內容自此消失」的動作，因此軌跡必須自帶重建所需的一切：
+ *  - **日期**：本表無外鍵，刪除後 `reportId` 已無對應；
+ *    月報金額變動時要問的第一個問題就是「哪一天的量不見了」。
+ *  - **免計工期宣告**：那是監造依契約條款的宣告，在工期展延爭議中有金額意義，
+ *    被刪掉卻沒留紀錄的話，後續無從證明曾經宣告過。
+ *  - **完整快照（JSON）**：欄位與數量表一併保存，內容才真的可回溯重建。
+ *
+ * 回傳 `{ summary, before }`，與數量表軌跡同形狀：摘要給人看，JSON 供重建。
+ */
+export function describeDeletion(input: {
+  reportDateLabel: string;
+  statusLabel: string;
+  fields: ComparableFields;
+  items: QtySnapshotRow[];
+}): QtyChange {
+  const parts = [`刪除 ${input.reportDateLabel} 日報（狀態：${input.statusLabel}）`];
+
+  // 免計工期一律列示，即使為「否」—— 沒有宣告本身也是需要留存的事實
+  const excluded = (input.fields.excludedFromDuration ?? "").trim();
+  const basis = (input.fields.exclusionBasis ?? "").trim();
+  parts.push(`免計工期：${excluded || "未載明"}${basis ? `（${basis}）` : ""}`);
+
+  const stop = (input.fields.stopReason ?? "").trim();
+  if (stop) parts.push(`停工原因：${stop}`);
+
+  parts.push(
+    input.items.length > 0
+      ? `含數量表 ${input.items.length} 列：${input.items
+          .map((i) => `${i.itemName} ${i.dailyQty}${i.unit ?? ""}`)
+          .join("、")}`
+      : "無數量表",
+  );
+
+  return {
+    summary: clip(parts.join("；"), 500),
+    before: JSON.stringify({ fields: input.fields, items: input.items }),
+  };
+}
+
 /** 依是否有欄位／數量異動決定要寫哪些軌跡動作。 */
 export function actionsFor(input: {
   isNew: boolean;

@@ -13,6 +13,11 @@ import {
   openSavedReportAction,
 } from "@/app/logs/actions";
 import { formatDate } from "@/lib/utils";
+import {
+  isPeriodReportFrozen,
+  periodReportStatusMeta,
+} from "@/constant/pmis";
+import type { PeriodReportStatus } from "@/generated/prisma/enums";
 
 /*
   顯示到分鐘。清單依產出時間排序，而同一天內反覆重新生成是常態；
@@ -39,7 +44,7 @@ type Row = {
   id: string;
   title: string;
   periodLabel: string;
-  status: string;
+  status: PeriodReportStatus;
   /** 本份內容的產出時間；草稿覆寫時會更新，故不用 createdAt。 */
   generatedAt: Date | string;
   generatedBy: string | null;
@@ -147,7 +152,8 @@ export function ReportArchive({
       {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="divide-y rounded-lg border">
         {rows.map((r) => {
-          const confirmed = r.status === "CONFIRMED";
+          const meta = periodReportStatusMeta[r.status];
+          const confirmed = isPeriodReportFrozen(r.status);
           const isOpen = opened?.id === r.id;
           return (
             <div key={r.id}>
@@ -168,9 +174,7 @@ export function ReportArchive({
                     <ChevronRight className="size-3.5" />
                   )}
                 </Button>
-                <Badge variant={confirmed ? "success" : "muted"}>
-                  {confirmed ? "已確認" : "草稿"}
-                </Badge>
+                <Badge variant={meta.variant}>{meta.label}</Badge>
                 <span className="font-medium">{r.periodLabel}</span>
                 {/* 讓「上面那一版」與清單裡的哪一列對應得起來 */}
                 {r.id === currentId && (

@@ -73,6 +73,49 @@ const base: ReportTemplateInput = {
   review: "本月完成 4.00%，高於預定 3.00%。",
 };
 
+test("累計進度缺值時呈現「—」而非 0，且不宣稱與預定相符", () => {
+  /*
+    0 代表「確實毫無進度」，缺值代表「無從計算」——在送審文件上意義完全不同。
+    先前以 `?? 0` 代入，表格印 0.00% 而餵給 LLM 的事實文字是「—」，
+    同一份報表兩個說法；落差還會被算成 0 而寫出「與預定相符」。
+  */
+  const md = buildReportMarkdown({
+    ...base,
+    progress: {
+      currentPlanned: null,
+      currentActual: null,
+      cumulativePlanned: null,
+      cumulativeActual: null,
+    },
+    review: null,
+  });
+  const row = (needle: string) =>
+    md.split("\n").find((l) => l.includes(needle)) ?? "";
+
+  assert.ok(
+    !row("累計預定進度").includes("%"),
+    `累計預定應為「—」，實得：${row("累計預定進度")}`,
+  );
+  assert.ok(
+    !row("累計完成進度").includes("%"),
+    `累計完成應為「—」，實得：${row("累計完成進度")}`,
+  );
+  assert.ok(!md.includes("與預定相符"), "缺值不得被算成落差 0");
+  assert.ok(md.includes("無法比對落差"));
+});
+
+test("未納入進度比對的工項數必須揭露", () => {
+  // 20 項裡只有 1 項參與比對時，「累計完成 100%」是誤導性的真話
+  const md = buildReportMarkdown({ ...base, unscheduledWorkItems: 20 });
+  assert.ok(md.includes("20 項未設定預定起訖日"), "3.1 需說明涵蓋範圍");
+  assert.ok(md.includes("| 未納入進度比對 | 20 項"), "註記表需列示");
+});
+
+test("全部工項皆有預定起訖日時不加註記，避免無謂雜訊", () => {
+  const md = buildReportMarkdown({ ...base, unscheduledWorkItems: 0 });
+  assert.ok(!md.includes("未納入進度比對"));
+});
+
 test("五層標題齊備、法定識別欄位不遺漏", () => {
   const md = buildReportMarkdown(base);
   for (const h of [

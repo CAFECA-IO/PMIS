@@ -8,6 +8,7 @@ import {
   type SCurveInput,
   type WorkItemInput,
   workItemWeight,
+  isSchedulable,
   plannedProgressAt,
   weightedProgressDelta,
 } from "./scurve";
@@ -197,10 +198,50 @@ test("weightedProgressDelta：以工期天數加權彙總各工項本期增量",
   assert.equal(weightedProgressDelta(rows), 50, "等權重、一個 100% 一個 0% → 50%");
 });
 
-test("weightedProgressDelta：空陣列回 null；增量夾在 0–100", () => {
+test("weightedProgressDelta：增量夾在 0–100", () => {
+  const sched = (delta: number) => [
+    {
+      plannedStart: new Date("2026-01-01"),
+      plannedEnd: new Date("2026-01-11"),
+      delta,
+    },
+  ];
+  assert.equal(weightedProgressDelta(sched(250)), 100, "超過 100 應夾住");
+  assert.equal(weightedProgressDelta(sched(-30)), 0, "負值應夾住");
+});
+
+test("weightedProgressDelta：無可比對的工項時回 null，不臆造 0", () => {
   assert.equal(weightedProgressDelta([]), null);
-  const one = [{ plannedStart: null, plannedEnd: null, delta: 250 }];
-  assert.equal(weightedProgressDelta(one), 100, "超過 100 應夾住");
-  const neg = [{ plannedStart: null, plannedEnd: null, delta: -30 }];
-  assert.equal(weightedProgressDelta(neg), 0, "負值應夾住");
+  assert.equal(
+    weightedProgressDelta([{ plannedStart: null, plannedEnd: null, delta: 50 }]),
+    null,
+    "只有未排程工項時無預定值可比，應與 plannedProgressAt 同樣回 null",
+  );
+});
+
+test("weightedProgressDelta：母體與 plannedProgressAt 相同，未排程工項不稀釋分母", () => {
+  /*
+    這是實際發生過的失效：預定側只算有排程的工項，完成側算全部，
+    落差便純粹來自母體不同 —— 1 個排程工項做完 100%、另有 20 個無預定日的工項，
+    會算出預定 100%、完成 60%，報表宣稱落後 40 個百分點。
+  */
+  const at = new Date("2026-01-11");
+  const items = [
+    wi("2026-01-01", "2026-01-11"),
+    ...Array.from({ length: 20 }, () => wi(null, null)),
+  ];
+  const planned = plannedProgressAt(items, at);
+  const actual = weightedProgressDelta(
+    items.map((w) => ({ ...w, delta: w.plannedStart ? 100 : 0 })),
+  );
+
+  assert.equal(planned, 100);
+  assert.equal(actual, 100, "該做的都做完了，不應被未排程工項拉低");
+  assert.equal(actual! - planned!, 0, "落差不得來自母體不同");
+});
+
+test("isSchedulable：以是否具備預定起訖日判定", () => {
+  assert.equal(isSchedulable(wi("2026-01-01", "2026-01-11")), true);
+  assert.equal(isSchedulable(wi(null, null)), false);
+  assert.equal(isSchedulable(wi("2026-01-01", null)), false, "只有起日不算");
 });

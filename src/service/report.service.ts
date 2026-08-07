@@ -6,8 +6,10 @@ import { getWorkItemDetails } from "@/service/project.service";
 import { derivedProgress } from "@/service/obligation-rollup";
 import * as faith from "@/service/faith.service";
 import { canSeeAllProjects } from "@/lib/auth";
+import { isPeriodReportFrozen } from "@/constant/pmis";
 import {
   buildWorkItemSCurve,
+  isSchedulable,
   plannedProgressAt,
   weightedProgressDelta,
 } from "@/service/scurve";
@@ -195,17 +197,32 @@ export async function generateReport(
     loadDailyQtyTotalsInPeriod(projectId, start, end),
   ]);
 
+  /*
+    ── 進度比對的母體：只取具預定起訖日的工項 ──────────────────
+
+    預定與完成必須算在同一批工項上。未設定預定起訖者沒有預定值可比，
+    先前完成側納入、預定側排除，落差便純粹來自母體不同：
+    1 個排程工項做完 100%、另有 20 個無預定日的工項，
+    會算出預定 100%、完成 60%，報表宣稱落後 40 個百分點。
+    這個數字會進入工期展延爭議。
+
+    被排除的工項不是被忽略 —— 其累計完成仍列於 3.3，
+    且排除數量會在報表上明白標示（`unscheduledWorkItems`）。
+  */
+  const basis = wiDetails.filter(isSchedulable);
+  const unscheduledWorkItems = wiDetails.length - basis.length;
+
   // 累計完成：各工項截至期末的有效進度（決策 F）以預定工期天數加權
-  const cumulativeActual = derivedProgress(wiDetails);
+  const cumulativeActual = basis.length > 0 ? derivedProgress(basis) : null;
   // 累計預定：各工項於預定期間線性展開至期末
-  const cumulativePlanned = plannedProgressAt(wiDetails, end);
+  const cumulativePlanned = plannedProgressAt(basis, end);
 
   /*
     本期預定增量＝期末預定 − 期初前一刻預定。
     取期初「前一刻」而非期初當日，否則期初當日的增量會被算進上一期。
   */
   const beforeStart = new Date(start.getTime() - 1);
-  const plannedAtStart = plannedProgressAt(wiDetails, beforeStart);
+  const plannedAtStart = plannedProgressAt(basis, beforeStart);
   const currentPlanned =
     cumulativePlanned != null && plannedAtStart != null
       ? Math.round((cumulativePlanned - plannedAtStart) * 100) / 100
@@ -217,7 +234,7 @@ export async function generateReport(
     無法得知期間內的增量，此為決策 F 下已知且已於 3.3 註明的限制。
   */
   const currentActual = weightedProgressDelta(
-    wiDetails.map((w) => {
+    basis.map((w) => {
       const contract = toNum(w.contractQty);
       const periodQty = periodQtyTotals.get(w.id) ?? 0;
       return {
@@ -308,13 +325,24 @@ export async function generateReport(
   );
 
   // ── 期間評述：僅餵摘要層既算數字，LLM 不得引入其他資訊 ──
+  /*
+    缺任一側就沒有落差可言。先前以 0 代入等於宣稱「與預定相符」，
+    而那正是缺值時最容易被當真的一句話。
+  */
   const gap =
-    cumulativePlanned != null ? cumulativeActual - cumulativePlanned : 0;
+    cumulativePlanned != null && cumulativeActual != null
+      ? cumulativeActual - cumulativePlanned
+      : null;
   const factsText = [
     `專案：${project.name}（${project.code}）`,
     `期間：${label}（${typeLabel}）`,
     `${periodWord}預定進度 ${currentPlanned ?? "—"}%，${periodWord}完成進度 ${currentActual ?? "—"}%`,
-    `累計預定進度 ${cumulativePlanned ?? "—"}%，累計完成進度 ${cumulativeActual}%，${describeGap(gap)}`,
+    `累計預定進度 ${cumulativePlanned ?? "—"}%，累計完成進度 ${cumulativeActual ?? "—"}%，${
+      gap != null ? describeGap(gap) : "缺預定或完成值，無法比對落差"
+    }`,
+    unscheduledWorkItems > 0
+      ? `註：另有 ${unscheduledWorkItems} 項工程分項未設定預定起訖日，未納入上述整體進度比對`
+      : "全部工程分項均已設定預定起訖日",
     duration.elapsed != null && duration.total != null
       ? `工期使用 ${duration.elapsed} / ${duration.total} 天，剩餘 ${duration.remaining} 天`
       : "工期資料不完整（契約工期或開工日未填）",
@@ -350,12 +378,13 @@ export async function generateReport(
     },
     scopeItems: project.scopeItems.map((s) => s.title),
     excludedDraftDays,
+    unscheduledWorkItems,
     duration,
     progress: {
       currentPlanned,
       currentActual,
       // 無任何具預定起訖日的工項時無從計算；以 0 呈現會誤導，故沿用 null 語意
-      cumulativePlanned: cumulativePlanned ?? 0,
+      cumulativePlanned,
       cumulativeActual,
     },
     curve,
@@ -487,7 +516,7 @@ export async function confirmSavedReport(
   if (!(await canAccess(row.projectId, actor))) {
     return { ok: false, error: "無權確認此報表。" };
   }
-  if (row.status === "CONFIRMED") return { ok: true };
+  if (isPeriodReportFrozen(row.status)) return { ok: true };
 
   const existing = await savedReportRepo.findConfirmedForPeriod(
     row.projectId,
@@ -518,7 +547,7 @@ export async function deleteSavedReport(
   if (!(await canAccess(row.projectId, actor))) {
     return { ok: false, error: "無權刪除此報表。" };
   }
-  if (row.status === "CONFIRMED") {
+  if (isPeriodReportFrozen(row.status)) {
     return { ok: false, error: "已確認的報表為送審依據之留存，不可刪除。" };
   }
   await savedReportRepo.remove(id);

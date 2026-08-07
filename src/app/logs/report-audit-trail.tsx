@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from "react";
 
-import { listReportAuditAction } from "@/app/logs/actions";
+import {
+  listProjectAuditAction,
+  listReportAuditAction,
+} from "@/app/logs/actions";
 import { reportStatusMeta } from "@/constant/pmis";
 
 /**
@@ -16,6 +19,8 @@ import { reportStatusMeta } from "@/constant/pmis";
 type Row = {
   id: string;
   action: string;
+  /** 該日報的報表日期；專案層清單靠它辨識是哪一天（尤其是已刪除者）。 */
+  reportDate?: Date | string | null;
   actorName: string | null;
   fromStatus: string | null;
   toStatus: string | null;
@@ -53,6 +58,39 @@ function splitDetail(detail: string | null): { summary: string; raw: string | nu
   return { summary: detail.slice(0, i), raw: detail.slice(i + 1) };
 }
 
+/**
+ * 專案層的日報變更軌跡（含已刪除的日報）。
+ *
+ * 逐份查看只能看到還存在的日報；而刪除正是最需要被看見的事件
+ * —— 它會把某一天的數量從所有月報的累計中移除。
+ */
+export function ProjectAuditTrail({ projectId }: { projectId: string }) {
+  const [rows, setRows] = useState<Row[]>([]);
+  const [loadedId, setLoadedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let stale = false;
+    listProjectAuditAction(projectId).then((data) => {
+      if (stale) return;
+      setRows(data as Row[]);
+      setLoadedId(projectId);
+    });
+    return () => {
+      stale = true;
+    };
+  }, [projectId]);
+
+  if (loadedId !== projectId) {
+    return <p className="text-[11px] text-muted-foreground">載入變更軌跡…</p>;
+  }
+  if (rows.length === 0) {
+    return (
+      <p className="text-[11px] text-muted-foreground">本專案尚無日報變更紀錄。</p>
+    );
+  }
+  return <AuditList rows={rows} showDate />;
+}
+
 export function ReportAuditTrail({ reportId }: { reportId: string }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [loadedId, setLoadedId] = useState<string | null>(null);
@@ -80,6 +118,16 @@ export function ReportAuditTrail({ reportId }: { reportId: string }) {
     );
   }
 
+  return <AuditList rows={rows} />;
+}
+
+/**
+ * 軌跡列表的呈現。
+ *
+ * 逐份與專案層共用同一份呈現：兩處若各寫一份，日後只改其中一處
+ * 會讓同一筆紀錄在兩個畫面上說法不同 —— 那正是稽核軌跡最不該發生的事。
+ */
+function AuditList({ rows, showDate = false }: { rows: Row[]; showDate?: boolean }) {
   return (
     <ul className="space-y-1 text-[11px]">
       {rows.map((r) => {
@@ -88,6 +136,18 @@ export function ReportAuditTrail({ reportId }: { reportId: string }) {
           <li key={r.id} className="border-l-2 pl-2">
             <div className="flex flex-wrap items-baseline gap-x-2">
               <span className="font-medium">{ACTION_LABEL[r.action] ?? r.action}</span>
+              {/* 專案層需標明是哪一天的日報；已刪除者更是只剩這個線索 */}
+              {showDate && (
+                <span className="font-medium">
+                  {r.reportDate
+                    ? `${new Date(r.reportDate).getFullYear()}/${String(
+                        new Date(r.reportDate).getMonth() + 1,
+                      ).padStart(2, "0")}/${String(
+                        new Date(r.reportDate).getDate(),
+                      ).padStart(2, "0")}`
+                    : "日期未紀錄"}
+                </span>
+              )}
               <span className="text-muted-foreground">{stamp(r.createdAt)}</span>
               {r.actorName && (
                 <span className="text-muted-foreground">{r.actorName}</span>

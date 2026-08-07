@@ -1115,11 +1115,19 @@ model SupervisionReportAuditLog {
   actorId   String?
   actorName String?
 
+  /// 該日報的報表日期。
+  ///
+  /// 刻意冗餘保存而非查 `SupervisionReport`：本表無外鍵，日報刪除後
+  /// 只剩 `reportId` 這個已無對應的字串，看軌跡的人無從得知刪掉的是哪一天
+  /// —— 而「哪一天的量被移除」正是月報金額變動時唯一要問的問題。
+  /// 可空僅為相容本欄加入前的既有紀錄。
+  reportDate DateTime?
+
   fromStatus ReportStatus?
   toStatus   ReportStatus?
 
   /// 變更細節。欄位異動記為「欄位：舊 → 新」；
-  /// 數量表異動則保存變更前的明細（JSON），使數字可回溯重建。
+  /// 數量表異動與刪除則保存變更前的完整明細（JSON），使內容可回溯重建。
   detail String?
 
   createdAt DateTime @default(now())

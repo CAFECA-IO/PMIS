@@ -17,6 +17,7 @@ import type {
   ReviewResult,
   MediaType,
   ReportStatus,
+  PeriodReportStatus,
   WorkStopReason,
   ProjectMemberRole,
   CarbonScope,
@@ -259,6 +260,28 @@ export const workStopReasonMeta: Record<WorkStopReason, Meta> = {
 export const workStopReasonOptions = Object.entries(workStopReasonMeta).map(
   ([value, meta]) => ({ value, label: meta.label }),
 );
+
+/**
+ * 彙整報表（週／月／季／年）留存的狀態標籤（決策 J-a）。
+ *
+ * 與日報的 `reportStatusMeta` 是不同的狀態機，不可共用：
+ * 日報有 DRAFT／SUBMITTED／APPROVED 三態，彙整報表只有草稿與定稿。
+ */
+export const periodReportStatusMeta: Record<PeriodReportStatus, Meta> = {
+  DRAFT: { label: "草稿", variant: "muted" },
+  CONFIRMED: { label: "已確認", variant: "success" },
+};
+
+/**
+ * 該留存是否已凍結（送審依據，不可修改或刪除）。
+ *
+ * 「CONFIRMED 即凍結」是業務規則，出現在服務層的確認與刪除守門、
+ * 以及畫面的按鈕可見性三處。收在此處以免三份各自內聯字面值 ——
+ * 狀態機日後若增加一態（例如「作廢」），漏改的那一處會讓已送審的報表可被刪除。
+ */
+export function isPeriodReportFrozen(status: PeriodReportStatus): boolean {
+  return status === "CONFIRMED";
+}
 
 /**
  * 日報數量計入累計完成量的狀態（決策 G，2026-08-05）。

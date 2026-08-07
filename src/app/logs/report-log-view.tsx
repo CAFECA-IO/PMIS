@@ -18,7 +18,7 @@ import { reportStatusMeta } from "@/constant/pmis";
 import { formatDate } from "@/lib/utils";
 import { ReportDialogFields } from "./report-dialog-fields";
 import { ReportEditForm } from "./report-edit-form";
-import { ReportAuditTrail } from "./report-audit-trail";
+import { ProjectAuditTrail, ReportAuditTrail } from "./report-audit-trail";
 import { fileReportAction } from "./actions";
 import { getWeatherIcon } from "@/constant/weather";
 
@@ -185,6 +185,20 @@ export function ReportLogView({
           canEdit={canEdit}
         />
       )}
+
+      {/*
+        專案層軌跡：唯一能看到「已刪除日報」的地方。
+        逐份查看需要 reportId，而日報刪除後使用者已無從得知那個 id ——
+        偏偏刪除是最需要被看見的事件，它會把某一天的量從所有月報的累計移除。
+      */}
+      <details className="rounded-lg border p-3">
+        <summary className="cursor-pointer text-sm font-medium">
+          本專案日報變更軌跡（含已刪除）
+        </summary>
+        <div className="mt-2">
+          <ProjectAuditTrail projectId={projectId} />
+        </div>
+      </details>
     </div>
   );
 }

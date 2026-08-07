@@ -6,7 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
-import { reportStatusMeta, workStopReasonOptions } from "@/constant/pmis";
+import {
+  countsTowardQty,
+  reportStatusMeta,
+  workStopReasonOptions,
+} from "@/constant/pmis";
+import type { ReportStatus } from "@/generated/prisma/enums";
 import { updateReportAction, suggestReportAction } from "@/app/logs/actions";
 import { ReportDeleteButton } from "@/app/logs/report-delete-button";
 import { WEATHER_OPTIONS } from "@/constant/weather";
@@ -189,7 +194,12 @@ export function ReportEditForm({
         <Button type="submit" size="sm" variant="secondary">
           儲存
         </Button>
-        <ReportDeleteButton id={id} label={dateLabel} />
+        {/* 狀態取表單當前值：使用者剛把草稿改成已提送時，警語就該跟著出現 */}
+        <ReportDeleteButton
+          id={id}
+          label={dateLabel}
+          countsTowardQty={countsTowardQty(status as ReportStatus)}
+        />
       </div>
     </form>
   );

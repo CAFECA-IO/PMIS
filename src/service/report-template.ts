@@ -84,14 +84,29 @@ export interface ReportTemplateInput {
    */
   excludedDraftDays?: number;
 
+  /**
+   * 未設定預定起訖日、因而未納入整體進度比對的工程分項數。
+   *
+   * 整體進度只能算在同時有預定與完成的工項上。若不揭露排除了幾項，
+   * 讀報表的人無從判斷那個百分比涵蓋了多少工作 ——
+   * 20 項裡只有 1 項參與比對時，「累計完成 100%」是誤導性的真話。
+   */
+  unscheduledWorkItems?: number;
+
   duration: DurationSummary;
   progress: {
     /** 本期預定／完成增量（百分點）；無法計算時為 null */
     currentPlanned: number | null;
     currentActual: number | null;
-    /** 累計預定／完成（%） */
-    cumulativePlanned: number;
-    cumulativeActual: number;
+    /**
+     * 累計預定／完成（%）；無可比對的工項時為 null。
+     *
+     * 刻意允許 null 而不以 0 代入：0 代表「確實毫無進度」，
+     * 而缺值代表「無從計算」，兩者在送審文件上的意義完全不同。
+     * 呈現層以「—」表示，與餵給 LLM 的事實文字一致。
+     */
+    cumulativePlanned: number | null;
+    cumulativeActual: number | null;
   };
   curve: ProgressCurvePoint[];
 
@@ -166,7 +181,11 @@ function sectionBasics(input: ReportTemplateInput): string[] {
 function sectionSummary(input: ReportTemplateInput): string[] {
   const period = PERIOD_LABEL[input.type];
   const { progress, duration } = input;
-  const gap = progress.cumulativeActual - progress.cumulativePlanned;
+  // 缺任一側就沒有落差可言；以 0 代入等於宣稱「與預定相符」
+  const gap =
+    progress.cumulativeActual != null && progress.cumulativePlanned != null
+      ? progress.cumulativeActual - progress.cumulativePlanned
+      : null;
 
   const out = [
     `## 二、${period}摘要`,
@@ -174,7 +193,9 @@ function sectionSummary(input: ReportTemplateInput): string[] {
     `| 指標 | ${period} | 累計 | 落差（完成 − 預定） |`,
     "| --- | --- | --- | --- |",
     `| 預定進度 | ${fmtPct(progress.currentPlanned)} | ${fmtPct(progress.cumulativePlanned)} | ${NA} |`,
-    `| 完成進度 | ${fmtPct(progress.currentActual)} | ${fmtPct(progress.cumulativeActual)} | 累計 **${describeGap(gap)}** |`,
+    `| 完成進度 | ${fmtPct(progress.currentActual)} | ${fmtPct(progress.cumulativeActual)} | ${
+      gap == null ? NA : `累計 **${describeGap(gap)}**`
+    } |`,
     `| 工期使用 | ${NA} | ${
       duration.elapsed == null || duration.total == null
         ? NA
@@ -204,7 +225,11 @@ function sectionSummary(input: ReportTemplateInput): string[] {
   out.push(`**${period}評述**`, "");
   out.push(
     input.review?.trim() ||
-      `${period}累計完成 ${fmtPct(progress.cumulativeActual)}，累計預定 ${fmtPct(progress.cumulativePlanned)}，${describeGap(gap)}。詳細數據見以下各節。`,
+      `${period}累計完成 ${fmtPct(progress.cumulativeActual)}，累計預定 ${fmtPct(
+        progress.cumulativePlanned,
+      )}，${
+        gap == null ? "缺預定或完成值，無法比對落差" : describeGap(gap)
+      }。詳細數據見以下各節。`,
   );
   out.push("");
   return out;
@@ -228,6 +253,18 @@ function sectionProgress(input: ReportTemplateInput): string[] {
     `| ${period}完成進度 | ${fmtPct(progress.currentActual)} | 累計完成進度 | ${fmtPct(progress.cumulativeActual)} |`,
     "",
   ];
+
+  /*
+    整體進度的涵蓋範圍必須寫明。上表的百分比只算在「有預定起訖日」的工項上
+    —— 未設定者沒有預定值可比，納入任一側都會使落差來自母體不同。
+    不揭露的話，20 項中僅 1 項參與比對時，那個百分比會被當成全案進度。
+  */
+  if (input.unscheduledWorkItems && input.unscheduledWorkItems > 0) {
+    out.push(
+      `> 上表整體進度僅涵蓋已設定預定起訖日的工程分項；另有 ${input.unscheduledWorkItems} 項未設定預定起訖日，無預定值可比對，未納入上表。其累計完成量仍列於 3.3。`,
+      "",
+    );
+  }
 
   if (workItems.length === 0) {
     out.push("_本期無工程分項資料。_", "");
@@ -348,6 +385,11 @@ function sectionWorkLog(input: ReportTemplateInput): string[] {
   if (input.excludedDraftDays && input.excludedDraftDays > 0) {
     out.push(
       `| 草稿未計入 | ${input.excludedDraftDays} 天 | 日報尚未提送，其工作事項與數量均未列入本報表 |`,
+    );
+  }
+  if (input.unscheduledWorkItems && input.unscheduledWorkItems > 0) {
+    out.push(
+      `| 未納入進度比對 | ${input.unscheduledWorkItems} 項 | 工程分項未設定預定起訖日，無預定值可比對；其累計完成量仍列於 3.3 |`,
     );
   }
   out.push("");
