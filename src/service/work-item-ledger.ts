@@ -235,8 +235,13 @@ export function groupByWbs(
   return out;
 }
 
-/** 只取數量互相矛盾的列（差異異常檢視）。 */
-export function anomalyRows(rows: LedgerRow[]): LedgerRow[] {
+/**
+ * 只取數量互相矛盾的列（差異異常檢視）。
+ *
+ * 以泛型保留輸入的具體型別：呼叫端可能傳入帶額外欄位的列
+ * （如附帶 pendingQty 的台帳列），過濾不應把那些欄位從型別上抹掉。
+ */
+export function anomalyRows<T extends LedgerRow>(rows: T[]): T[] {
   return rows.filter((r) => r.anomalies.length > 0);
 }
 

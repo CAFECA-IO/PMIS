@@ -73,6 +73,7 @@ model Project {
   fileFolders       FileFolder[]
   projectFiles      ProjectFile[]
   designVersions    DesignVersion[]
+  generatedReports  GeneratedReport[]
 }
 
 /// Staffing — links an account to a project with a project-scoped role (配置人力).
@@ -876,6 +877,22 @@ model SupervisionReport {
   equipment  String?
   keyNotes   String? // 重要事項
   filedBy    String?
+  /// 是否免計工期（E5）。
+  ///
+  /// 具法律效果的宣告，非描述 —— 做成布林才能算出「本期免計工期共 N 天」，
+  /// 該數字在結算與工期展延爭議中有金額意義。
+  /// 與 stopReason 分離：停工原因說明「為何沒做」，本欄說明「這天算不算工期」，
+  /// 兩者不必然一致（例假日在日曆天契約下仍計工期；雨停未必都免計）。
+  excludedFromDuration Boolean @default(false)
+  /// 免計工期的契約依據，如「工程契約書第 7 條」。
+  /// 認定由監造確認，系統不推測。
+  exclusionBasis       String?
+
+  /// 當日未施工的原因；null 代表當日有施工（決策 H）。
+  ///
+  /// 這是工作日統計的**權威來源**：月報的施工天數／雨天停工／例假日
+  /// 一律依此欄位統計，不再以天氣或敘述文字推測（決策 D）。
+  stopReason WorkStopReason?
   status     ReportStatus @default(DRAFT)
   createdAt  DateTime     @default(now())
 
@@ -1062,6 +1079,122 @@ enum ReportStatus {
   DRAFT
   SUBMITTED
   APPROVED
+}
+
+/// 當日未施工的原因（決策 H）。
+/// 天氣欄位僅供紀錄、不參與此判定（決策 D）。
+/// 監造日報的變更軌跡（決策 J-b）。
+///
+/// 日報是施工紀錄本，本就允許更正 —— 規矩不是「不准改」，而是
+/// **改了要看得出來**（紙本的劃線蓋章即是此意）。且依決策 A，
+/// 日報數量是月報金額與進度的權威來源，事後修正會改變彙整結果，
+/// 沒有軌跡就無從說明差異從何而來。
+///
+/// **刻意不設 reportId 外鍵**（與 CarbonAuditLog 的 inventoryId 慣例不同）：
+/// 整份日報被刪除正是最需要留存的事件，設了 Cascade 會把該紀錄一併抹除。
+/// 故以純字串保存 id，並另存 projectId 以便按專案查詢。
+///
+/// 本階段**只記錄、不鎖定**：日報的 APPROVED 目前僅是下拉選項、
+/// 非簽核流程的產物，據以上鎖只會提供假的保證。待正式簽核流程上線
+/// （接既有 ApprovalDocument）再議鎖定。
+model SupervisionReportAuditLog {
+  id        String @id @default(cuid())
+  /// 無外鍵；日報刪除後本紀錄仍須存在。
+  reportId  String
+  projectId String
+  /// 針對數量表的哪一列（可空 = 針對整份日報）。
+  itemId    String?
+
+  /// CREATE / UPDATE / STATUS / ITEMS / DELETE
+  action    String
+  actorId   String?
+  actorName String?
+
+  fromStatus ReportStatus?
+  toStatus   ReportStatus?
+
+  /// 變更細節。欄位異動記為「欄位：舊 → 新」；
+  /// 數量表異動則保存變更前的明細（JSON），使數字可回溯重建。
+  detail String?
+
+  createdAt DateTime @default(now())
+
+  @@index([reportId])
+  @@index([projectId, createdAt])
+}
+
+/// 彙整報表的週期別（與 service 的 ReportType 一致）。
+enum PeriodReportType {
+  DAILY
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+/// 彙整報表的定稿狀態（治理：人在迴路）。
+enum PeriodReportStatus {
+  /// AI 生成草稿，尚未經人工確認，不得作為正式文件歸檔。
+  DRAFT
+  /// 監造人員已確認；內容自此不可修改，作為當時送審依據的留存。
+  CONFIRMED
+}
+
+enum WorkStopReason {
+  /// 雨天/颱風停工
+  WEATHER
+  /// 地震
+  EARTHQUAKE
+  /// 例假日
+  HOLIDAY
+  /// 未排工（非假日但當日無預定工作）
+  NO_SCHEDULE
+  /// 其他原因（宜於敘述欄補充）
+  OTHER
+}
+
+/// 已產出的彙整報表（週／月／季／年）的留存。
+///
+/// 為何要存：報表的每個數字都是即時推導（決策 A／F／I），
+/// 同一期間在不同時間產生會得到不同結果。若不留存，
+/// 「送審出去的是哪一版」在系統中不存在，
+/// 且治理原則要求的「草稿 → 人工確認後方可歸檔」無處可標記。
+///
+/// 已確認（CONFIRMED）者內容不可修改 —— 它就是當時那份文件的快照，
+/// 其中的進度、金額、逐日明細一律凍結，不隨日報事後修正而變動。
+/// 需要更新時請重新產生一份新的報表，而非改寫既有紀錄。
+model GeneratedReport {
+  id          String             @id @default(cuid())
+  projectId   String
+  type        PeriodReportType
+  /// 期間起訖；供查找「某月的報表」並判定同期是否已有定稿。
+  periodStart DateTime
+  periodEnd   DateTime
+  /// 顯示用期間標籤，如「2026 年 5 月」。
+  periodLabel String
+  title       String
+
+  /// 報表全文（markdown）。這是留存的主體。
+  markdown    String
+  status      PeriodReportStatus @default(DRAFT)
+
+  /// 本次生成引用的數據來源，供稽核回溯（以換行分隔）。
+  sources     String?
+  /// 本體是否由 LLM 主導（false = 決定論回退組裝）。
+  aiAuthored  Boolean            @default(false)
+
+  generatedById String?
+  generatedBy   String?
+  confirmedAt   DateTime?
+  confirmedById String?
+  confirmedBy   String?
+
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, type, periodStart])
+  @@index([status])
 }
 
 // ─────────────────────────────────────────────────────────────

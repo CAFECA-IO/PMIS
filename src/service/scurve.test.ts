@@ -7,6 +7,9 @@ import {
   currentProgress,
   type SCurveInput,
   type WorkItemInput,
+  workItemWeight,
+  plannedProgressAt,
+  weightedProgressDelta,
 } from "./scurve";
 
 // 固定「今日」為 2026-03-15，讓 actual 計算可預期
@@ -133,4 +136,71 @@ test("currentProgress 取今日期的實際/預定與落差", () => {
   assert.equal(cp.planned, 75);
   assert.equal(cp.gap, -25);
   assert.deepEqual(currentProgress([]), { overall: 0, planned: 0, gap: 0 });
+});
+
+// ── 工程分項基準的預定/完成（決策 C／I）────────────────────
+
+const wi = (ps: string | null, pe: string | null, progress = 0) => ({
+  plannedStart: ps ? new Date(ps) : null,
+  plannedEnd: pe ? new Date(pe) : null,
+  actualStart: null,
+  actualEnd: null,
+  progress,
+});
+
+test("workItemWeight：權重為預定工期天數，無預定日則為 1", () => {
+  assert.equal(workItemWeight(wi("2026-01-01", "2026-01-11")), 10);
+  assert.equal(workItemWeight(wi(null, null)), 1);
+  assert.equal(workItemWeight(wi("2026-01-01", "2026-01-01")), 1, "同日至少為 1");
+});
+
+test("plannedProgressAt：單一工項於預定期間內線性展開", () => {
+  const items = [wi("2026-01-01", "2026-01-11")];
+  assert.equal(plannedProgressAt(items, new Date("2026-01-01")), 0);
+  assert.equal(plannedProgressAt(items, new Date("2026-01-06")), 50, "期間過半 → 50%");
+  assert.equal(plannedProgressAt(items, new Date("2026-01-11")), 100);
+});
+
+test("plannedProgressAt：超出預定期間兩端皆夾在 0–100", () => {
+  const items = [wi("2026-01-01", "2026-01-11")];
+  assert.equal(plannedProgressAt(items, new Date("2025-12-01")), 0);
+  assert.equal(plannedProgressAt(items, new Date("2026-06-01")), 100);
+});
+
+test("plannedProgressAt：以預定工期天數加權，長工項影響較大", () => {
+  // A 工期 10 天、B 工期 90 天；取 B 剛好過半、A 已完成的時點
+  const items = [wi("2026-01-01", "2026-01-11"), wi("2026-01-01", "2026-04-01")];
+  const at = new Date("2026-02-15"); // A:100%、B:約 50%
+  const v = plannedProgressAt(items, at)!;
+  assert.ok(v > 50 && v < 60, `應由長工項主導，實得 ${v}`);
+});
+
+test("plannedProgressAt：無具預定起訖日的工項時回 null，不臆造 0", () => {
+  assert.equal(plannedProgressAt([], new Date()), null);
+  assert.equal(plannedProgressAt([wi(null, null)], new Date()), null);
+});
+
+test("plannedProgressAt：忽略缺預定日的工項，不讓其稀釋分母", () => {
+  const items = [wi("2026-01-01", "2026-01-11"), wi(null, null)];
+  assert.equal(
+    plannedProgressAt(items, new Date("2026-01-11")),
+    100,
+    "有排程者已全數完成，缺排程者不應把結果拉低",
+  );
+});
+
+test("weightedProgressDelta：以工期天數加權彙總各工項本期增量", () => {
+  const rows = [
+    { plannedStart: new Date("2026-01-01"), plannedEnd: new Date("2026-01-11"), delta: 100 },
+    { plannedStart: new Date("2026-01-01"), plannedEnd: new Date("2026-01-11"), delta: 0 },
+  ];
+  assert.equal(weightedProgressDelta(rows), 50, "等權重、一個 100% 一個 0% → 50%");
+});
+
+test("weightedProgressDelta：空陣列回 null；增量夾在 0–100", () => {
+  assert.equal(weightedProgressDelta([]), null);
+  const one = [{ plannedStart: null, plannedEnd: null, delta: 250 }];
+  assert.equal(weightedProgressDelta(one), 100, "超過 100 應夾住");
+  const neg = [{ plannedStart: null, plannedEnd: null, delta: -30 }];
+  assert.equal(weightedProgressDelta(neg), 0, "負值應夾住");
 });

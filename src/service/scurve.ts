@@ -164,6 +164,77 @@ export type WorkItemInput = {
   progress: number;
 };
 
+/**
+ * 工程分項的排程權重＝預定工期天數（無預定起訖則為 1）。
+ *
+ * 與 `buildWorkItemSCurve` 內部使用的權重同一定義，抽出以供
+ * 月報的預定／完成進度共用 —— 否則同一份報表會出現兩種加權方式。
+ */
+export function workItemWeight(w: {
+  plannedStart: Date | null;
+  plannedEnd: Date | null;
+}): number {
+  if (!w.plannedStart || !w.plannedEnd) return 1;
+  return Math.max(1, (w.plannedEnd.getTime() - w.plannedStart.getTime()) / DAY);
+}
+
+/**
+ * 指定時點的**預定累計進度**（%），工程分項基準（決策 C／I）。
+ *
+ * 各工項於其預定期間 [plannedStart, plannedEnd] 內線性展開，
+ * 以預定工期天數加權後彙總。與 `buildWorkItemSCurve` 的 planned 同一算法，
+ * 差別僅在此處可取任意日期，而非僅月底 —— 日報的「當日預定進度」即用此函式。
+ *
+ * 無任何具備預定起訖日的工項時回 `null`（無從計算，不臆造 0）。
+ */
+export function plannedProgressAt(
+  items: WorkItemInput[],
+  at: Date,
+): number | null {
+  const schedulable = items.filter((w) => w.plannedStart && w.plannedEnd);
+  if (schedulable.length === 0) return null;
+
+  const totalWeight = schedulable.reduce((s, w) => s + workItemWeight(w), 0);
+  if (totalWeight === 0) return null;
+
+  const cutoff = at.getTime();
+  const done = schedulable.reduce((sum, w) => {
+    const a = w.plannedStart!.getTime();
+    const b = w.plannedEnd!.getTime();
+    const frac = b <= a ? (cutoff >= b ? 1 : 0) : clamp01((cutoff - a) / (b - a));
+    return sum + workItemWeight(w) * frac;
+  }, 0);
+
+  return round((done / totalWeight) * 100);
+}
+
+/**
+ * 以預定工期天數加權的**進度增量**（百分點）。
+ *
+ * 各工項的 `delta` 為該工項於期間內完成的比例（0–100），由呼叫端依
+ * 期間內的日報數量算出；本函式只負責加權彙總，不涉及數量來源，
+ * 以保持純函式與可測性。
+ *
+ * 無工項時回 `null`。
+ */
+export function weightedProgressDelta(
+  items: {
+    plannedStart: Date | null;
+    plannedEnd: Date | null;
+    /** 該工項本期完成比例（0–100） */
+    delta: number;
+  }[],
+): number | null {
+  if (items.length === 0) return null;
+  const totalWeight = items.reduce((s, w) => s + workItemWeight(w), 0);
+  if (totalWeight === 0) return null;
+  const sum = items.reduce(
+    (s, w) => s + workItemWeight(w) * clamp01(w.delta / 100) * 100,
+    0,
+  );
+  return round(sum / totalWeight);
+}
+
 export function buildWorkItemSCurve(
   items: WorkItemInput[],
   nowTs: number = Date.now(),
