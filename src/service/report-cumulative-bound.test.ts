@@ -4,7 +4,10 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 /**
- * 報表的「累計」必須有時間上限，而留存的必須是使用者讀過的那一份。
+ * 報表數字不得靜默改寫使用者沒看到的內容。
+ *
+ * 三條共同的底線：累計要有時間上限、留存的要是使用者讀過的那一份、
+ * 新建不得覆蓋既有日報。
  *
  * 這兩件事都無法用單元測試守住 —— 它們的失效方式不是算錯，而是
  * **有人在取數處少傳一個期末、或另開一條寫入路徑**，
@@ -222,4 +225,139 @@ test("展開的留存內容在清單重載時重新驗證版本", () => {
     "清單重載時必須比對展開中內容的版本",
   );
   assert.match(source, /staleId/, "版本不符時應提示重新開啟，而非靜默替換");
+});
+
+// ── 新建不得覆蓋既有日報 ────────────────────────────────────
+
+test("新建日報撞到既有日期時必須拒絕，不得改為更新", () => {
+  /*
+    新建表單的文字欄位一律從空白開始（它不顯示既有內容），送出時
+    每個空輸入都寫成 null。若撞日期時退化為 update，把日期改成一個
+    已有日報的日子、什麼都不打直接送出，就會抹掉當天的施工概況與
+    免計工期依據，並把已核備的日報降回草稿 —— 數量還在卻不再計入累計。
+  */
+  const body = bodyAfter(
+    read("src/service/supervisionReport.service.ts"),
+    "export async function fileReport",
+  );
+  assert.ok(body.length > 0, "fileReport 應存在");
+  assert.ok(
+    !/reportRepo\.update\(/.test(body),
+    "新建路徑不得更新既有日報；修改請走 updateReport",
+  );
+  assert.match(body, /if \(existing\)/, "撞日期時應明確拒絕");
+});
+
+test("新建表單在選定日期當下就提示衝突", () => {
+  // 伺服器端會拒絕，但等使用者打完一整份才退回太晚了
+  assert.match(
+    read("src/app/logs/report-dialog-fields.tsx"),
+    /checkReportDateAction/,
+    "選好日期時就該查該日是否已有日報",
+  );
+});
+
+test("定稿在留存清單上標示得出來", () => {
+  /*
+    橫幅會說「本期已有定稿報表（見下方留存清單）」；
+    沒有這個標示，那句話就指向一個在清單裡認不出來的東西。
+  */
+  assert.match(
+    read("src/app/logs/report-generator.tsx"),
+    /periodConfirmedId=/,
+    "產生器需把本期定稿的 id 傳給清單",
+  );
+  assert.match(read("src/app/logs/report-archive.tsx"), /本期定稿/);
+});
+
+// ── 軌跡必須留下未截斷的完整內容 ────────────────────────────
+
+test("每一種軌跡動作都保存完整快照，而非只留截斷的摘要", () => {
+  /*
+    軌跡摘要會截斷（列表塞滿整段敘述就沒人會讀），所以截斷過的摘要
+    只是提示、不是紀錄。免計工期依據這類直接對應金額的敘述，
+    若只留 60 字摘要，DB 欄位一被覆寫就從兩邊同時消失。
+  */
+  const source = read("src/service/report-audit.ts");
+  for (const fn of [
+    "export function describeFieldChanges",
+    "export function describeCreation",
+    "export function describeQtyChanges",
+    "export function describeDeletion",
+  ]) {
+    const body = bodyAfter(source, fn);
+    assert.ok(body.length > 0, `${fn} 應存在`);
+    assert.match(
+      body,
+      /before:\s*JSON\.stringify\(/,
+      `${fn} 必須保存未截斷的完整內容`,
+    );
+  }
+
+  /*
+    服務層要真的把快照寫進去，而不是只寫摘要。
+    每一筆帶 detail 的軌跡都必須有對應的 snapshot —— 摘要是截斷過的提示。
+  */
+  const service = read("src/service/supervisionReport.service.ts");
+  for (const [summary, snapshot] of [
+    ["detail: fieldChanges!.summary", "snapshot: fieldChanges!.before"],
+    ["detail: qtyChanges!.summary", "snapshot: qtyChanges!.before"],
+    ["detail: creation.summary", "snapshot: creation.before"],
+    ["detail: detail.summary", "snapshot: detail.before"],
+  ]) {
+    assert.ok(service.includes(summary), `應寫入摘要：${summary}`);
+    assert.ok(service.includes(snapshot), `應一併寫入快照：${snapshot}`);
+  }
+});
+
+test("契約外同名項目不得以名稱當唯一鍵", () => {
+  /*
+    以 `x:${itemName}` 當 Map 鍵時，同名兩列會靜默收斂成最後一筆：
+    刪掉其中一列會被判定為無異動而完全不寫軌跡，數量卻已從金額中消失。
+  */
+  const body = bodyAfter(
+    read("src/service/report-audit.ts"),
+    "export function describeQtyChanges",
+  );
+  assert.ok(
+    !/`x:\$\{/.test(body),
+    "同名列必須成組比對，不能用名稱當唯一鍵",
+  );
+  assert.match(body, /groupSig|groupByName/, "應以整組簽章比對同名列");
+});
+
+// ── 軌跡的摘要與快照分欄，不靠嗅探 ──────────────────────────
+
+test("軌跡不得以換行切分摘要與快照", () => {
+  /*
+    摘要含使用者原文，而原文可以有換行：`施工概況：上午澆置\n下午養護`
+    會讓後半段被摺進標示為「變更前明細」的區塊 —— 而且是在一列 CREATE 上，
+    CREATE 根本沒有變更前。兩種東西放兩個欄位就不需要嗅探。
+  */
+  const ui = read("src/app/logs/report-audit-trail.tsx");
+  assert.ok(!ui.includes("splitDetail"), "不應再從單一字串切分");
+  assert.match(ui, /r\.snapshot/, "完整快照應讀獨立欄位");
+
+  const service = read("src/service/supervisionReport.service.ts");
+  assert.ok(
+    !/detail:\s*`\$\{[^`]*\}\\n\$\{/.test(service),
+    "不得再把摘要與 JSON 串成一個字串寫入 detail",
+  );
+  assert.match(service, /snapshot:\s*\w/, "快照應寫入獨立欄位");
+});
+
+// ── 數量表備註的往返 ────────────────────────────────────────
+
+test("數量表備註必須能讀出、顯示並送回", () => {
+  /*
+    note 若只寫得進 DB 而表單讀不到，使用者開啟日報存個檔就會把它寫成 null
+    —— 刪掉一句自己從沒看過的話。而備註常是免計工期或數量異常的唯一書面理由。
+  */
+  const service = read("src/service/supervisionReport.service.ts");
+  const formRow = bodyAfter(service, "export type QtyFormRow");
+  assert.match(formRow, /note:/, "預帶清單需帶出既有備註");
+
+  const table = read("src/app/logs/report-qty-table.tsx");
+  assert.match(table, /aria-label={`\${r\.name} 備註`}/, "台帳工項列需可填備註");
+  assert.match(table, /note:\s*\(notes\[/, "送出的 payload 需帶備註");
 });

@@ -70,6 +70,7 @@ export function ReportArchive({
   reloadToken = 0,
   /** 產生器畫面上那一版的留存 id，用以標示「就是這一份」。 */
   currentId = null,
+  periodConfirmedId = null,
   /** 確認／刪除後通知產生器重新取數（其留存狀態已改變）。 */
   onChanged,
 }: {
@@ -77,6 +78,13 @@ export function ReportArchive({
   canEdit: boolean;
   reloadToken?: number;
   currentId?: string | null;
+  /**
+   * 目前期間的定稿 id。
+   *
+   * 上方橫幅會說「本期已有定稿報表（見下方留存清單）」——
+   * 沒有這個標示，那句話就指向一個在清單裡認不出來的東西。
+   */
+  periodConfirmedId?: string | null;
   onChanged?: () => void;
 }) {
   const [rows, setRows] = useState<Row[]>([]);
@@ -236,9 +244,11 @@ export function ReportArchive({
                 <Badge variant={meta.variant}>{meta.label}</Badge>
                 <span className="font-medium">{r.periodLabel}</span>
                 {/* 讓「上面那一版」與清單裡的哪一列對應得起來 */}
-                {r.id === currentId && (
+                {r.id === currentId ? (
                   <Badge variant="outline">上方顯示的這一版</Badge>
-                )}
+                ) : r.id === periodConfirmedId ? (
+                  <Badge variant="outline">本期定稿</Badge>
+                ) : null}
                 <span className="text-muted-foreground">
                   產生於 {stamp(r.generatedAt)}
                   {r.generatedBy ? `・${r.generatedBy}` : ""}

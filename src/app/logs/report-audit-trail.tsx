@@ -24,7 +24,10 @@ type Row = {
   actorName: string | null;
   fromStatus: string | null;
   toStatus: string | null;
+  /** 供人閱讀的摘要；可能含換行（使用者原文）。 */
   detail: string | null;
+  /** 變更前／建立時的完整內容 JSON。 */
+  snapshot: string | null;
   createdAt: Date | string;
 };
 
@@ -47,16 +50,14 @@ const stamp = (v: Date | string) => {
   return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 };
 
-/**
- * 數量表軌跡的 detail 為「摘要\\nJSON」：
- * 摘要給人看，JSON 是變更前的完整明細供回溯重建，預設收合。
- */
-function splitDetail(detail: string | null): { summary: string; raw: string | null } {
-  if (!detail) return { summary: "", raw: null };
-  const i = detail.indexOf("\n");
-  if (i < 0) return { summary: detail, raw: null };
-  return { summary: detail.slice(0, i), raw: detail.slice(i + 1) };
-}
+/*
+  摘要與完整快照是兩個欄位，不再從單一字串切分。
+
+  先前以「第一個換行之後即為 JSON」判斷，但摘要含使用者原文，
+  原文可以有換行：`施工概況：上午澆置\n下午養護` 會讓「下午養護…」
+  被摺進標示為「變更前明細」的區塊 —— 而且是在一列 CREATE 上，
+  CREATE 根本沒有變更前。兩種東西放兩個欄位，就不需要嗅探。
+*/
 
 /**
  * 專案層的日報變更軌跡（含已刪除的日報）。
@@ -131,7 +132,8 @@ function AuditList({ rows, showDate = false }: { rows: Row[]; showDate?: boolean
   return (
     <ul className="space-y-1 text-[11px]">
       {rows.map((r) => {
-        const { summary, raw } = splitDetail(r.detail);
+        const summary = r.detail ?? "";
+        const raw = r.snapshot;
         return (
           <li key={r.id} className="border-l-2 pl-2">
             <div className="flex flex-wrap items-baseline gap-x-2">
@@ -172,7 +174,12 @@ function AuditList({ rows, showDate = false }: { rows: Row[]; showDate?: boolean
             {raw && (
               <details className="mt-0.5">
                 <summary className="cursor-pointer text-muted-foreground hover:underline">
-                  變更前明細
+                  {/* 同一個 JSON 區塊在不同動作下語意不同，標題須跟著改 */}
+                  {r.action === "CREATE"
+                    ? "建立時的完整內容"
+                    : r.action === "DELETE"
+                      ? "刪除前的完整內容"
+                      : "變更前的完整內容"}
                 </summary>
                 <pre className="mt-1 overflow-x-auto rounded bg-muted/50 p-1 text-[10px]">
                   {raw}

@@ -165,6 +165,14 @@ export type QtyFormRow = {
   cumulativeQty: number | null;
   /** 本日已填的數量；新報表為 null。 */
   dailyQty: number | null;
+  /**
+   * 本日已填的備註；新報表為 null。
+   *
+   * 必須帶回表單：備註常是免計工期或數量異常的唯一書面理由，
+   * 若表單讀不到它，使用者只是開啟日報存個檔就會把它清成 null，
+   * 而且從頭到尾沒看過那句話。
+   */
+  note: string | null;
 };
 
 /** 契約外臨時項目（不在台帳上）的既有填寫內容。 */
@@ -172,6 +180,7 @@ export type QtyExtraRow = {
   itemName: string;
   unit: string | null;
   dailyQty: number;
+  note: string | null;
 };
 
 export type QtyFormData = {
@@ -220,7 +229,10 @@ export async function loadQtyForm(
   const filled = new Map(
     existing
       .filter((i) => i.workItemId)
-      .map((i) => [i.workItemId as string, Number(i.dailyQty)]),
+      .map(
+        (i) =>
+          [i.workItemId as string, { qty: Number(i.dailyQty), note: i.note }] as const,
+      ),
   );
 
   /*
@@ -229,8 +241,9 @@ export async function loadQtyForm(
     「填報後累計 = 目前累計 + 本日填報」會重複計入同一筆量，
     連帶讓「超出契約數量」的提示誤報。草稿則本來就沒被計入，不需扣。
   */
+  const ownQty = new Map([...filled].map(([id, v]) => [id, v.qty]));
   const baseTotals = ownAlreadyCounted
-    ? excludeOwnDailyQty(cumulativeTotals, filled)
+    ? excludeOwnDailyQty(cumulativeTotals, ownQty)
     : cumulativeTotals;
 
   return {
@@ -243,7 +256,8 @@ export async function loadQtyForm(
         toNum(w.completedQty),
         baseTotals.get(w.id) ?? null,
       ),
-      dailyQty: filled.get(w.id) ?? null,
+      dailyQty: filled.get(w.id)?.qty ?? null,
+      note: filled.get(w.id)?.note ?? null,
     })),
     // 契約外臨時項目沿用既有填寫內容（無台帳可預帶）
     extras: existing
@@ -252,6 +266,7 @@ export async function loadQtyForm(
         itemName: i.itemName,
         unit: i.unit,
         dailyQty: Number(i.dailyQty),
+        note: i.note,
       })),
   };
 }
@@ -308,6 +323,20 @@ export async function parseQtyEntries(
     if (workItemId) {
       const w = byId.get(workItemId);
       if (!w) continue; // 非本專案工項
+      /*
+        同一工項在同一份日報只留一列，重複者相加。
+
+        表單不會產生重複，但送來的是前端組的 JSON。留著兩列不會讓台帳
+        算錯（加總本來就會把兩列相加），卻會讓稽核以 workItemId 建索引時
+        後者覆蓋前者 —— 於是刪掉其中一列不留任何軌跡。
+        在此合併，資料與稽核索引就都只有一種解讀。
+      */
+      const dup = out.find((o) => o.workItemId === workItemId);
+      if (dup) {
+        dup.dailyQty += qty;
+        if (!dup.note && note) dup.note = note;
+        continue;
+      }
       out.push({
         workItemId,
         // 名稱與單位取自台帳（快照），不採信前端
@@ -339,13 +368,48 @@ export async function parseQtyEntries(
   return out;
 }
 
-/** 新增／更新每日監造報表（同一專案同一日期以更新處理）。 */
-export async function fileReport(input: ReportInput, actor: Actor) {
-  if (!input.projectId || !input.reportDate) return false;
-  if (!(await canAccess(input.projectId, actor))) return false;
+export type FileReportResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * 新建每日監造報表。
+ *
+ * **同一日期已有日報時一律拒絕，不再以更新處理。**
+ *
+ * 原本是 upsert，但新建表單的文字欄位一律從空白開始（它不顯示既有內容），
+ * 送出時每個空輸入都會被寫成 `null`：於是把日期改成一個已有日報的日子、
+ * 什麼都不打直接送出，就會把當天完整的施工概況、免計工期依據等全部抹掉，
+ * 並把已核備的日報降回草稿 —— 數量列還在卻不再計入累計，
+ * 連帶改變該月的估驗金額。使用者看不到自己刪掉了什麼，稽核軌跡也只留摘要。
+ *
+ * 「新建」就該只做新建。要修改既有日報請走 `updateReport`（日誌列表的編輯表單），
+ * 那裡會先載入現有內容，使用者改的是看得見的東西。
+ */
+export async function fileReport(
+  input: ReportInput,
+  actor: Actor,
+): Promise<FileReportResult> {
+  if (!input.projectId || !input.reportDate) {
+    return { ok: false, error: "請填寫專案與報表日期。" };
+  }
+  if (!(await canAccess(input.projectId, actor))) {
+    return { ok: false, error: "無權於此專案填報。" };
+  }
 
   const reportDate = new Date(input.reportDate);
-  if (Number.isNaN(reportDate.getTime())) return false;
+  if (Number.isNaN(reportDate.getTime())) {
+    return { ok: false, error: "報表日期不正確。" };
+  }
+
+  const existing = await reportRepo.findByProjectDate(
+    input.projectId,
+    reportDate,
+  );
+  if (existing) {
+    return {
+      ok: false,
+      error: `${ymd(reportDate)} 已有日報（${reportStatusMeta[existing.status].label}）。新建表單不會載入既有內容，直接送出會把原有的施工概況與免計工期依據清空；請改由日誌中開啟該日日報編輯。`,
+    };
+  }
 
   const data = {
     weather: input.weather?.trim() || null,
@@ -361,48 +425,55 @@ export async function fileReport(input: ReportInput, actor: Actor) {
   };
 
   const items = await parseQtyEntries(input.projectId, input.items);
-
-  const existing = await reportRepo.findByProjectDate(input.projectId, reportDate);
-  // 變更前的內容須在覆寫前取出（決策 J-b）
-  const beforeFields = existing ? comparable(existing) : null;
-  const beforeItems =
-    existing && input.items !== undefined
-      ? toSnapshot(await reportRepo.listItems(existing.id))
-      : [];
-
-  const reportId = existing
-    ? (await reportRepo.update(existing.id, data), existing.id)
-    : (
-        await reportRepo.create(input.projectId, {
-          reportDate,
-          filedBy: actor.name || null,
-          ...data,
-        })
-      ).id;
+  const created = await reportRepo.create(input.projectId, {
+    reportDate,
+    filedBy: actor.name || null,
+    ...data,
+  });
 
   /*
     僅在表單確實帶了 items 欄位時才動數量表。
-    未帶（undefined）代表該表單沒有數量表區塊，此時不應把既有明細清空；
-    帶了空陣列則是「使用者把數量全部清掉」，屬有意為之，照實取代。
+    未帶（undefined）代表該表單沒有數量表區塊。
   */
   if (input.items !== undefined) {
-    await reportRepo.replaceItems(reportId, items);
+    await reportRepo.replaceItems(created.id, items);
   }
 
   await writeAudit({
-    reportId,
+    reportId: created.id,
     projectId: input.projectId,
     reportDate,
     actor,
-    isNew: !existing,
-    beforeFields,
+    isNew: true,
+    beforeFields: null,
     afterFields: comparable({ ...data, exclusionBasis: data.exclusionBasis }),
-    fromStatus: existing?.status ?? null,
+    fromStatus: null,
     toStatus: data.status,
-    beforeItems,
+    beforeItems: [],
     afterItems: input.items !== undefined ? toSnapshot(items) : null,
   });
-  return true;
+  return { ok: true };
+}
+
+/**
+ * 某日是否已有日報（供新建表單即時提示）。
+ *
+ * 伺服器端已會拒絕撞日期的新建，但等到使用者打完一整份才被退回太晚了；
+ * 選好日期當下就該說。查詢成本與 `loadQtyForm` 已做的查詢相同。
+ */
+export async function checkReportDate(
+  projectId: string,
+  dateISO: string,
+  actor: Actor,
+): Promise<{ exists: boolean; statusLabel: string | null } | null> {
+  if (!(await canAccess(projectId, actor))) return null;
+  const date = new Date(dateISO);
+  if (Number.isNaN(date.getTime())) return null;
+  const existing = await reportRepo.findByProjectDate(projectId, date);
+  return {
+    exists: Boolean(existing),
+    statusLabel: existing ? reportStatusMeta[existing.status].label : null,
+  };
 }
 
 /**
@@ -464,7 +535,8 @@ async function writeAudit(input: {
           ...base,
           action,
           // 保存變更「前」的明細：變更後的值讀現況即得，變更前的一旦覆寫即永久消失
-          detail: `${qtyChanges!.summary}\n${qtyChanges!.before}`,
+          detail: qtyChanges!.summary,
+          snapshot: qtyChanges!.before,
         };
       }
       if (action === "CREATE") {
@@ -473,14 +545,25 @@ async function writeAudit(input: {
           軌跡上只看得到「有人建了一份」。缺了初始內容與初始狀態，
           後續的「舊 → 新」就接不回起點。
         */
+        const creation = describeCreation(
+          input.afterFields,
+          input.afterItems ?? [],
+        );
         return {
           ...base,
           action,
           toStatus: input.toStatus,
-          detail: describeCreation(input.afterFields, input.afterItems ?? []),
+          detail: creation.summary,
+          snapshot: creation.before,
         };
       }
-      return { ...base, action, detail: fieldChanges };
+      // UPDATE：摘要中的值會截斷，故一併保存未截斷的變更前欄位
+      return {
+        ...base,
+        action,
+        detail: fieldChanges!.summary,
+        snapshot: fieldChanges!.before,
+      };
     }),
   );
 }
@@ -567,7 +650,8 @@ export async function deleteReport(id: string, actor: Actor) {
     actorId: actor.id,
     actorName: actor.name ?? null,
     fromStatus: existing.status,
-    detail: `${detail.summary}\n${detail.before}`,
+    detail: detail.summary,
+    snapshot: detail.before,
   });
   return true;
 }

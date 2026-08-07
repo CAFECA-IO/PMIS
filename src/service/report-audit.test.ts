@@ -17,8 +17,33 @@ test("describeFieldChanges 只列出真正改變的欄位", () => {
     { weather: "晴", summary: "施工中", keyNotes: null },
     { weather: "雨", summary: "施工中", keyNotes: null },
   );
-  assert.ok(d?.includes("天氣：晴 → 雨"));
-  assert.ok(!d?.includes("施工概況"), "未改變的欄位不應出現");
+  assert.ok(d?.summary.includes("天氣：晴 → 雨"));
+  assert.ok(!d?.summary.includes("施工概況"), "未改變的欄位不應出現");
+});
+
+test("describeFieldChanges 保存未截斷的變更前欄位", () => {
+  /*
+    摘要會截斷，而 DB 欄位會被新值覆寫。免計工期依據這類直接對應金額的
+    敘述，若只留 60 字摘要就等於從 DB 與軌跡兩邊同時消失。
+  */
+  const basis =
+    "本日因連續降雨致基礎開挖無法施作，依契約及主辦機關指示全日停工，" +
+    "現場已完成擋土支撐與排水設施之檢查並拍照存證，" +
+    "經監造確認符合契約第 7 條免計工期之情形。";
+  const before = { summary: basis, exclusionBasis: basis };
+  const d = describeFieldChanges(before, {
+    summary: "更正：澆置量改為 118 立方公尺",
+    exclusionBasis: basis,
+  })!;
+
+  assert.ok(d.summary.includes("…"), "摘要仍應截斷，軌跡列表才讀得下去");
+  const parsed = JSON.parse(d.before) as Record<string, string | null>;
+  assert.equal(parsed.summary, basis, "完整原文必須留在軌跡裡");
+  assert.equal(
+    parsed.exclusionBasis,
+    basis,
+    "未變動的欄位也一併保存，重建不必跨筆推敲",
+  );
 });
 
 test("describeFieldChanges 無異動時回 null", () => {
@@ -32,14 +57,17 @@ test("describeFieldChanges 無異動時回 null", () => {
 
 test("describeFieldChanges 空值以「（空）」呈現而非略過", () => {
   const d = describeFieldChanges({ keyNotes: "待改善" }, { keyNotes: null });
-  assert.ok(d?.includes("重要事項：待改善 → （空）"), "刪掉內容也要看得出來");
+  assert.ok(
+    d?.summary.includes("重要事項：待改善 → （空）"),
+    "刪掉內容也要看得出來",
+  );
 });
 
 test("describeFieldChanges 截斷過長的值", () => {
   const long = "很長".repeat(100);
   const d = describeFieldChanges({ summary: null }, { summary: long })!;
-  assert.ok(d.includes("…"), "應截斷");
-  assert.ok(d.length < 200, "單筆軌跡不應塞入整段敘述");
+  assert.ok(d.summary.includes("…"), "摘要應截斷");
+  assert.ok(d.summary.length < 400, "摘要不應塞入整段敘述");
 });
 
 // ── describeQtyChanges ──────────────────────────────────────
@@ -125,7 +153,10 @@ test("describeQtyChanges 以名稱區分契約外項目（workItemId 為 null）
     [row(null, "化冀池打除", 3)],
     [row(null, "化冀池打除", 7)],
   )!;
-  assert.ok(c.summary.includes("修改 化冀池打除 3 → 7"), "不應被誤判為新增＋移除");
+  assert.ok(
+    c.summary.includes("修改 化冀池打除 3m → 7m"),
+    `不應被誤判為新增＋移除，實得：${c.summary}`,
+  );
 });
 
 // ── describeCreation ───────────────────────────────────────
@@ -135,28 +166,43 @@ test("describeCreation 記下初始值而非只記欄位名", () => {
     { weather: "雨", summary: "施工中", keyNotes: null },
     [row("a", "管線", 10)],
   );
-  assert.ok(d.includes("天氣：雨"), "值本身才有意義（「填了天氣」說明不了什麼）");
-  assert.ok(d.includes("施工概況：施工中"));
-  assert.ok(!d.includes("重要事項"), "未填的欄位不應列入");
-  assert.ok(d.includes("數量表 1 項"));
-  assert.ok(d.includes("管線 10m"));
+  assert.ok(
+    d.summary.includes("天氣：雨"),
+    "值本身才有意義（「填了天氣」說明不了什麼）",
+  );
+  assert.ok(d.summary.includes("施工概況：施工中"));
+  assert.ok(!d.summary.includes("重要事項"), "未填的欄位不應列入");
+  assert.ok(d.summary.includes("數量表 1 項"));
+  assert.ok(d.summary.includes("管線 10m"));
+});
+
+test("describeCreation 保存未截斷的初始內容", () => {
+  const long = "很長".repeat(100);
+  const d = describeCreation({ summary: long }, [row("a", "管線", 10)]);
+  const parsed = JSON.parse(d.before) as {
+    fields: Record<string, string | null>;
+    items: unknown[];
+  };
+  assert.equal(parsed.fields.summary, long, "建立時的原文不得只留摘要");
+  assert.deepEqual(parsed.items, [row("a", "管線", 10)]);
 });
 
 test("describeCreation 無數量表時明言無資料", () => {
   const d = describeCreation({ summary: "例假日" }, []);
-  assert.ok(d.includes("數量表無資料"), "空白與未填不同，須寫明");
+  assert.ok(d.summary.includes("數量表無資料"), "空白與未填不同，須寫明");
 });
 
 test("describeCreation 全空時仍產出可辨識的紀錄", () => {
   // CREATE 的 detail 不可為空 —— 空白紀錄等於沒記
   const d = describeCreation({ summary: null, weather: null }, []);
-  assert.ok(d.length > 0);
-  assert.ok(d.includes("建立日報"));
+  assert.ok(d.summary.length > 0);
+  assert.ok(d.summary.includes("建立日報"));
 });
 
-test("describeCreation 截斷過長內容", () => {
+test("describeCreation 摘要截斷但快照完整", () => {
   const d = describeCreation({ summary: "很長".repeat(500) }, []);
-  assert.ok(d.length <= 501, "單筆軌跡不應塞入整段敘述");
+  assert.ok(d.summary.length <= 501, "摘要不應塞入整段敘述");
+  assert.ok(d.before.length > 1000, "快照必須保留完整內容");
 });
 
 // ── describeDeletion ───────────────────────────────────────
@@ -208,7 +254,12 @@ test("describeDeletion 無數量表時寫明，不留空白", () => {
 
 test("actionsFor 新建時只記 CREATE", () => {
   assert.deepEqual(
-    actionsFor({ isNew: true, fieldChanges: "x", statusChanged: true, qtyChanges: null }),
+    actionsFor({
+      isNew: true,
+      fieldChanges: { summary: "x", before: "{}" },
+      statusChanged: true,
+      qtyChanges: null,
+    }),
     ["CREATE"],
   );
 });
@@ -222,10 +273,63 @@ test("actionsFor 依實際異動決定動作，無異動則不寫", () => {
   assert.deepEqual(
     actionsFor({
       isNew: false,
-      fieldChanges: "天氣：晴 → 雨",
+      fieldChanges: { summary: "天氣：晴 → 雨", before: "{}" },
       statusChanged: true,
       qtyChanges: { summary: "s", before: "[]" },
     }),
     ["UPDATE", "STATUS", "ITEMS"],
   );
+});
+
+// ── 契約外同名項目（無穩定身分）──────────────────────────────
+
+const ext = (name: string, qty: number, over: Partial<QtySnapshotRow> = {}) =>
+  row(null, name, qty, over);
+
+test("describeQtyChanges 同名契約外項目刪除其中一列必留軌跡", () => {
+  /*
+    先前以 `x:${itemName}` 當 Map 鍵，同名兩列靜默收斂成最後一筆：
+    刪掉「雜項 3」後 before/after 都只剩 7 → 判定無異動 → 完全不寫軌跡，
+    而 3 已從累計與估驗金額中消失。
+  */
+  const c = describeQtyChanges([ext("雜項", 3), ext("雜項", 7)], [ext("雜項", 7)]);
+  assert.ok(c, "數量減少卻無軌跡是最嚴重的失效");
+  assert.ok(c!.summary.includes("3m、7m → 7m"), `實得：${c!.summary}`);
+});
+
+test("describeQtyChanges 同名契約外項目刪除另一列不得誤述為修改", () => {
+  const c = describeQtyChanges([ext("雜項", 3), ext("雜項", 7)], [ext("雜項", 3)])!;
+  assert.ok(c.summary.includes("3m、7m → 3m"), `實得：${c.summary}`);
+  assert.ok(!c.summary.includes("7 → 3"), "不得說成把 7 改為 3");
+});
+
+test("describeQtyChanges 同名契約外項目新增一列不得誤述為修改", () => {
+  const c = describeQtyChanges([ext("雜項", 3)], [ext("雜項", 3), ext("雜項", 9)])!;
+  assert.ok(c.summary.includes("3m → 3m、9m"), `實得：${c.summary}`);
+});
+
+test("describeQtyChanges 同名契約外項目僅調換順序視為無異動", () => {
+  // 那兩列本來就分不出誰是誰；順序不同不代表內容改變
+  assert.equal(
+    describeQtyChanges(
+      [ext("雜項", 3), ext("雜項", 7)],
+      [ext("雜項", 7), ext("雜項", 3)],
+    ),
+    null,
+  );
+});
+
+test("describeQtyChanges 契約外項目整組移除仍記得每一列", () => {
+  const c = describeQtyChanges([ext("雜項", 3), ext("雜項", 7)], [])!;
+  assert.ok(c.summary.includes("移除 雜項 3m、7m"), `實得：${c.summary}`);
+});
+
+test("describeQtyChanges 台帳工項仍以 workItemId 逐項比對", () => {
+  // 同名不同工項不得被併成一組
+  const c = describeQtyChanges(
+    [row("a", "管線", 10), row("b", "管線", 20)],
+    [row("a", "管線", 15), row("b", "管線", 20)],
+  )!;
+  assert.ok(c.summary.includes("管線 10 → 15"));
+  assert.ok(!c.summary.includes("20"), "未變動的同名工項不應出現");
 });

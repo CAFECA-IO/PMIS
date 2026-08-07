@@ -14,7 +14,10 @@ export type CreateAuditData = {
   actorName?: string | null;
   fromStatus?: ReportStatus | null;
   toStatus?: ReportStatus | null;
+  /** 供人閱讀的摘要（可能含換行）。 */
   detail?: string | null;
+  /** 變更前／建立時的完整內容 JSON；與 detail 分欄，見 schema 註解。 */
+  snapshot?: string | null;
 };
 
 export function create(data: CreateAuditData) {

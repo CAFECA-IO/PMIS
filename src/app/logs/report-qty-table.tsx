@@ -21,6 +21,9 @@ import type { QtyFormRow } from "@/service/supervisionReport.service";
  *  - **即時顯示填報後累計**：當下就能看出數字是否合理，而非等月報彙整才發現。
  *  - **超出契約數量只提示不阻擋**：契約變更或數量增減時本來就會超出，
  *    阻擋只會逼使用者亂填。
+ *  - **備註必須顯示**：備註常是免計工期或數量異常的唯一書面理由。
+ *    表單若讀不到它，整張表送出時會把它寫成 null ——
+ *    使用者只是開啟日報存個檔，就刪掉了一句自己從沒看過的話。
  *
  * 以隱藏欄位送出 JSON 而非逐格具名欄位：數量表是動態列數（含契約外項目），
  * 具名索引欄位在新增／刪除列後容易錯位，且伺服器端仍須重新驗證，
@@ -33,6 +36,7 @@ type ExtraRow = {
   itemName: string;
   unit: string;
   dailyQty: string;
+  note: string;
 };
 
 /** 送往伺服器的一列；伺服器會重新驗證並以台帳覆寫名稱與單位。 */
@@ -41,6 +45,7 @@ type QtyPayloadRow = {
   itemName?: string;
   unit?: string | null;
   dailyQty: number;
+  note?: string | null;
 };
 
 const fmt = (v: number | null): string =>
@@ -68,6 +73,7 @@ export function ReportQtyTable({
 }) {
   const [rows, setRows] = useState<QtyFormRow[]>([]);
   const [values, setValues] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState<Record<string, string>>({});
   const [extras, setExtras] = useState<ExtraRow[]>([]);
   const [showAll, setShowAll] = useState(false);
   /** 已成功載入的那一組（專案＋日期）。 */
@@ -107,12 +113,20 @@ export function ReportQtyTable({
               .map((r) => [r.workItemId, String(r.dailyQty)]),
           ),
         );
+        setNotes(
+          Object.fromEntries(
+            data.rows
+              .filter((r) => r.note !== null)
+              .map((r) => [r.workItemId, r.note as string]),
+          ),
+        );
         setExtras(
           data.extras.map((e, i) => ({
             key: `existing-${i}`,
             itemName: e.itemName,
             unit: e.unit ?? "",
             dailyQty: String(e.dailyQty),
+            note: e.note ?? "",
           })),
         );
         setLoadedKey(key);
@@ -132,7 +146,11 @@ export function ReportQtyTable({
     for (const r of rows) {
       const qty = parseQty(values[r.workItemId] ?? "");
       if (qty === null || qty === undefined) continue;
-      out.push({ workItemId: r.workItemId, dailyQty: qty });
+      out.push({
+        workItemId: r.workItemId,
+        dailyQty: qty,
+        note: (notes[r.workItemId] ?? "").trim() || null,
+      });
     }
     for (const e of extras) {
       const qty = parseQty(e.dailyQty);
@@ -143,17 +161,22 @@ export function ReportQtyTable({
         itemName: e.itemName.trim(),
         unit: e.unit.trim() || null,
         dailyQty: qty,
+        note: e.note.trim() || null,
       });
     }
     return out;
-  }, [rows, values, extras]);
+  }, [rows, values, notes, extras]);
 
   const filledCount = payload.length;
 
   // 預設只顯示已填的列；未填者收合於「顯示全部」之後
   const visibleRows = showAll
     ? rows
-    : rows.filter((r) => (values[r.workItemId] ?? "").trim() !== "");
+    : rows.filter(
+        (r) =>
+          (values[r.workItemId] ?? "").trim() !== "" ||
+          (notes[r.workItemId] ?? "").trim() !== "",
+      );
 
   return (
     <div className="space-y-2 text-xs sm:col-span-2">
@@ -224,6 +247,7 @@ export function ReportQtyTable({
                 <th className="py-1 text-right font-normal">契約數量</th>
                 <th className="py-1 text-right font-normal">目前累計</th>
                 <th className="py-1 text-left font-normal">本日完成</th>
+                <th className="py-1 text-left font-normal">備註</th>
                 <th className="py-1 text-right font-normal">填報後累計</th>
               </tr>
             </thead>
@@ -271,6 +295,29 @@ export function ReportQtyTable({
                           {r.unit ?? ""}
                         </span>
                       </div>
+                    </td>
+                    <td className="py-1 pr-2">
+                      <Input
+                        value={notes[r.workItemId] ?? ""}
+                        aria-label={`${r.name} 備註`}
+                        placeholder="數量異常或免計工期理由"
+                        className="h-7 w-40"
+                        onChange={(e) =>
+                          setNotes((v) => ({
+                            ...v,
+                            [r.workItemId]: e.target.value,
+                          }))
+                        }
+                      />
+                      {/*
+                        備註掛在數量列上，沒有數量就沒有列可掛。
+                        靜默丟棄使用者打的字比不讓他打更糟，故明說。
+                      */}
+                      {qty === null && (notes[r.workItemId] ?? "").trim() !== "" && (
+                        <span className="mt-0.5 block text-[10px] text-warning">
+                          未填本日完成，此備註不會保存
+                        </span>
+                      )}
                     </td>
                     <td className="py-1 text-right tabular-nums">
                       {invalid ? (
@@ -346,6 +393,19 @@ export function ReportQtyTable({
                 )
               }
             />
+            <Input
+              value={e.note}
+              placeholder="備註"
+              aria-label="備註"
+              className="h-7 w-40"
+              onChange={(ev) =>
+                setExtras((list) =>
+                  list.map((x, j) =>
+                    j === i ? { ...x, note: ev.target.value } : x,
+                  ),
+                )
+              }
+            />
             <Button
               type="button"
               variant="ghost"
@@ -366,7 +426,13 @@ export function ReportQtyTable({
           onClick={() =>
             setExtras((list) => [
               ...list,
-              { key: `new-${list.length}-${rows.length}`, itemName: "", unit: "", dailyQty: "" },
+              {
+                key: `new-${list.length}-${rows.length}`,
+                itemName: "",
+                unit: "",
+                dailyQty: "",
+                note: "",
+              },
             ])
           }
         >

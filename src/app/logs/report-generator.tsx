@@ -314,11 +314,22 @@ export function ReportGenerator({
 
       <div className="space-y-2">
         <h3 className="text-sm font-medium">留存的報表</h3>
+        {/*
+          currentId 只在「上方顯示的就是那一列的內容」時給定。
+          本期已有定稿而使用者按了重新生成時，上方是未留存的即時預覽，
+          此時把定稿標成「上方顯示的這一版」就是錯的；改以 periodConfirmedId
+          標出定稿在哪一列，讓橫幅的「見下方留存清單」有東西可指。
+        */}
         <ReportArchive
           projectId={projectId}
           canEdit={canEdit}
           reloadToken={archiveToken}
-          currentId={visible?.savedId ?? visible?.confirmedId ?? null}
+          currentId={
+            visible?.persisted
+              ? (visible.savedId ?? visible.confirmedId ?? null)
+              : null
+          }
+          periodConfirmedId={visible?.confirmedId ?? null}
           onChanged={() => {
             // 留存狀態已變（定稿／刪除），畫面上這一份的標示必須跟著更新
             setArchiveToken((n) => n + 1);

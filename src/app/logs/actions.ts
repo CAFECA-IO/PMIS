@@ -24,11 +24,19 @@ function refresh() {
   revalidatePath("/");
 }
 
+/**
+ * 新建日報。
+ *
+ * 回傳 `{ error }` 時由 CreateRecordDialog 顯示並保持表單開啟 ——
+ * 撞到既有日期時必須讓使用者看到原因，而不是靜默覆蓋當天的內容。
+ */
 export async function fileReportAction(formData: FormData) {
-  if (!(await currentUserCanEdit("/logs"))) return;
+  if (!(await currentUserCanEdit("/logs"))) {
+    return { error: "無編輯權限。" };
+  }
   const projectId = field(formData, "projectId");
-  if (!projectId) return;
-  await reportService.fileReport(
+  if (!projectId) return { error: "缺少專案。" };
+  const result = await reportService.fileReport(
     {
       projectId,
       reportDate: field(formData, "reportDate"),
@@ -45,7 +53,17 @@ export async function fileReportAction(formData: FormData) {
     },
     await actor(),
   );
+  if (!result.ok) return { error: result.error };
   refresh();
+  return { ok: true as const };
+}
+
+/** 某日是否已有日報（供新建表單即時提示）。 */
+export async function checkReportDateAction(
+  projectId: string,
+  dateISO: string,
+) {
+  return reportService.checkReportDate(projectId, dateISO, await actor());
 }
 
 export async function updateReportAction(formData: FormData) {

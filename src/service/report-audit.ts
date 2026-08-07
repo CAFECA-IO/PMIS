@@ -36,11 +36,18 @@ const clip = (v: string, max = 60): string =>
  *
  * 只列出**真正改變**的欄位 —— 每次儲存都把所有欄位記一遍，
  * 會讓軌跡淹沒在雜訊裡而失去查閱價值。
+ *
+ * 摘要中的值會截斷，**因此一併保存變更前的完整欄位 JSON**。
+ * 先前只有截斷過的摘要：`summary` 若是 81 字、結尾為
+ * 「…經監造確認符合契約第 7 條免計工期之情形。」，軌跡只會留下前 60 字，
+ * 而 DB 欄位已被新值覆寫 —— 那句直接對應金額的話，
+ * 從 DB 與軌跡兩邊都救不回來。`exclusionBasis`／`keyNotes` 同樣暴露。
+ * 數量表那條路徑本來就存完整 JSON，文字欄位沒有理由例外。
  */
 export function describeFieldChanges(
   before: ComparableFields,
   after: ComparableFields,
-): string | null {
+): AuditDetail | null {
   const parts: string[] = [];
   for (const key of Object.keys(after)) {
     const a = before[key] ?? null;
@@ -49,7 +56,12 @@ export function describeFieldChanges(
     const label = FIELD_LABELS[key] ?? key;
     parts.push(`${label}：${clip(show(a))} → ${clip(show(b))}`);
   }
-  return parts.length > 0 ? parts.join("；") : null;
+  if (parts.length === 0) return null;
+  return {
+    summary: clip(parts.join("；"), 300),
+    // 保存整份變更前欄位，而非只存有變動者：重建不該還要跨筆推敲哪些沒變
+    before: JSON.stringify(before),
+  };
 }
 
 /**
@@ -68,34 +80,84 @@ export type QtySnapshotRow = {
   note: string | null;
 };
 
-export type QtyChange = {
-  /** 供人閱讀的摘要。 */
+/**
+ * 一筆軌跡的內容：摘要給人看，JSON 供回溯重建。
+ *
+ * 摘要會截斷（軌跡列表若塞滿整段敘述就沒人會讀），**因此 JSON 不可省略** ——
+ * 截斷過的摘要不是紀錄，是提示。
+ */
+export type AuditDetail = {
+  /** 供人閱讀的摘要；過長的值已截斷。 */
   summary: string;
-  /** 變更前的完整明細（JSON），使數字可回溯重建。 */
+  /** 變更前（或建立時）的完整內容 JSON，未截斷。 */
   before: string;
 };
 
-const qtyKey = (r: QtySnapshotRow) => r.workItemId ?? `x:${r.itemName}`;
+/** @deprecated 沿用舊名，語意同 AuditDetail。 */
+export type QtyChange = AuditDetail;
+
+/** 台帳工項以 workItemId 為身分；契約外項目沒有身分，只能以名稱成組比對。 */
+const isLedgerRow = (r: QtySnapshotRow): r is QtySnapshotRow & {
+  workItemId: string;
+} => Boolean(r.workItemId);
+
+/** 一列的可比較內容（不含身分）。 */
+const rowSig = (r: QtySnapshotRow) =>
+  `${r.dailyQty}|${r.unit ?? ""}|${r.note ?? ""}`;
+
+/** 契約外同名列的整組簽章；排序後比較，與填寫順序無關。 */
+const groupSig = (rows: QtySnapshotRow[]) =>
+  rows.map(rowSig).sort().join("\u0000");
+
+/** 契約外同名列的顯示：`3、7m`。 */
+const showGroup = (rows: QtySnapshotRow[]) =>
+  rows
+    .map((r) => `${r.dailyQty}${r.unit ?? ""}${r.note ? `（${clip(r.note, 20)}）` : ""}`)
+    .join("、");
+
+function groupByName(rows: QtySnapshotRow[]): Map<string, QtySnapshotRow[]> {
+  const out = new Map<string, QtySnapshotRow[]>();
+  for (const r of rows) {
+    const list = out.get(r.itemName);
+    if (list) list.push(r);
+    else out.set(r.itemName, [r]);
+  }
+  return out;
+}
 
 /**
  * 比對數量表並產生變更描述；無異動時回 null。
  *
  * 保存**變更前**的完整明細而非變更後：變更後的值可從現況讀出，
  * 變更前的值一旦覆寫就永遠消失 —— 那才是軌跡要保住的東西。
+ *
+ * **契約外項目沒有穩定身分**，只有名稱。先前以 `x:${itemName}` 當 Map 鍵，
+ * 同名兩列會靜默收斂成最後一筆：報表有「雜項 3」與「雜項 7」時刪掉第一列，
+ * before 與 after 的鍵都指向 7，比對結果為「無異動」而**完全不寫軌跡**
+ * —— 3 從累計與估驗金額中消失且零紀錄。
+ *
+ * 因此同名列改為**成組比對**：整組數量排序後比對，變更以
+ * 「雜項 3、7 → 7」呈現。任何配對方式都是猜測（那兩列本來就分不出誰是誰），
+ * 而成組呈現不需要猜，也不會漏掉任何一列。
  */
 export function describeQtyChanges(
   before: QtySnapshotRow[],
   after: QtySnapshotRow[],
-): QtyChange | null {
-  const beforeMap = new Map(before.map((r) => [qtyKey(r), r]));
-  const afterMap = new Map(after.map((r) => [qtyKey(r), r]));
-
+): AuditDetail | null {
   const added: string[] = [];
   const removed: string[] = [];
   const changed: string[] = [];
 
-  for (const [k, a] of afterMap) {
-    const b = beforeMap.get(k);
+  // ── 台帳工項：以 workItemId 逐項比對 ──
+  const beforeById = new Map(
+    before.filter(isLedgerRow).map((r) => [r.workItemId, r]),
+  );
+  const afterById = new Map(
+    after.filter(isLedgerRow).map((r) => [r.workItemId, r]),
+  );
+
+  for (const [id, a] of afterById) {
+    const b = beforeById.get(id);
     if (!b) {
       added.push(`${a.itemName} ${a.dailyQty}${a.unit ?? ""}`);
       continue;
@@ -113,10 +175,26 @@ export function describeQtyChanges(
     }
     if (diffs.length > 0) changed.push(`${a.itemName} ${diffs.join("、")}`);
   }
-  for (const [k, b] of beforeMap) {
-    if (!afterMap.has(k)) {
+  for (const [id, b] of beforeById) {
+    if (!afterById.has(id)) {
       removed.push(`${b.itemName} ${b.dailyQty}${b.unit ?? ""}`);
     }
+  }
+
+  // ── 契約外項目：同名成組比對 ──
+  const beforeGroups = groupByName(before.filter((r) => !isLedgerRow(r)));
+  const afterGroups = groupByName(after.filter((r) => !isLedgerRow(r)));
+
+  for (const [name, a] of afterGroups) {
+    const b = beforeGroups.get(name);
+    if (!b) {
+      added.push(`${name} ${showGroup(a)}`);
+    } else if (groupSig(a) !== groupSig(b)) {
+      changed.push(`${name} ${showGroup(b)} → ${showGroup(a)}`);
+    }
+  }
+  for (const [name, b] of beforeGroups) {
+    if (!afterGroups.has(name)) removed.push(`${name} ${showGroup(b)}`);
   }
 
   if (added.length === 0 && removed.length === 0 && changed.length === 0) {
@@ -147,7 +225,7 @@ export function describeQtyChanges(
 export function describeCreation(
   fields: ComparableFields,
   items: QtySnapshotRow[],
-): string {
+): AuditDetail {
   const vals = Object.keys(fields)
     .filter((k) => (fields[k] ?? "").trim() !== "")
     .map((k) => `${FIELD_LABELS[k] ?? k}：${clip(fields[k] as string)}`);
@@ -160,7 +238,11 @@ export function describeCreation(
       : "數量表無資料";
 
   const body = [...vals, itemPart].join("；");
-  return clip(`建立日報｜${body}`, 500);
+  return {
+    summary: clip(`建立日報｜${body}`, 500),
+    // 同 describeFieldChanges：摘要會截斷，故一併留下未截斷的初始內容
+    before: JSON.stringify({ fields, items }),
+  };
 }
 
 /**
@@ -180,7 +262,7 @@ export function describeDeletion(input: {
   statusLabel: string;
   fields: ComparableFields;
   items: QtySnapshotRow[];
-}): QtyChange {
+}): AuditDetail {
   const parts = [`刪除 ${input.reportDateLabel} 日報（狀態：${input.statusLabel}）`];
 
   // 免計工期一律列示，即使為「否」—— 沒有宣告本身也是需要留存的事實
@@ -208,7 +290,7 @@ export function describeDeletion(input: {
 /** 依是否有欄位／數量異動決定要寫哪些軌跡動作。 */
 export function actionsFor(input: {
   isNew: boolean;
-  fieldChanges: string | null;
+  fieldChanges: AuditDetail | null;
   statusChanged: boolean;
   qtyChanges: QtyChange | null;
 }): AuditAction[] {

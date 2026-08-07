@@ -1126,9 +1126,17 @@ model SupervisionReportAuditLog {
   fromStatus ReportStatus?
   toStatus   ReportStatus?
 
-  /// 變更細節。欄位異動記為「欄位：舊 → 新」；
-  /// 數量表異動與刪除則保存變更前的完整明細（JSON），使內容可回溯重建。
+  /// 供人閱讀的摘要，如「天氣：晴 → 雨」。過長的值已截斷，且可能含換行。
   detail String?
+
+  /// 變更前（或建立時）的完整內容 JSON，未截斷，使內容可回溯重建。
+  ///
+  /// 與 `detail` 分欄而非塞在同一欄，是因為摘要含有使用者原文，
+  /// 而原文可能有換行：先前以「第一個換行之後即為 JSON」切分，
+  /// 遇到 `施工概況：上午澆置\n下午養護` 就會把後半段標成「變更前明細」——
+  /// 出現在一列 CREATE 上，而 CREATE 根本沒有變更前。
+  /// 兩種東西就該放兩個欄位，不要靠嗅探。
+  snapshot String?
 
   createdAt DateTime @default(now())
 

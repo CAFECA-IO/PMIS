@@ -1,13 +1,16 @@
 "use client";
 
-import { useState } from "react";
-import { Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlertTriangle, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { reportStatusMeta, workStopReasonOptions } from "@/constant/pmis";
-import { suggestReportAction } from "@/app/logs/actions";
+import {
+  checkReportDateAction,
+  suggestReportAction,
+} from "@/app/logs/actions";
 import { WEATHER_OPTIONS } from "@/constant/weather";
 import { ReportQtyTable } from "@/app/logs/report-qty-table";
 import { ReportProgressStrip } from "@/app/logs/report-progress-strip";
@@ -34,6 +37,40 @@ export function ReportDialogFields({
   const [equipment, setEquipment] = useState("");
   const [keyNotes, setKeyNotes] = useState("");
   const [loading, setLoading] = useState(false);
+  /** 已查出「該日已有日報」的結果；連同查詢時的日期一起記，供推導比對。 */
+  const [conflict, setConflict] = useState<{
+    date: string;
+    statusLabel: string | null;
+  } | null>(null);
+
+  /*
+    選好日期當下就告訴使用者該日已有日報。
+
+    本表單**不會載入既有內容**，送出時每個空欄位都會寫成 null；
+    伺服器端已會拒絕撞日期的新建（見 fileReport），但等到使用者
+    打完一整份才被退回太晚了。日期欄逐鍵觸發，故延遲 400ms 再查。
+  */
+  useEffect(() => {
+    if (!reportDate) return;
+    let stale = false;
+    const timer = setTimeout(() => {
+      checkReportDateAction(projectId, reportDate).then((res) => {
+        if (stale) return;
+        setConflict(
+          res?.exists
+            ? { date: reportDate, statusLabel: res.statusLabel }
+            : null,
+        );
+      });
+    }, 400);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [projectId, reportDate]);
+
+  // 只在查詢結果對應當前日期時才顯示（涵蓋清空日期與防抖空窗）
+  const dateTaken = conflict && conflict.date === reportDate ? conflict : null;
 
   async function pull() {
     if (!reportDate) return;
@@ -49,6 +86,16 @@ export function ReportDialogFields({
   return (
     <>
       <input type="hidden" name="projectId" value={projectId} />
+      {dateTaken && (
+        <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs sm:col-span-2">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" />
+          <span>
+            {reportDate} 已有日報（{dateTaken.statusLabel}）。
+            本表單不會載入既有內容，送出會被拒絕；
+            要修改請關閉此視窗，於日誌中開啟該日日報編輯。
+          </span>
+        </div>
+      )}
       <input type="hidden" name="weather" value={weather} />
       <label className="space-y-1 text-xs">
         <span className="text-muted-foreground">報表日期</span>
