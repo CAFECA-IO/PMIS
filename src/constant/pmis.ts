@@ -17,6 +17,7 @@ import type {
   ReviewResult,
   MediaType,
   ReportStatus,
+  WorkStopReason,
   ProjectMemberRole,
   CarbonScope,
   CarbonEntryStatus,
@@ -240,6 +241,24 @@ export const reportStatusMeta: Record<ReportStatus, Meta> = {
   SUBMITTED: { label: "已提送", variant: "info" },
   APPROVED: { label: "已核備", variant: "success" },
 };
+
+/**
+ * 停工原因的顯示標籤（決策 H）。
+ *
+ * 值為空（null）代表當日有施工，故不在此列舉之內。
+ * 月報的工作日統計一律依此欄位，不再以天氣或敘述推測（決策 D）。
+ */
+export const workStopReasonMeta: Record<WorkStopReason, Meta> = {
+  WEATHER: { label: "天氣因素停工", variant: "info" },
+  EARTHQUAKE: { label: "地震停工", variant: "warning" },
+  HOLIDAY: { label: "例假日", variant: "muted" },
+  NO_SCHEDULE: { label: "未排工", variant: "muted" },
+  OTHER: { label: "其他停工", variant: "warning" },
+};
+
+export const workStopReasonOptions = Object.entries(workStopReasonMeta).map(
+  ([value, meta]) => ({ value, label: meta.label }),
+);
 
 /**
  * 日報數量計入累計完成量的狀態（決策 G，2026-08-05）。

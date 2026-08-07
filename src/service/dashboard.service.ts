@@ -9,6 +9,8 @@ import * as inspectionRepo from "@/repository/inspection.repository";
 import * as mediaRepo from "@/repository/media.repository";
 import * as obligationRepo from "@/repository/obligation.repository";
 import { buildSCurve } from "./scurve";
+import { loadDailyQtyTotalsForProjects } from "@/service/daily-qty.service";
+import { withEffectiveProgressAll } from "@/service/work-item-effective";
 import { effectiveObligationActual, type RollupItem } from "./obligation-rollup";
 
 /**
@@ -189,10 +191,13 @@ export type { SCurvePoint } from "./scurve";
  * weighted contract obligations across all projects — the dashboard S-Curve.
  */
 export async function getSCurve() {
-  const [obligations, wiRows] = await Promise.all([
+  const [obligations, rawWiRows, qtyTotals] = await Promise.all([
     obligationRepo.listForMetrics(),
     workItemRepo.listAllDetailForMetrics(),
+    loadDailyQtyTotalsForProjects(null),
   ]);
+  // 進度以日報數量為準（決策 F）；null 代表涵蓋全部未刪除專案
+  const wiRows = withEffectiveProgressAll(rawWiRows, qtyTotals);
   // 全體工程分項依 obligationId 分組，供上捲判定履約事項有效實際完成日
   const byOb = new Map<string, RollupItem[]>();
   for (const r of wiRows) {

@@ -34,6 +34,11 @@ import type {
 } from "@/generated/prisma/enums";
 import type { UpdateProjectData } from "@/repository/project.repository";
 import { canSeeAllProjects } from "@/lib/auth";
+import {
+  loadDailyQtyTotals,
+  loadDailyQtyTotalsForProjects,
+} from "@/service/daily-qty.service";
+import { withEffectiveProgressAll } from "@/service/work-item-effective";
 import * as workItemRepo from "@/repository/workItem.repository";
 import {
   buildSCurve,
@@ -102,13 +107,26 @@ export type WorkItemDetail = RollupItem & {
   name: string;
   status: string;
   obligationId: string | null;
+  /** 供推導有效進度與本期完成增量（決策 F／I）；Decimal 於邊界轉 number。 */
+  contractQty: unknown;
+  completedQty: unknown;
 };
 
-/** 讀取專案工程分項明細（含所屬履約事項 id）。 */
-export function getWorkItemDetails(
+/**
+ * 讀取專案工程分項明細（含所屬履約事項 id）。
+ *
+ * `progress` 回傳的是**有效進度**（依日報數量推導，未計量工項沿用人工值）——
+ * 決策 F：推導值不回寫欄位，故凡是要用進度的地方都必須在取數時換算，
+ * 否則上捲與 S 曲線會讀到不含日報的舊值。
+ */
+export async function getWorkItemDetails(
   projectId: string,
 ): Promise<WorkItemDetail[]> {
-  return workItemRepo.listDetailByProject(projectId);
+  const [rows, totals] = await Promise.all([
+    workItemRepo.listDetailByProject(projectId),
+    loadDailyQtyTotals(projectId),
+  ]);
+  return withEffectiveProgressAll(rows, totals);
 }
 
 export function computeProjectSCurve(
@@ -261,9 +279,13 @@ export async function listProjects(viewer: Viewer) {
     : await projectRepo.listWithCountsForAccount(viewer.id);
 
   // 批次讀取各專案工項明細，逐案以「上捲」計算進度（全系統統一定義）
-  const wiRows = await workItemRepo.listDetailByProjectIds(
-    projects.map((p) => p.id),
-  );
+  const projectIds = projects.map((p) => p.id);
+  const [rawRows, qtyTotals] = await Promise.all([
+    workItemRepo.listDetailByProjectIds(projectIds),
+    loadDailyQtyTotalsForProjects(projectIds),
+  ]);
+  // 進度以日報數量為準（決策 F）
+  const wiRows = withEffectiveProgressAll(rawRows, qtyTotals);
   const byProject = new Map<string, ProgressWorkItem[]>();
   for (const r of wiRows) {
     const arr = byProject.get(r.projectId) ?? [];
@@ -287,7 +309,14 @@ export async function getProject(id: string, viewer: Viewer) {
   ) {
     return null;
   }
-  return project;
+  /*
+    工程分項的 progress 換為有效進度（決策 F）。
+    在此統一處理是因為 computeProjectOverview 是同步純函式，
+    而它的三個呼叫端（專案頁、螢幕焦點、費思對話情境）都經由本函式取得專案；
+    在此換算即三處同時受益，不必各自記得。
+  */
+  const totals = await loadDailyQtyTotals(id);
+  return { ...project, workItems: withEffectiveProgressAll(project.workItems, totals) };
 }
 
 // ── staffing / members (配置人力) ──────────────────────────
