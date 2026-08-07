@@ -18,6 +18,9 @@ import { dailyQtyTotals } from "@/service/work-item-effective";
  * 規則變更時必然漏改。
  */
 
+/** 累計的下界；見 loadDailyQtyTotalsUpTo 的說明。 */
+const EPOCH = new Date(0);
+
 /**
  * 專案各工項的日報累計數量（全期間）。
  *
@@ -51,6 +54,23 @@ export async function loadDailyQtyTotalsInPeriod(
     { start, end },
   );
   return dailyQtyTotals(rows);
+}
+
+/**
+ * 專案各工項截至指定時點（含）的日報累計數量。
+ *
+ * 「累計」必須有時間上限。補產舊期間的月報時若取全期間加總，
+ * 之後幾個月的量會被算進那份報表 —— 在 8/7 產 2 月月報會印出
+ * 「累計超前」這種不存在的數字，而報表是送審文件。
+ *
+ * 下界取紀元而非專案開工日：開工日可能未填，或晚於既有日報的日期，
+ * 以它為界會靜默丟棄早於開工日的紀錄。
+ */
+export async function loadDailyQtyTotalsUpTo(
+  projectId: string,
+  asOf: Date,
+): Promise<Map<string, number>> {
+  return loadDailyQtyTotalsInPeriod(projectId, EPOCH, asOf);
 }
 
 /**

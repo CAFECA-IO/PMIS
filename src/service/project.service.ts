@@ -37,6 +37,7 @@ import { canSeeAllProjects } from "@/lib/auth";
 import {
   loadDailyQtyTotals,
   loadDailyQtyTotalsForProjects,
+  loadDailyQtyTotalsUpTo,
 } from "@/service/daily-qty.service";
 import { withEffectiveProgressAll } from "@/service/work-item-effective";
 import * as workItemRepo from "@/repository/workItem.repository";
@@ -121,10 +122,19 @@ export type WorkItemDetail = RollupItem & {
  */
 export async function getWorkItemDetails(
   projectId: string,
+  /**
+   * 有效累計量的時間上限；省略為「至今」。
+   *
+   * 產製某期間的報表時**必須給定**（期末），否則期間之後的日報數量會被
+   * 算進那份報表的累計欄位。畫面即時顯示（台帳、儀表板）則省略即可。
+   */
+  asOf?: Date,
 ): Promise<WorkItemDetail[]> {
   const [rows, totals] = await Promise.all([
     workItemRepo.listDetailByProject(projectId),
-    loadDailyQtyTotals(projectId),
+    asOf
+      ? loadDailyQtyTotalsUpTo(projectId, asOf)
+      : loadDailyQtyTotals(projectId),
   ]);
   return withEffectiveProgressAll(rows, totals);
 }

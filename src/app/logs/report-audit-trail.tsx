@@ -98,6 +98,12 @@ export function ReportAuditTrail({ reportId }: { reportId: string }) {
                 {statusLabel(r.fromStatus)} → {statusLabel(r.toStatus)}
               </div>
             )}
+            {/* 建立時的狀態即後續狀態轉換的起點，缺了它軌跡接不回起點 */}
+            {r.action === "CREATE" && r.toStatus && (
+              <div className="text-muted-foreground">
+                建立時狀態：{statusLabel(r.toStatus)}
+              </div>
+            )}
             {summary && (
               <div className="whitespace-pre-wrap text-muted-foreground">
                 {summary}

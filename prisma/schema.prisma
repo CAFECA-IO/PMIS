@@ -327,7 +327,12 @@ model WorkItem {
   /// 而是「開始以日報填報之前的累計基準」。當前有效累計量為
   ///   期初(本欄) + Σ 日報 SupervisionReportItem.dailyQty
   /// 由 work-item-effective.effectiveCompletedQty 推導，不回寫本欄。
-  /// 人工寫入入口已關閉（台帳改唯讀），避免與日報加總並存成為第二個來源。
+  ///
+  /// 台帳上「可編輯的是本欄（期初），不是畫面上那個累計」：
+  /// 有效累計為推導值、唯讀，任何路徑都不得回寫，
+  /// 以免與日報加總並存成為第二個來源。
+  /// 期初本身必須可編輯 —— 導入日報前已完成的量只能由此登錄；
+  /// 但已有日報計入後再改期初會連帶改寫歷史月報的累計，故 UI 須明確確認。
   completedQty Decimal?
   inspectedQty Decimal? // 查驗合格量
   valuatedQty  Decimal? // 累計估驗量
@@ -1182,6 +1187,14 @@ model GeneratedReport {
   sources     String?
   /// 本體是否由 LLM 主導（false = 決定論回退組裝）。
   aiAuthored  Boolean            @default(false)
+
+  /// 本份內容的產出時間。
+  ///
+  /// 與 `createdAt` 分開的理由：草稿以「同專案／同週期／同期間」覆寫，
+  /// 覆寫後 `createdAt`（這一列何時建立）仍是舊值，
+  /// 拿它當「產生於」顯示就是錯的 —— 而這是送審依據的留存紀錄，
+  /// 時間標錯比不標更糟。定稿動作不改本欄（定稿沒有重新產出內容）。
+  generatedAt   DateTime @default(now())
 
   generatedById String?
   generatedBy   String?

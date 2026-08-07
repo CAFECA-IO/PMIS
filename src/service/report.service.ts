@@ -26,8 +26,8 @@ import {
   type WorkItemRow,
 } from "@/service/report-template";
 import {
-  loadDailyQtyTotals,
   loadDailyQtyTotalsInPeriod,
+  loadDailyQtyTotalsUpTo,
 } from "@/service/daily-qty.service";
 import {
   effectiveCompletedQty,
@@ -180,14 +180,22 @@ export async function generateReport(
     履約事項並未失效，仍是里程碑管理與契約應辦事項的載體；
     只是不再作為月報進度數字的基準。
   */
+  /*
+    累計一律以**期末**為上限，不是「現在」。
+
+    先前此處取全期間加總（`loadDailyQtyTotals`／無上限的 `getWorkItemDetails`），
+    於 8/7 補產 2 月月報時會把 3–7 月的量算進 2 月的累計，
+    印出「累計超前」這種當時並不存在的數字 —— 而月報是送審文件。
+    同一 codebase 的日報進度條（`getDailyProgress`）本就以當日為界，
+    兩者若不同界，同一天會出現兩個「累計完成」，正是決策 A 要消滅的問題。
+  */
   const [wiDetails, cumulativeQtyTotals, periodQtyTotals] = await Promise.all([
-    getWorkItemDetails(projectId),
-    // 全期間加總供累計欄位；期間加總供「本期完成」（決策 A）
-    loadDailyQtyTotals(projectId),
+    getWorkItemDetails(projectId, end),
+    loadDailyQtyTotalsUpTo(projectId, end),
     loadDailyQtyTotalsInPeriod(projectId, start, end),
   ]);
 
-  // 累計完成：各工項有效進度（決策 F）以預定工期天數加權
+  // 累計完成：各工項截至期末的有效進度（決策 F）以預定工期天數加權
   const cumulativeActual = derivedProgress(wiDetails);
   // 累計預定：各工項於預定期間線性展開至期末
   const cumulativePlanned = plannedProgressAt(wiDetails, end);
@@ -384,29 +392,57 @@ export async function generateReport(
 
 // ── 報表留存（決策 J-a）───────────────────────────────────
 
+export type ReportView = {
+  report: GeneratedReport;
+  /**
+   * 畫面上這一份的留存 id。
+   * null 代表未留存 —— 無編輯權限，或本期已有定稿（見 confirmedId）。
+   */
+  savedId: string | null;
+  /** 本期已有定稿時的該份 id；此時畫面上的即時預覽不是送審依據。 */
+  confirmedId: string | null;
+};
+
 /**
- * 產出報表並留存一份草稿。
+ * 產出報表並**同步留存**畫面上這一份（決策 J-a）。
  *
- * 報表的每個數字都是即時推導（決策 A／F／I），同一期間在不同時間產生
- * 會得到不同結果；不留存則「送審出去的是哪一版」在系統中不存在。
+ * 為何產出即留存，而非另設一顆「留存」按鈕：
+ * 報表的每個數字都是即時推導（決策 A／F／I），連期間評述都由 LLM 現寫，
+ * 同一期間隔五分鐘產生兩次結果就不同。若按鈕另跑一次產製，
+ * 存下來的必然不是使用者讀過的那一份 —— 接著按「確認定稿」，
+ * 就凍結了一份沒人讀過的送審文件。故此處只產一次，
+ * 回傳的 markdown 與寫進 `GeneratedReport.markdown` 的是同一個字串。
  *
- * **僅供使用者明確要求留存時呼叫**，不是每次產生都存 ——
- * 報表畫面會在切換週期或日期時自動重新產生，若一併存檔會堆出大量無意義草稿，
- * 反而讓真正要送審的那一版被淹沒。單純預覽請用 `generateReport`。
+ * 草稿以「同專案／同週期／同期間」覆寫（見 repository 的 `upsertDraft`），
+ * 因此反覆切換日期不會堆出大量無意義草稿。
+ *
+ * 本期已有定稿時不覆寫、也不另存草稿：定稿是當時送審依據的凍結內容，
+ * 而預覽仍應顯示現況（否則使用者無從發現現況已與定稿不同）。
  */
-export async function generateAndSaveReport(
+export async function generateReportView(
   projectId: string,
   type: ReportType,
   refIso: string | undefined,
   actor: Actor,
-): Promise<{ id: string; report: GeneratedReport } | null> {
+  /** 無編輯權限者只讀不寫：純瀏覽不應在留存清單留下紀錄。 */
+  persist: boolean,
+): Promise<ReportView | null> {
   const report = await generateReport(projectId, type, refIso, actor);
   if (!report) return null;
 
   const ref = refIso ? new Date(refIso) : new Date();
   const { start, end } = periodRange(type, ref);
 
-  const saved = await savedReportRepo.create({
+  const confirmed = await savedReportRepo.findConfirmedForPeriod(
+    projectId,
+    type,
+    start,
+  );
+  if (confirmed || !persist) {
+    return { report, savedId: null, confirmedId: confirmed?.id ?? null };
+  }
+
+  const saved = await savedReportRepo.upsertDraft({
     projectId,
     type,
     periodStart: start,
@@ -419,7 +455,7 @@ export async function generateAndSaveReport(
     generatedById: actor.id,
     generatedBy: actor.name || null,
   });
-  return { id: saved.id, report };
+  return { report, savedId: saved.id, confirmedId: null };
 }
 
 export async function listSavedReports(projectId: string, actor: Actor) {

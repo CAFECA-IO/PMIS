@@ -6,6 +6,7 @@ import * as workItemRepo from "@/repository/workItem.repository";
 import * as auditRepo from "@/repository/supervisionReportAudit.repository";
 import {
   actionsFor,
+  describeCreation,
   describeFieldChanges,
   describeQtyChanges,
   type ComparableFields,
@@ -13,7 +14,7 @@ import {
 } from "@/service/report-audit";
 import {
   loadDailyQtyTotals,
-  loadDailyQtyTotalsInPeriod,
+  loadDailyQtyTotalsUpTo,
 } from "@/service/daily-qty.service";
 import {
   effectiveCompletedQty,
@@ -26,6 +27,7 @@ import { canSeeAllProjects } from "@/lib/auth";
 import {
   countsTowardQty,
   reportStatusMeta,
+  workStopReasonMeta,
   inspectionTypeMeta,
   inspectionResultMeta,
   defectSeverityMeta,
@@ -83,21 +85,22 @@ const toSnapshot = (rows: {
   itemName: string;
   unit: string | null;
   dailyQty: unknown;
+  note: string | null;
 }[]): QtySnapshotRow[] =>
   rows.map((r) => ({
     workItemId: r.workItemId,
     itemName: r.itemName,
     unit: r.unit,
     dailyQty: Number(r.dailyQty),
+    note: r.note,
   }));
 
-const VALID_STOP_REASONS: WorkStopReason[] = [
-  "WEATHER",
-  "EARTHQUAKE",
-  "HOLIDAY",
-  "NO_SCHEDULE",
-  "OTHER",
-];
+/*
+  停工原因的合法值取自 `workStopReasonMeta`（同 VALID_STATUSES 的作法），
+  不在此另抄一份 —— enum 增減時內聯清單必然漏改，而漏改的後果是
+  使用者選了新原因卻被靜默當成「當日有施工」。
+*/
+const VALID_STOP_REASONS = Object.keys(workStopReasonMeta) as WorkStopReason[];
 
 /** 停工原因；空字串或未知值一律視為「當日有施工」（null）。 */
 function parseStopReason(v: string | undefined): WorkStopReason | null {
@@ -459,6 +462,19 @@ async function writeAudit(input: {
           detail: `${qtyChanges!.summary}\n${qtyChanges!.before}`,
         };
       }
+      if (action === "CREATE") {
+        /*
+          CREATE 先前只寫下 action 而 detail 為 null（新建無「變更前」可比對），
+          軌跡上只看得到「有人建了一份」。缺了初始內容與初始狀態，
+          後續的「舊 → 新」就接不回起點。
+        */
+        return {
+          ...base,
+          action,
+          toStatus: input.toStatus,
+          detail: describeCreation(input.afterFields, input.afterItems ?? []),
+        };
+      }
       return { ...base, action, detail: fieldChanges };
     }),
   );
@@ -652,8 +668,7 @@ export async function getDailyProgress(
 
   const [rows, totalsToDate] = await Promise.all([
     workItemRepo.listDetailByProject(projectId),
-    // 自紀元起算至該日 = 截至該日的累計
-    loadDailyQtyTotalsInPeriod(projectId, new Date(0), endOfDay),
+    loadDailyQtyTotalsUpTo(projectId, endOfDay),
   ]);
   const items = withEffectiveProgressAll(rows, totalsToDate);
 

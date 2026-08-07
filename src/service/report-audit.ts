@@ -52,12 +52,20 @@ export function describeFieldChanges(
   return parts.length > 0 ? parts.join("；") : null;
 }
 
-/** 數量表一列（比對與留存用的最小欄位）。 */
+/**
+ * 數量表一列（比對與留存用的最小欄位）。
+ *
+ * `unit` 與 `note` 為必填而非選填：只比對 `dailyQty` 曾使「只改單位或備註」
+ * 完全不留痕 —— 單位變更會讓同一工項新舊列量綱不一致，
+ * 備註則常是免計工期或數量異常的唯一書面理由，兩者都必須進軌跡。
+ * 型別上要求傳入，可避免呼叫端在建快照時靜默漏掉欄位。
+ */
 export type QtySnapshotRow = {
   workItemId: string | null;
   itemName: string;
   unit: string | null;
   dailyQty: number;
+  note: string | null;
 };
 
 export type QtyChange = {
@@ -90,11 +98,20 @@ export function describeQtyChanges(
     const b = beforeMap.get(k);
     if (!b) {
       added.push(`${a.itemName} ${a.dailyQty}${a.unit ?? ""}`);
-    } else if (b.dailyQty !== a.dailyQty) {
-      changed.push(
-        `${a.itemName} ${b.dailyQty} → ${a.dailyQty}${a.unit ?? ""}`,
-      );
+      continue;
     }
+    // 數量、單位、備註各自比對：只看數量會讓改單位／改備註完全不留痕
+    const diffs: string[] = [];
+    if (b.dailyQty !== a.dailyQty) {
+      diffs.push(`${b.dailyQty} → ${a.dailyQty}${a.unit ?? ""}`);
+    }
+    if ((b.unit ?? "") !== (a.unit ?? "")) {
+      diffs.push(`單位 ${show(b.unit)} → ${show(a.unit)}`);
+    }
+    if ((b.note ?? "") !== (a.note ?? "")) {
+      diffs.push(`備註 ${clip(show(b.note))} → ${clip(show(a.note))}`);
+    }
+    if (diffs.length > 0) changed.push(`${a.itemName} ${diffs.join("、")}`);
   }
   for (const [k, b] of beforeMap) {
     if (!afterMap.has(k)) {
@@ -115,6 +132,35 @@ export function describeQtyChanges(
     summary: clip(segs.join("；"), 300),
     before: JSON.stringify(before),
   };
+}
+
+/**
+ * 建立一份日報時的初始內容描述。
+ *
+ * CREATE 若只記「有人建了一份日報」而不記內容，等於沒記：
+ * 之後每次 UPDATE 都以「舊 → 新」表達，缺了起點就無法把一份日報的
+ * 歷史接起來，也無從說明月報數字最初從何而來。
+ *
+ * 記錄的是**值**而非欄位名 —— 「填了天氣」與「天氣＝雨」在展延爭議中
+ * 意義相差甚遠。
+ */
+export function describeCreation(
+  fields: ComparableFields,
+  items: QtySnapshotRow[],
+): string {
+  const vals = Object.keys(fields)
+    .filter((k) => (fields[k] ?? "").trim() !== "")
+    .map((k) => `${FIELD_LABELS[k] ?? k}：${clip(fields[k] as string)}`);
+
+  const itemPart =
+    items.length > 0
+      ? `數量表 ${items.length} 項：${items
+          .map((i) => `${i.itemName} ${i.dailyQty}${i.unit ?? ""}`)
+          .join("、")}`
+      : "數量表無資料";
+
+  const body = [...vals, itemPart].join("；");
+  return clip(`建立日報｜${body}`, 500);
 }
 
 /** 依是否有欄位／數量異動決定要寫哪些軌跡動作。 */

@@ -111,29 +111,34 @@ export async function loadDailyProgressAction(
 }
 
 // ── 彙整報表留存（決策 J-a）───────────────────────────────
-
-/** 留存目前的報表為草稿；供使用者明確按下「留存」時呼叫。 */
-export async function saveReportAction(
-  projectId: string,
-  type: periodReportService.ReportType,
-  refDate: string | undefined,
-): Promise<{ ok: boolean; error?: string }> {
-  if (!(await currentUserCanEdit("/logs"))) {
-    return { ok: false, error: "無編輯權限。" };
-  }
-  const saved = await periodReportService.generateAndSaveReport(
-    projectId,
-    type,
-    refDate,
-    await actor(),
-  );
-  if (!saved) return { ok: false, error: "無法存取此專案。" };
-  refresh();
-  return { ok: true };
-}
+//
+// 留存不再是獨立動作：報表產出時即留存（見 /api/report 與
+// report.service.generateReportView），故此處只有讀取、確認與刪除。
 
 export async function listSavedReportsAction(projectId: string) {
   return periodReportService.listSavedReports(projectId, await actor());
+}
+
+/**
+ * 開啟一份留存報表的全文。
+ *
+ * 留存的意義在於「事後能把當時送出的那份調出來看」；
+ * 只列 metadata 而讀不到內容，等於存進去再也打不開。
+ */
+export async function openSavedReportAction(id: string) {
+  const row = await periodReportService.getSavedReport(id, await actor());
+  if (!row) return null;
+  return {
+    id: row.id,
+    title: row.title,
+    periodLabel: row.periodLabel,
+    status: row.status,
+    markdown: row.markdown,
+    generatedAt: row.generatedAt,
+    generatedBy: row.generatedBy,
+    confirmedAt: row.confirmedAt,
+    confirmedBy: row.confirmedBy,
+  };
 }
 
 export async function confirmSavedReportAction(id: string) {

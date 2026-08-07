@@ -402,6 +402,29 @@ function EditRow({
       if (!ok) return;
     }
 
+    /*
+      期初是「開始以日報填報之前的累計基準」（決策 A）。
+      一旦已有日報計入，改期初等於同時改寫所有歷史期間的累計 ——
+      包含已定稿送審的月報所依據的數字。這仍是合法操作（基準本來就可能填錯），
+      但不能無聲發生，故此處明確確認。
+
+      以「有效累計 ≠ 期初」判定是否已有日報計入：兩者相等即代表
+      尚無已提送／已核備的日報數量，此時改期初沒有回溯影響，不需打擾。
+    */
+    const changesOpening =
+      form.completedQty !== (row.openingQty === null ? "" : String(row.openingQty));
+    const hasCountedDailyQty =
+      row.openingQty !== null && row.openingQty !== row.completedQty;
+    if (changesOpening && hasCountedDailyQty) {
+      const ok = await confirm({
+        title: `更新「${row.name}」的期初累計量？`,
+        description:
+          "此工項已有日報數量計入，修改期初會一併改變所有歷史期間的累計完成量與金額，包括已留存或已定稿的月報所依據的數字。",
+        confirmLabel: "確認更新期初",
+      });
+      if (!ok) return;
+    }
+
     startTransition(async () => {
       const res = await updateLedgerQtyAction(row.id, projectId, form);
       if (!res.ok) {
