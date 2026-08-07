@@ -241,6 +241,39 @@ export const reportStatusMeta: Record<ReportStatus, Meta> = {
   APPROVED: { label: "已核備", variant: "success" },
 };
 
+/**
+ * 日報數量計入累計完成量的狀態（決策 G，2026-08-05）。
+ *
+ * **草稿不計入。** 依決策 A，日報數量表的加總是月報累計完成量與估驗金額的
+ * 權威來源；若草稿即計入，未經簽核的數字會直接流進正式報表與金額。
+ *
+ * 代價是「監造今天填的量，在提送前不會反映到台帳與月報上」。
+ * 因此台帳／日報畫面宜另外標示「草稿中尚未計入的數量」，
+ * 否則使用者會誤以為自己填的數字遺失了。
+ *
+ * 本常數是該規則的單一來源：查詢日報加總的 where 條件一律引用它，
+ * 不在各處各寫一份狀態清單，否則規則變更時必然漏改。
+ */
+export const QTY_COUNTED_REPORT_STATUSES: readonly ReportStatus[] = [
+  "SUBMITTED",
+  "APPROVED",
+];
+
+/** 該狀態的日報數量是否計入累計完成量。 */
+export function countsTowardQty(status: ReportStatus): boolean {
+  return QTY_COUNTED_REPORT_STATUSES.includes(status);
+}
+
+/**
+ * 日報數量「尚未計入」累計的狀態（決策 G 的可見性配套）。
+ *
+ * 由計入清單反推而非另列一份：計入規則若變更（例如改為僅已核備才計入），
+ * 本清單自動跟著改，不會出現兩份清單各說各話。
+ */
+export const QTY_PENDING_REPORT_STATUSES: readonly ReportStatus[] = (
+  Object.keys(reportStatusMeta) as ReportStatus[]
+).filter((s) => !QTY_COUNTED_REPORT_STATUSES.includes(s));
+
 export const projectStatusOptions = Object.entries(projectStatusMeta).map(
   ([value, meta]) => ({ value, label: meta.label }),
 );

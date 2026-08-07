@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/select";
 import { reportStatusMeta } from "@/constant/pmis";
 import { suggestReportAction } from "@/app/logs/actions";
 import { WEATHER_OPTIONS } from "@/constant/weather";
+import { ReportQtyTable } from "@/app/logs/report-qty-table";
 
 /**
  * 日報欄位（供 CreateRecordDialog 作為 children 使用）。
@@ -126,6 +127,11 @@ export function ReportDialogFields({
           placeholder="吊車 2、潛盾機 1"
         />
       </label>
+      <ReportQtyTable
+        projectId={projectId}
+        reportDate={reportDate}
+        status={status}
+      />
       <label className="space-y-1 text-xs sm:col-span-2">
         <span className="text-muted-foreground">重要事項</span>
         <Textarea

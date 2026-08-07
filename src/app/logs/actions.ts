@@ -36,6 +36,7 @@ export async function fileReportAction(formData: FormData) {
       equipment: field(formData, "equipment"),
       keyNotes: field(formData, "keyNotes"),
       status: field(formData, "status"),
+      items: field(formData, "items"),
     },
     await actor(),
   );
@@ -55,6 +56,7 @@ export async function updateReportAction(formData: FormData) {
       equipment: field(formData, "equipment"),
       keyNotes: field(formData, "keyNotes"),
       status: field(formData, "status"),
+      items: field(formData, "items"),
     },
     await actor(),
   );
@@ -72,4 +74,17 @@ export async function suggestReportAction(
   dateISO: string,
 ): Promise<{ summary: string; keyNotes: string } | null> {
   return reportService.suggestReport(projectId, dateISO, await actor());
+}
+
+/**
+ * 數量表的預帶清單（E1）。
+ *
+ * 由表單在日期變更時取用：清單本身與日期無關，但該日已填的數量有關，
+ * 故一併以日期查詢，讓編輯既有日報時能帶回已填內容。
+ */
+export async function loadQtyFormAction(
+  projectId: string,
+  dateISO: string | undefined,
+): Promise<reportService.QtyFormData | null> {
+  return reportService.loadQtyForm(projectId, dateISO, await actor());
 }

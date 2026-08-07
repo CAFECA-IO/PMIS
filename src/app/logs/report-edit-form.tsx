@@ -10,6 +10,7 @@ import { reportStatusMeta } from "@/constant/pmis";
 import { updateReportAction, suggestReportAction } from "@/app/logs/actions";
 import { ReportDeleteButton } from "@/app/logs/report-delete-button";
 import { WEATHER_OPTIONS } from "@/constant/weather";
+import { ReportQtyTable } from "@/app/logs/report-qty-table";
 
 export function ReportEditForm({
   id,
@@ -119,6 +120,11 @@ export function ReportEditForm({
           onChange={(e) => setEquipment(e.target.value)}
         />
       </label>
+      <ReportQtyTable
+        projectId={projectId}
+        reportDate={dateISO}
+        status={status}
+      />
       <label className="space-y-1 text-xs sm:col-span-2">
         <span className="text-muted-foreground">重要事項</span>
         <Textarea
