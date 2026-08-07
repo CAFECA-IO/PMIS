@@ -6,10 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
-import { reportStatusMeta } from "@/constant/pmis";
+import { reportStatusMeta, workStopReasonOptions } from "@/constant/pmis";
 import { suggestReportAction } from "@/app/logs/actions";
 import { WEATHER_OPTIONS } from "@/constant/weather";
 import { ReportQtyTable } from "@/app/logs/report-qty-table";
+import { ReportProgressStrip } from "@/app/logs/report-progress-strip";
 
 /**
  * 日報欄位（供 CreateRecordDialog 作為 children 使用）。
@@ -25,6 +26,9 @@ export function ReportDialogFields({
   const [reportDate, setReportDate] = useState(today ?? "");
   const [weather, setWeather] = useState("");
   const [status, setStatus] = useState("DRAFT");
+  const [stopReason, setStopReason] = useState("");
+  const [excluded, setExcluded] = useState(false);
+  const [exclusionBasis, setExclusionBasis] = useState("");
   const [summary, setSummary] = useState("");
   const [manpower, setManpower] = useState("");
   const [equipment, setEquipment] = useState("");
@@ -74,6 +78,48 @@ export function ReportDialogFields({
           ))}
         </div>
       </div>
+      <label className="space-y-1 text-xs">
+        <span className="text-muted-foreground">停工原因</span>
+        <Select
+          name="stopReason"
+          value={stopReason}
+          onChange={(e) => setStopReason(e.target.value)}
+        >
+          {/* 留空＝當日有施工；此欄是工作日統計的權威來源（決策 H） */}
+          <option value="">當日有施工</option>
+          {workStopReasonOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
+      </label>
+      {/*
+        免計工期具法律效果（結算與工期展延爭議），故與停工原因分開：
+        停工不必然免計（例假日在日曆天契約下仍計工期），
+        免計與否是監造依契約條款的宣告，系統不推測。
+      */}
+      <label className="flex items-center gap-2 text-xs sm:col-span-2">
+        <input
+          type="checkbox"
+          name="excludedFromDuration"
+          value="1"
+          checked={excluded}
+          onChange={(e) => setExcluded(e.target.checked)}
+        />
+        <span className="text-muted-foreground">本日免計工期</span>
+      </label>
+      {excluded && (
+        <label className="space-y-1 text-xs sm:col-span-2">
+          <span className="text-muted-foreground">免計工期之契約依據</span>
+          <Input
+            name="exclusionBasis"
+            value={exclusionBasis}
+            onChange={(e) => setExclusionBasis(e.target.value)}
+            placeholder="如 工程契約書第 7 條"
+          />
+        </label>
+      )}
       <label className="space-y-1 text-xs">
         <span className="text-muted-foreground">狀態</span>
         <Select
@@ -127,6 +173,7 @@ export function ReportDialogFields({
           placeholder="吊車 2、潛盾機 1"
         />
       </label>
+      <ReportProgressStrip projectId={projectId} reportDate={reportDate} />
       <ReportQtyTable
         projectId={projectId}
         reportDate={reportDate}

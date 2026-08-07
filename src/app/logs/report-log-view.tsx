@@ -18,6 +18,7 @@ import { reportStatusMeta } from "@/constant/pmis";
 import { formatDate } from "@/lib/utils";
 import { ReportDialogFields } from "./report-dialog-fields";
 import { ReportEditForm } from "./report-edit-form";
+import { ReportAuditTrail } from "./report-audit-trail";
 import { fileReportAction } from "./actions";
 import { getWeatherIcon } from "@/constant/weather";
 
@@ -25,6 +26,11 @@ export type DayReport = {
   id: string;
   dateISO: string; // YYYY-MM-DD（本地日期）
   weather: string;
+  /** 停工原因；空字串代表當日有施工（決策 H）。 */
+  stopReason: string;
+  /** 是否免計工期（E5）。 */
+  excludedFromDuration: boolean;
+  exclusionBasis: string;
   status: keyof typeof reportStatusMeta;
   summary: string;
   manpower: string;
@@ -238,9 +244,10 @@ function CalendarGrid({
               onClick={() => onSelect(iso)}
               className={[
                 "min-h-20 border-b border-r p-1.5 text-left align-top transition-colors last:border-r-0",
-                "hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                statusBg,
-                isSelected ? "ring-1 ring-inset ring-primary" : "",
+                "hover:bg-primary/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                isSelected
+                  ? "ring-1 ring-inset ring-primary bg-primary/30"
+                  : statusBg,
               ].join(" ")}
             >
               <div className="flex items-center justify-between">
@@ -345,6 +352,9 @@ function DayDetail({
             dateLabel={label}
             initial={{
               weather: report.weather,
+              stopReason: report.stopReason,
+              excludedFromDuration: report.excludedFromDuration,
+              exclusionBasis: report.exclusionBasis,
               status: report.status,
               summary: report.summary,
               manpower: report.manpower,
@@ -352,6 +362,14 @@ function DayDetail({
               keyNotes: report.keyNotes,
             }}
           />
+          <details className="mt-2">
+            <summary className="cursor-pointer text-[11px] text-muted-foreground hover:underline">
+              變更軌跡
+            </summary>
+            <div className="mt-1">
+              <ReportAuditTrail reportId={report.id} />
+            </div>
+          </details>
         </details>
       ) : null}
     </div>
@@ -407,6 +425,9 @@ function ReportList({
                 dateLabel={formatDate(new Date(r.dateISO))}
                 initial={{
                   weather: r.weather,
+                  stopReason: r.stopReason,
+                  excludedFromDuration: r.excludedFromDuration,
+                  exclusionBasis: r.exclusionBasis,
                   status: r.status,
                   summary: r.summary,
                   manpower: r.manpower,
@@ -414,6 +435,14 @@ function ReportList({
                   keyNotes: r.keyNotes,
                 }}
               />
+              <details className="mt-2">
+                <summary className="cursor-pointer text-[11px] text-muted-foreground hover:underline">
+                  變更軌跡
+                </summary>
+                <div className="mt-1">
+                  <ReportAuditTrail reportId={r.id} />
+                </div>
+              </details>
             </details>
           ) : null}
         </div>

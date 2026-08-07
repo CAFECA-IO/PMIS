@@ -11,6 +11,7 @@ import {
   summarizeDuration,
   classifyWorkDay,
   summarizeWorkDays,
+  type StopReason,
   describeGap,
   periodProgressDelta,
   trimCurveWindow,
@@ -66,23 +67,75 @@ test("summarizeDuration：逾期（elapsed > total）剩餘為 0 不為負", () 
   assert.equal(d.remaining, 0);
 });
 
-test("classifyWorkDay：施工／雨天停工／例假日", () => {
+test("classifyWorkDay：stopReason 為判定的權威來源（決策 H）", () => {
+  const day = (stopReason: StopReason | null, summary: string | null = "施工中") => ({
+    reportDate: new Date(),
+    weather: "晴",
+    summary,
+    stopReason,
+  });
+  assert.equal(classifyWorkDay(day(null)), "WORKING");
+  assert.equal(classifyWorkDay(day("WEATHER")), "WEATHER_STOP");
+  assert.equal(classifyWorkDay(day("EARTHQUAKE")), "EARTHQUAKE_STOP", "地震另立分類");
+  assert.equal(classifyWorkDay(day("HOLIDAY")), "HOLIDAY");
+  assert.equal(classifyWorkDay(day("NO_SCHEDULE")), "NO_SCHEDULE");
+  assert.equal(classifyWorkDay(day("OTHER")), "OTHER_STOP");
+});
+
+test("classifyWorkDay：天氣不參與判定（決策 D）", () => {
+  // 雨天但有施工 → 仍為施工日
   assert.equal(
     classifyWorkDay({
       reportDate: new Date(),
-      weather: "晴",
-      summary: "化冀池打除：XX 街 1-10 號。",
+      weather: "雨",
+      summary: "雨中持續進行用戶接管。",
     }),
     "WORKING",
   );
+  // 天氣為雨、敘述提及暫停，但無 stopReason → 只能判為「其他停工」，
+  // 不得因為天氣是雨就推測為雨天停工（那正是決策 D 要移除的推測）
   assert.equal(
     classifyWorkDay({
       reportDate: new Date(),
       weather: "雨",
       summary: "本日下雨，暫停施工。",
     }),
-    "RAIN_STOP",
+    "OTHER_STOP",
   );
+  // 同一份敘述，天氣改為晴，分類不應改變 —— 證明天氣已不影響結果
+  assert.equal(
+    classifyWorkDay({
+      reportDate: new Date(),
+      weather: "晴",
+      summary: "本日下雨，暫停施工。",
+    }),
+    "OTHER_STOP",
+  );
+  // 明確標記後才算雨天停工
+  assert.equal(
+    classifyWorkDay({
+      reportDate: new Date(),
+      weather: "晴",
+      summary: "本日下雨，暫停施工。",
+      stopReason: "WEATHER",
+    }),
+    "WEATHER_STOP",
+  );
+});
+
+test("classifyWorkDay：敘述為空不臆測為例假日", () => {
+  // 先前把空敘述判為例假日，使漏填膨脹例假日、壓低施工天數
+  assert.equal(
+    classifyWorkDay({ reportDate: new Date(), weather: "晴", summary: null }),
+    "UNCLASSIFIED",
+  );
+  assert.equal(
+    classifyWorkDay({ reportDate: new Date(), weather: "晴", summary: "   " }),
+    "UNCLASSIFIED",
+  );
+});
+
+test("classifyWorkDay：舊資料無 stopReason 時以敘述相容判定", () => {
   assert.equal(
     classifyWorkDay({
       reportDate: new Date(),
@@ -93,34 +146,40 @@ test("classifyWorkDay：施工／雨天停工／例假日", () => {
   );
 });
 
-test("classifyWorkDay：敘述為空視為未排工；雨天但仍施工不算停工", () => {
-  assert.equal(
-    classifyWorkDay({ reportDate: new Date(), weather: "晴", summary: null }),
-    "HOLIDAY",
-  );
-  assert.equal(
-    classifyWorkDay({
-      reportDate: new Date(),
-      weather: "雨",
-      summary: "雨中持續進行用戶接管。",
-    }),
-    "WORKING",
-    "天氣為雨但未停工 → 仍為施工日",
-  );
-});
-
 test("summarizeWorkDays：分類總和守恆", () => {
   const logs = [
     { reportDate: new Date(), weather: "晴", summary: "施工中" },
-    { reportDate: new Date(), weather: "雨", summary: "本日下雨，暫停施工。" },
+    { reportDate: new Date(), weather: "雨", summary: "暫停施工", stopReason: "WEATHER" as const },
     { reportDate: new Date(), weather: "晴", summary: "例假日，未施工。" },
     { reportDate: new Date(), weather: "多雲", summary: null },
+    { reportDate: new Date(), weather: "晴", summary: "無預定工作", stopReason: "NO_SCHEDULE" as const },
   ];
   const s = summarizeWorkDays(logs);
   assert.equal(s.working, 1);
-  assert.equal(s.rainStop, 1);
-  assert.equal(s.holiday, 2);
-  assert.equal(s.working + s.rainStop + s.holiday, s.total);
+  assert.equal(s.weatherStop, 1);
+  assert.equal(s.holiday, 1);
+  assert.equal(s.noSchedule, 1);
+  assert.equal(s.unclassified, 1, "空敘述不再併入例假日");
+  assert.equal(
+    s.working + s.weatherStop + s.holiday + s.noSchedule + s.otherStop + s.unclassified,
+    s.total,
+    "各分類總和須等於日報篇數",
+  );
+});
+
+test("summarizeWorkDays：免計工期獨立累計，與停工分類正交", () => {
+  const logs = [
+    // 施工日但依契約免計工期（例如部分停工）—— 證明兩者非同一件事
+    { reportDate: new Date(), weather: "晴", summary: "施工中", excludedFromDuration: true },
+    { reportDate: new Date(), weather: "雨", summary: "停工", stopReason: "WEATHER" as const, excludedFromDuration: true },
+    // 例假日但仍計工期（日曆天契約）
+    { reportDate: new Date(), weather: "晴", summary: "例假日", stopReason: "HOLIDAY" as const },
+  ];
+  const s = summarizeWorkDays(logs);
+  assert.equal(s.excludedDays, 2, "兩天宣告免計工期");
+  assert.equal(s.working, 1, "免計工期不改變工作日分類");
+  assert.equal(s.weatherStop, 1);
+  assert.equal(s.holiday, 1, "例假日未宣告免計，不計入 excludedDays");
 });
 
 test("periodProgressDelta：期間內權重占比，四種週期皆可算", () => {

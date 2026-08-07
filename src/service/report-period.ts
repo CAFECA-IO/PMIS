@@ -70,51 +70,105 @@ export function summarizeDuration(
   return { total, elapsed, remaining, usedPercent };
 }
 
+/**
+ * 停工原因（決策 H）。
+ *
+ * 刻意在此以字面聯集重述，而非 import `@/generated/prisma/enums` ——
+ * 本檔為純函式模組（無 I/O、無 DB 相依），保持可獨立測試。
+ * 型別相容性由呼叫端保證：Prisma 產生的同名列舉指派進來時，
+ * 若 schema 日後增列而此處未同步，tsc 會在邊界報錯，不會靜默漂移。
+ */
+export type StopReason =
+  | "WEATHER"
+  | "EARTHQUAKE"
+  | "HOLIDAY"
+  | "NO_SCHEDULE"
+  | "OTHER";
+
 /** 逐日日誌用於工作日判定的最小欄位。 */
 export interface DailyLogLike {
   reportDate: Date;
+  /** 僅供紀錄，**不參與**工作日判定（決策 D）。 */
   weather: string | null;
   summary: string | null;
+  /** 停工原因；null 代表當日有施工。決策 H 後為判定的權威來源。 */
+  stopReason?: StopReason | null;
+  /** 是否免計工期（E5）；具法律效果，由監造宣告，系統不推測。 */
+  excludedFromDuration?: boolean;
 }
 
 /** 單日分類。 */
-export type WorkDayKind = "WORKING" | "RAIN_STOP" | "HOLIDAY";
+export type WorkDayKind =
+  | "WORKING"
+  /** 天候停工（雨、颱風）。 */
+  | "WEATHER_STOP"
+  /** 地震停工。與天候分列，因兩者在工期展延與結構複檢上的處置不同。 */
+  | "EARTHQUAKE_STOP"
+  | "HOLIDAY"
+  | "NO_SCHEDULE"
+  | "OTHER_STOP"
+  /** 已填報但既無停工原因亦無敘述，不足以判定。 */
+  | "UNCLASSIFIED";
 
 export interface WorkDayStats {
   working: number;
-  rainStop: number;
+  weatherStop: number;
+  earthquakeStop: number;
   holiday: number;
+  noSchedule: number;
+  otherStop: number;
+  unclassified: number;
+  /**
+   * 免計工期天數（E5）。
+   *
+   * 與停工天數**刻意分開計算**：停工不必然免計工期
+   * （例假日在日曆天契約下仍計工期），免計與否是監造依契約條款的宣告。
+   * 此數在結算與工期展延爭議中有金額意義，故單獨列出。
+   */
+  excludedDays: number;
+  /** 期間內的日報篇數（非曆日數）。 */
   total: number;
 }
 
 // Info: (20260804 - Julian) 判定用關鍵詞抽為常數，避免散落魔法字串；
 // 此規則影響工期展延爭議，實務上需由監造確認後再調整。
-const RAIN_WEATHER_KEYWORDS = ["雨", "颱", "豪雨"] as const;
 const STOP_KEYWORDS = ["停工", "暫停", "未施工"] as const;
 const HOLIDAY_KEYWORDS = ["例假", "假日", "休息"] as const;
 
 const includesAny = (text: string, words: readonly string[]): boolean =>
   words.some((w) => text.includes(w));
 
+const BY_STOP_REASON: Record<StopReason, WorkDayKind> = {
+  WEATHER: "WEATHER_STOP",
+  EARTHQUAKE: "EARTHQUAKE_STOP",
+  HOLIDAY: "HOLIDAY",
+  NO_SCHEDULE: "NO_SCHEDULE",
+  OTHER: "OTHER_STOP",
+};
+
 /**
- * 單日分類規則（決定論）：
- * 1. 敘述含例假／假日 → 例假日
- * 2. 天氣含雨／颱 且 敘述含停工／暫停／未施工 → 雨天停工
- * 3. 敘述為空 → 例假日（無填報視為未排工）
- * 4. 其餘 → 施工日
+ * 單日分類規則（決定論）。
+ *
+ * 1. `stopReason` 有值 → 依該列舉（決策 H，權威來源）
+ * 2. （相容舊資料）敘述含例假／假日／休息 → 例假日
+ * 3. （相容舊資料）敘述含停工／暫停／未施工 → 其他停工
+ * 4. 敘述非空 → 施工日
+ * 5. 敘述為空 → 未分類
+ *
+ * **天氣欄位不參與判定**（決策 D）：天氣紀錄為「雨」不代表停工，停工與否
+ * 由填報者以 `stopReason` 明示；此前以「天氣含雨且敘述含停工」推測的規則已移除。
+ * 註：`WEATHER` 是使用者**明示**的停工原因，與天氣紀錄欄位是兩回事。
+ *
+ * 規則 5 亦為修正：先前把「敘述為空」判為例假日，使漏填被計成假日，
+ * 膨脹例假日並壓低施工天數。無從判定時不臆測，另列未分類。
  */
 export function classifyWorkDay(log: DailyLogLike): WorkDayKind {
-  const summary = (log.summary ?? "").trim();
-  const weather = (log.weather ?? "").trim();
+  if (log.stopReason) return BY_STOP_REASON[log.stopReason];
 
-  if (summary && includesAny(summary, HOLIDAY_KEYWORDS)) return "HOLIDAY";
-  if (
-    includesAny(weather, RAIN_WEATHER_KEYWORDS) &&
-    includesAny(summary, STOP_KEYWORDS)
-  ) {
-    return "RAIN_STOP";
-  }
-  if (!summary) return "HOLIDAY";
+  const summary = (log.summary ?? "").trim();
+  if (!summary) return "UNCLASSIFIED";
+  if (includesAny(summary, HOLIDAY_KEYWORDS)) return "HOLIDAY";
+  if (includesAny(summary, STOP_KEYWORDS)) return "OTHER_STOP";
   return "WORKING";
 }
 
@@ -122,15 +176,31 @@ export function classifyWorkDay(log: DailyLogLike): WorkDayKind {
 export function summarizeWorkDays(logs: DailyLogLike[]): WorkDayStats {
   const stats: WorkDayStats = {
     working: 0,
-    rainStop: 0,
+    weatherStop: 0,
+    earthquakeStop: 0,
     holiday: 0,
+    noSchedule: 0,
+    otherStop: 0,
+    unclassified: 0,
+    excludedDays: 0,
     total: logs.length,
   };
+  const bucket: Record<
+    WorkDayKind,
+    keyof Omit<WorkDayStats, "total" | "excludedDays">
+  > = {
+    WORKING: "working",
+    WEATHER_STOP: "weatherStop",
+    EARTHQUAKE_STOP: "earthquakeStop",
+    HOLIDAY: "holiday",
+    NO_SCHEDULE: "noSchedule",
+    OTHER_STOP: "otherStop",
+    UNCLASSIFIED: "unclassified",
+  };
   for (const log of logs) {
-    const kind = classifyWorkDay(log);
-    if (kind === "WORKING") stats.working += 1;
-    else if (kind === "RAIN_STOP") stats.rainStop += 1;
-    else stats.holiday += 1;
+    stats[bucket[classifyWorkDay(log)]] += 1;
+    // 免計工期獨立累計，與分類正交（施工日亦可能免計，如部分停工）
+    if (log.excludedFromDuration) stats.excludedDays += 1;
   }
   return stats;
 }

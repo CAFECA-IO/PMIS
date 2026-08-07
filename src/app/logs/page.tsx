@@ -85,6 +85,9 @@ export default async function LogsPage({
     id: r.id,
     dateISO: toDateInput(r.reportDate) ?? "",
     weather: r.weather ?? "",
+    stopReason: r.stopReason ?? "",
+    excludedFromDuration: r.excludedFromDuration,
+    exclusionBasis: r.exclusionBasis ?? "",
     status: r.status,
     summary: r.summary ?? "",
     manpower: r.manpower ?? "",
@@ -140,6 +143,7 @@ export default async function LogsPage({
             <ReportGenerator
               projectId={selected.id}
               projectName={selected.name}
+              canEdit={canEdit}
             />
           </CardContent>
         </Card>
