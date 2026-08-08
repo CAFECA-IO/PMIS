@@ -333,3 +333,44 @@ test("describeQtyChanges 台帳工項仍以 workItemId 逐項比對", () => {
   assert.ok(c.summary.includes("管線 10 → 15"));
   assert.ok(!c.summary.includes("20"), "未變動的同名工項不應出現");
 });
+
+// ── 同一 workItemId 的重複列（歷史資料）──────────────────────
+
+test("describeQtyChanges 同一工項的重複列合併時必須留下軌跡", () => {
+  /*
+    歷史資料可能有同一 workItemId 的多列 —— 合併是後來才加進
+    `parseQtyEntries` 的，而 `SupervisionReportItem` 至今沒有
+    `@@unique([reportId, workItemId])`。
+
+    先前此處以 `new Map` 建索引，兩列會靜默收斂成最後一筆：
+    使用者開啟編輯、什麼都不改就存檔，比對結果是「無異動」而完全不寫軌跡，
+    但 10 已經從累計與估驗金額中消失。
+  */
+  const c = describeQtyChanges(
+    [row("a", "管線", 10), row("a", "管線", 25)],
+    [row("a", "管線", 25)],
+  );
+  assert.ok(c, "合併掉一列必須產生軌跡，不得回 null");
+  assert.ok(c!.summary.includes("10"), `變更前的兩列都要看得到：${c!.summary}`);
+  assert.ok(c!.summary.includes("25"));
+});
+
+test("describeQtyChanges 重複列整組未變動時不產生雜訊", () => {
+  assert.equal(
+    describeQtyChanges(
+      [row("a", "管線", 10), row("a", "管線", 25)],
+      [row("a", "管線", 25), row("a", "管線", 10)],
+    ),
+    null,
+    "順序不同但內容相同，不算異動",
+  );
+});
+
+test("describeQtyChanges 重複列整組移除時記得每一列", () => {
+  const c = describeQtyChanges(
+    [row("a", "管線", 10), row("a", "管線", 25)],
+    [],
+  )!;
+  assert.ok(c.summary.includes("10"), `實得：${c.summary}`);
+  assert.ok(c.summary.includes("25"));
+});

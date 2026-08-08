@@ -226,14 +226,26 @@ export async function loadQtyForm(
       }
     }
   }
-  const filled = new Map(
-    existing
-      .filter((i) => i.workItemId)
-      .map(
-        (i) =>
-          [i.workItemId as string, { qty: Number(i.dailyQty), note: i.note }] as const,
-      ),
-  );
+  /*
+    同一工項的多列**相加**，不是取最後一筆。
+
+    正常情況下不會有重複（`parseQtyEntries` 會先合併），但歷史資料可能有
+    —— `SupervisionReportItem` 沒有 `@@unique([reportId, workItemId])`。
+    先前用 `new Map(...)` 直接建：兩列 10 與 25 只會剩 25，表單顯示 25，
+    使用者什麼都不改按下存檔就把 10 靜默刪掉了。
+    相加則會在下次存檔時自然收斂成一列 35，且該變更會如實進入軌跡。
+
+    備註取第一筆非空者：數字能相加，文字不能 —— 串接只會產生沒人寫過的句子。
+  */
+  const filled = new Map<string, { qty: number; note: string | null }>();
+  for (const i of existing) {
+    if (!i.workItemId) continue;
+    const prev = filled.get(i.workItemId);
+    filled.set(i.workItemId, {
+      qty: (prev?.qty ?? 0) + Number(i.dailyQty),
+      note: prev?.note ?? i.note,
+    });
+  }
 
   /*
     編輯一份已提送／已核備的日報時，它的數量已經在 cumulativeTotals 裡。
@@ -652,15 +664,40 @@ export async function deleteReport(id: string, actor: Actor) {
 }
 
 /**
+ * 專案軌跡一次顯示幾筆。
+ *
+ * 「一次看幾筆」是呈現決策，故放在服務層而非 repository 的預設參數 ——
+ * 保留／截斷政策藏在取數層，改的時候不會有人想到要去那裡找。
+ */
+export const PROJECT_AUDIT_PAGE_SIZE = 200;
+
+/**
  * 某專案的日報變更軌跡（含已刪除的日報）。
  *
  * 沒有這個入口，已刪除日報的軌跡等於不存在：`listReportAudit` 需要
  * `reportId`，而日報一旦刪除，使用者已無從得知那個 id。
  * 而刪除正是最需要被看見的事件 —— 它會改變月報金額。
+ *
+ * 回傳 `hasMore` 而非只給一個截斷過的陣列：這個畫面的標題宣稱「含已刪除」，
+ * 若清單被靜默截斷，稽核時會看到一份看起來很完整、卻剛好少了那筆刪除紀錄
+ * 的清單。以每天約三筆計，200 筆大約只有十週。
+ * `before` 供「載入更早的」續讀，以時間游標而非 offset —— 期間有新紀錄寫入時，
+ * offset 會讓同一筆重複出現或被跳過。
  */
-export async function listProjectAudit(projectId: string, actor: Actor) {
-  if (!(await canAccess(projectId, actor))) return [];
-  return auditRepo.listByProject(projectId);
+export async function listProjectAudit(
+  projectId: string,
+  actor: Actor,
+  before?: Date,
+) {
+  if (!(await canAccess(projectId, actor))) {
+    return { rows: [], hasMore: false, denied: true as const };
+  }
+  const page = await auditRepo.listByProject(
+    projectId,
+    PROJECT_AUDIT_PAGE_SIZE,
+    before,
+  );
+  return { ...page, denied: false as const };
 }
 
 /** 某份日報的變更軌跡（決策 J-b）。 */

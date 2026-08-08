@@ -227,6 +227,17 @@ export function ReportArchive({
     }
   }
 
+  /*
+    錯誤優先於其他狀態呈現。
+
+    先前 `error` 只寫在最後的 return 裡，而無權限與載入失敗兩條路徑都會讓
+    `rows` 停在空陣列 —— 於是兩者都被下面那句「尚無留存的報表」蓋掉，
+    與空專案完全無法分辨。伺服器端特地區分出來的訊息到不了畫面。
+  */
+  if (error && rows.length === 0) {
+    return <p className="text-xs text-destructive">{error}</p>;
+  }
+
   if (loadedKey !== key && rows.length === 0) {
     return <p className="text-xs text-muted-foreground">載入留存報表…</p>;
   }

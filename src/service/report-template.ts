@@ -271,9 +271,18 @@ function sectionProgress(input: ReportTemplateInput): string[] {
     return out;
   }
 
-  // 3.2 累計進度橫條；本期增量取自日報數量（無紀錄時省略第三欄）
+  /*
+    3.2 累計進度橫條。
+
+    第三欄（本期增量）**要嘛每一列都有、要嘛整個圍欄都不放**。
+    先前是逐列判斷 `currentPercent != null`，於是有本期數量的列出三欄、
+    沒有的出兩欄，同一個圍欄內欄數不一致 —— 解析器容忍 2–4 欄不會壞，
+    但兩欄的那幾列會靜默失去本期標記，讀圖的人無從得知那是「本期為 0」
+    還是「這一列沒有本期資料」。整欄有無是一致的呈現決定，不該逐列擺盪。
+  */
   const chartRows = workItems.filter((w) => w.cumulativePercent != null);
   if (chartRows.length > 0) {
+    const withCurrent = chartRows.every((w) => w.currentPercent != null);
     out.push("### 3.2 各工程項目完成情形", "");
     out.push("```custom-progress");
     out.push("title: 各工程項目累計完成百分比");
@@ -281,10 +290,16 @@ function sectionProgress(input: ReportTemplateInput): string[] {
     out.push("xScale: 100");
     for (const w of chartRows) {
       const cols = [w.name.replace(/,/g, "、"), String(w.cumulativePercent)];
-      if (w.currentPercent != null) cols.push(String(w.currentPercent));
+      if (withCurrent) cols.push(String(w.currentPercent));
       out.push(cols.join(", "));
     }
     out.push("```", "");
+    if (!withCurrent) {
+      out.push(
+        `> 部分工程項目本期無日報數量紀錄，故本圖僅呈現累計完成百分比。`,
+        "",
+      );
+    }
   }
 
   // 3.3 法定明細表 + 合計

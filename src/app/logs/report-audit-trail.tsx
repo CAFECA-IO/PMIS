@@ -60,6 +60,38 @@ const stamp = (v: Date | string) => {
 */
 
 /**
+ * 舊格式相容：`snapshot` 欄位加入之前，ITEMS／DELETE 是把摘要與 JSON
+ * 用換行接在 `detail` 裡的。那些列的 `snapshot` 為 null，若原樣輸出，
+ * 一份 60 個品項的數量表異動會把整段 JSON 陣列當成摘要印在軌跡上，
+ * 把同一畫面的其他紀錄整個淹掉。
+ *
+ * **不回填、只在呈現時相容。** 稽核軌跡是既成紀錄，
+ * 為了換個欄位擺放就去改寫歷史列，本身就與它存在的理由相衝突。
+ *
+ * 判斷條件刻意收得很緊：只有在 `snapshot` 為空、且換行後的內容確實能
+ * 解析成 JSON 陣列或物件時才切分。使用者原文含換行的情形（新格式的
+ * CREATE／UPDATE）不會誤中，因為那些列的 JSON 解析必然失敗。
+ */
+export function splitLegacyDetail(
+  detail: string | null,
+  snapshot: string | null,
+): { summary: string; snapshot: string | null } {
+  if (snapshot || !detail) return { summary: detail ?? "", snapshot };
+  const nl = detail.indexOf("\n");
+  if (nl < 0) return { summary: detail, snapshot: null };
+  const tail = detail.slice(nl + 1).trim();
+  if (!tail.startsWith("[") && !tail.startsWith("{")) {
+    return { summary: detail, snapshot: null };
+  }
+  try {
+    JSON.parse(tail);
+  } catch {
+    return { summary: detail, snapshot: null };
+  }
+  return { summary: detail.slice(0, nl), snapshot: tail };
+}
+
+/**
  * 專案層的日報變更軌跡（含已刪除的日報）。
  *
  * 逐份查看只能看到還存在的日報；而刪除正是最需要被看見的事件
@@ -68,28 +100,97 @@ const stamp = (v: Date | string) => {
 export function ProjectAuditTrail({ projectId }: { projectId: string }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [loadedId, setLoadedId] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
     let stale = false;
-    listProjectAuditAction(projectId).then((data) => {
-      if (stale) return;
-      setRows(data as Row[]);
-      setLoadedId(projectId);
-    });
+    /*
+      不在 effect 本體同步 setState（會造成連鎖渲染，且 eslint 的
+      react-hooks/set-state-in-effect 會擋）。舊的錯誤不會被誤顯示：
+      切換專案後 `loadedId !== projectId`，render 端先走載入中那一支。
+    */
+    listProjectAuditAction(projectId)
+      .then((data) => {
+        if (stale) return;
+        if (data.denied) {
+          setRows([]);
+          setHasMore(false);
+          setError("你沒有檢視本專案變更軌跡的權限。");
+        } else {
+          setRows(data.rows as Row[]);
+          setHasMore(data.hasMore);
+          setError(null);
+        }
+        setLoadedId(projectId);
+      })
+      .catch(() => {
+        // 不吞例外：沒有 catch 時畫面會永遠停在「載入中」而不說原因
+        if (stale) return;
+        setError("無法載入變更軌跡，請重新整理後再試。");
+        setLoadedId(projectId);
+      });
     return () => {
       stale = true;
     };
   }, [projectId]);
 
+  /** 以最後一筆的時間為游標往下讀；用 offset 會在期間有新紀錄時錯位。 */
+  async function loadMore() {
+    const last = rows[rows.length - 1];
+    if (!last) return;
+    setLoadingMore(true);
+    try {
+      const data = await listProjectAuditAction(
+        projectId,
+        new Date(last.createdAt).toISOString(),
+      );
+      if (data.denied) return;
+      setRows((prev) => [...prev, ...(data.rows as Row[])]);
+      setHasMore(data.hasMore);
+    } catch {
+      setError("無法載入更早的紀錄。");
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
   if (loadedId !== projectId) {
     return <p className="text-[11px] text-muted-foreground">載入變更軌跡…</p>;
+  }
+  if (error) {
+    return <p className="text-[11px] text-destructive">{error}</p>;
   }
   if (rows.length === 0) {
     return (
       <p className="text-[11px] text-muted-foreground">本專案尚無日報變更紀錄。</p>
     );
   }
-  return <AuditList rows={rows} showDate />;
+  return (
+    <div className="space-y-1">
+      <AuditList rows={rows} showDate />
+      {/*
+        清單被截斷時必須說出來。這個區塊的標題宣稱「含已刪除」，
+        靜默截斷會讓稽核者看到一份看起來完整、卻剛好少了那筆刪除紀錄的清單。
+      */}
+      {hasMore && (
+        <div className="flex items-center gap-2 pt-1">
+          <span className="text-[11px] text-muted-foreground">
+            僅顯示最近 {rows.length} 筆，尚有更早的紀錄。
+          </span>
+          <button
+            type="button"
+            onClick={loadMore}
+            disabled={loadingMore}
+            className="text-[11px] text-primary hover:underline disabled:opacity-50"
+          >
+            {loadingMore ? "載入中…" : "載入更早的"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function ReportAuditTrail({ reportId }: { reportId: string }) {
@@ -132,8 +233,7 @@ function AuditList({ rows, showDate = false }: { rows: Row[]; showDate?: boolean
   return (
     <ul className="space-y-1 text-[11px]">
       {rows.map((r) => {
-        const summary = r.detail ?? "";
-        const raw = r.snapshot;
+        const { summary, snapshot: raw } = splitLegacyDetail(r.detail, r.snapshot);
         return (
           <li key={r.id} className="border-l-2 pl-2">
             <div className="flex flex-wrap items-baseline gap-x-2">

@@ -80,13 +80,21 @@ export async function POST(request: Request) {
       產出即留存（決策 J-a）：回傳的 markdown 與寫進 GeneratedReport 的
       是同一個字串，故「畫面上這一版」與「留存的那一版」不可能不同。
       僅有編輯權限者會留存 —— 純瀏覽不應在留存清單留下紀錄。
+
+      用戶端已離開（切換週期時會 abort 前一次請求）則不留存：
+      使用者不會看到這一版，留下來只是在清單裡多一列沒人讀過的草稿。
+      注意這**擋不掉 LLM 的花費** —— 產製在下一行才發生，
+      而在那之前中斷連線的訊號未必已經到達。
     */
+    const persist =
+      canEditModule(perms, "/logs") && !request.signal.aborted;
+
     const view = await reportService.generateReportView(
       body.projectId,
       type,
       body.refDate,
       { id: user.id, name: user.name, role: user.role },
-      canEditModule(perms, "/logs"),
+      persist,
     );
     if (!view) {
       return NextResponse.json({ error: "無法存取此專案或專案不存在" }, { status: 403 });

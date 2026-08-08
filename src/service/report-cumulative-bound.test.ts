@@ -542,9 +542,10 @@ test("與 reportDate 比較的期間邊界一律換算成同一基準", () => {
   const service = read("src/service/report.service.ts");
   assert.match(service, /const utcDayStart =/);
   assert.match(service, /const utcDayEnd =/);
+  // 參數位置比對，不綁定換行位置 —— 換個排版不該讓守門失效
   assert.match(
     service,
-    /listByProjectInPeriod\(\s*projectId,\s*qStart,\s*qEnd,/,
+    /listByProjectInPeriod\(\s*projectId,\s*qStart,\s*qEnd\s*[,)]/,
     "日報查詢須用換算後的邊界",
   );
   assert.match(

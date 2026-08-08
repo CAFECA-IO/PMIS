@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -75,6 +75,8 @@ export function ReportQtyTable({
   const [values, setValues] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [extras, setExtras] = useState<ExtraRow[]>([]);
+  /** 契約外項目的 React key 序號；只增不減，故不會在刪除後重複。 */
+  const extraSeq = useRef(0);
   const [showAll, setShowAll] = useState(false);
   /** 已成功載入的那一組（專案＋日期）。 */
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
@@ -427,7 +429,14 @@ export function ReportQtyTable({
             setExtras((list) => [
               ...list,
               {
-                key: `new-${list.length}-${rows.length}`,
+                /*
+                  以單調遞增的序號當 key，不用 list.length。
+                  後者在生命週期內不唯一：新增兩列得到 new-0／new-1，
+                  刪掉第一列後 length 回到 1，再新增又是 new-1 ——
+                  React 會在兩個同 key 的兄弟節點間重用 DOM，
+                  於是在某一列打字會出現在另一列、游標也會跳走。
+                */
+                key: `new-${(extraSeq.current += 1)}`,
                 itemName: "",
                 unit: "",
                 dailyQty: "",

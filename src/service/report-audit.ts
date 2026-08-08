@@ -115,12 +115,22 @@ const showGroup = (rows: QtySnapshotRow[]) =>
     .map((r) => `${r.dailyQty}${r.unit ?? ""}${r.note ? `（${clip(r.note, 20)}）` : ""}`)
     .join("、");
 
-function groupByName(rows: QtySnapshotRow[]): Map<string, QtySnapshotRow[]> {
+/**
+ * 依鍵成組。
+ *
+ * **一律成組，不用 `new Map(rows.map(r => [key, r]))`** —— 後者遇到重複鍵會
+ * 靜默留下最後一筆，而「靜默少一列」正是這個模組要防的失效。
+ */
+function groupBy(
+  rows: QtySnapshotRow[],
+  keyOf: (r: QtySnapshotRow) => string,
+): Map<string, QtySnapshotRow[]> {
   const out = new Map<string, QtySnapshotRow[]>();
   for (const r of rows) {
-    const list = out.get(r.itemName);
+    const k = keyOf(r);
+    const list = out.get(k);
     if (list) list.push(r);
-    else out.set(r.itemName, [r]);
+    else out.set(k, [r]);
   }
   return out;
 }
@@ -148,42 +158,61 @@ export function describeQtyChanges(
   const removed: string[] = [];
   const changed: string[] = [];
 
-  // ── 台帳工項：以 workItemId 逐項比對 ──
-  const beforeById = new Map(
-    before.filter(isLedgerRow).map((r) => [r.workItemId, r]),
-  );
-  const afterById = new Map(
-    after.filter(isLedgerRow).map((r) => [r.workItemId, r]),
-  );
+  /*
+    ── 台帳工項：以 workItemId 成組比對 ────────────────────────
+
+    正常情況下一個工項在一份日報只會有一列（`parseQtyEntries` 會合併重複），
+    此時逐欄位比對，輸出「管線 10 → 30、單位 m → m²」這種好讀的差異。
+
+    但**歷史資料可能有同一 workItemId 的多列**（合併是後來才加的，
+    而 `SupervisionReportItem` 沒有 `@@unique([reportId, workItemId])`）。
+    先前這裡用 `new Map(...)`，兩列會靜默收斂成最後一筆：
+    某報表有 `a=10` 與 `a=25`，使用者開啟編輯什麼都不改就存檔，
+    表單只送出一列 → 比對結果「無異動」→ 完全不寫軌跡，
+    而 10 已經從累計與估驗金額中消失。
+
+    故一列以上時改為與契約外項目相同的成組呈現（`10、25 → 25`）：
+    任何配對方式都是猜測，成組則不需要猜，也不會漏掉任何一列。
+  */
+  const beforeById = groupBy(before.filter(isLedgerRow), (r) => r.workItemId!);
+  const afterById = groupBy(after.filter(isLedgerRow), (r) => r.workItemId!);
 
   for (const [id, a] of afterById) {
     const b = beforeById.get(id);
     if (!b) {
-      added.push(`${a.itemName} ${a.dailyQty}${a.unit ?? ""}`);
+      added.push(`${a[0].itemName} ${showGroup(a)}`);
       continue;
     }
-    // 數量、單位、備註各自比對：只看數量會讓改單位／改備註完全不留痕
-    const diffs: string[] = [];
-    if (b.dailyQty !== a.dailyQty) {
-      diffs.push(`${b.dailyQty} → ${a.dailyQty}${a.unit ?? ""}`);
+    if (a.length === 1 && b.length === 1) {
+      // 數量、單位、備註各自比對：只看數量會讓改單位／改備註完全不留痕
+      const diffs: string[] = [];
+      if (b[0].dailyQty !== a[0].dailyQty) {
+        diffs.push(`${b[0].dailyQty} → ${a[0].dailyQty}${a[0].unit ?? ""}`);
+      }
+      if ((b[0].unit ?? "") !== (a[0].unit ?? "")) {
+        diffs.push(`單位 ${show(b[0].unit)} → ${show(a[0].unit)}`);
+      }
+      if ((b[0].note ?? "") !== (a[0].note ?? "")) {
+        diffs.push(`備註 ${clip(show(b[0].note))} → ${clip(show(a[0].note))}`);
+      }
+      if (diffs.length > 0) changed.push(`${a[0].itemName} ${diffs.join("、")}`);
+    } else if (groupSig(a) !== groupSig(b)) {
+      changed.push(`${a[0].itemName} ${showGroup(b)} → ${showGroup(a)}`);
     }
-    if ((b.unit ?? "") !== (a.unit ?? "")) {
-      diffs.push(`單位 ${show(b.unit)} → ${show(a.unit)}`);
-    }
-    if ((b.note ?? "") !== (a.note ?? "")) {
-      diffs.push(`備註 ${clip(show(b.note))} → ${clip(show(a.note))}`);
-    }
-    if (diffs.length > 0) changed.push(`${a.itemName} ${diffs.join("、")}`);
   }
   for (const [id, b] of beforeById) {
-    if (!afterById.has(id)) {
-      removed.push(`${b.itemName} ${b.dailyQty}${b.unit ?? ""}`);
-    }
+    if (!afterById.has(id)) removed.push(`${b[0].itemName} ${showGroup(b)}`);
   }
 
   // ── 契約外項目：同名成組比對 ──
-  const beforeGroups = groupByName(before.filter((r) => !isLedgerRow(r)));
-  const afterGroups = groupByName(after.filter((r) => !isLedgerRow(r)));
+  const beforeGroups = groupBy(
+    before.filter((r) => !isLedgerRow(r)),
+    (r) => r.itemName,
+  );
+  const afterGroups = groupBy(
+    after.filter((r) => !isLedgerRow(r)),
+    (r) => r.itemName,
+  );
 
   for (const [name, a] of afterGroups) {
     const b = beforeGroups.get(name);

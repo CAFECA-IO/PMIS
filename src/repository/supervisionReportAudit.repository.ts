@@ -43,11 +43,27 @@ export function listByReport(reportId: string) {
  *
  * 已刪除日報的軌跡只能由此讀到 —— `listByReport` 需要 reportId，
  * 而日報一旦刪除，使用者已無從得知那個 id。
+ *
+ * `take` 由呼叫端指定，本層不設預設值：「一次看幾筆」是呈現決策，
+ * 不是取數規則（見 `supervisionReport.service` 的 `PROJECT_AUDIT_PAGE_SIZE`）。
+ *
+ * 多取一筆用來判斷還有沒有更多。畫面若把截斷後的清單當成全部，
+ * 稽核時看到一份「看起來很完整」卻少了那筆刪除紀錄的清單，
+ * 比明說「僅顯示最近 N 筆」危險得多。
  */
-export function listByProject(projectId: string, take = 200) {
-  return prisma.supervisionReportAuditLog.findMany({
-    where: { projectId },
+export async function listByProject(
+  projectId: string,
+  take: number,
+  before?: Date,
+): Promise<{ rows: AuditRow[]; hasMore: boolean }> {
+  const rows = await prisma.supervisionReportAuditLog.findMany({
+    where: { projectId, ...(before ? { createdAt: { lt: before } } : {}) },
     orderBy: { createdAt: "desc" },
-    take,
+    take: take + 1,
   });
+  return { rows: rows.slice(0, take), hasMore: rows.length > take };
 }
+
+type AuditRow = Awaited<
+  ReturnType<typeof prisma.supervisionReportAuditLog.findMany>
+>[number];

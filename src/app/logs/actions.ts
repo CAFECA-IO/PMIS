@@ -220,6 +220,15 @@ export async function listReportAuditAction(reportId: string) {
  * 已刪除日報的軌跡只能由此讀到 —— 逐份查詢需要 reportId，
  * 而日報刪除後使用者已無從得知那個 id。
  */
-export async function listProjectAuditAction(projectId: string) {
-  return reportService.listProjectAudit(projectId, await actor());
+export async function listProjectAuditAction(
+  projectId: string,
+  /** 續讀游標：只取早於此時間的紀錄（ISO 字串，供跨 server action 邊界傳遞）。 */
+  beforeIso?: string,
+) {
+  const before = beforeIso ? new Date(beforeIso) : undefined;
+  return reportService.listProjectAudit(
+    projectId,
+    await actor(),
+    before && !Number.isNaN(before.getTime()) ? before : undefined,
+  );
 }

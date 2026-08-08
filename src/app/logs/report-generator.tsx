@@ -111,8 +111,13 @@ export function ReportGenerator({
 
     產製耗時且長短不一：點週報（20 秒）再點月報（3 秒），月報會先回來，
     週報後到而覆寫畫面與 savedId —— 結果是月報分頁亮著、內容卻是週報，
-    而「留存的是哪一版」也跟著錯。故只採用最後一次發出的請求，
-    並中止先前那次（伺服器端已寫入的草稿由期間鍵覆寫，不會殘留）。
+    而「留存的是哪一版」也跟著錯。故只採用最後一次發出的請求，並中止先前那次。
+
+    **abort 只中止用戶端的等待。** 同一期間鍵的請求會被後來那次覆寫，
+    但**切換週期**時兩次的期間鍵不同：中止的那次若已在伺服器端跑完，
+    仍會留下一列該週期的草稿（LLM 也照樣計費）。
+    伺服器端已在寫入前檢查連線是否中斷（見 `api/report/route.ts`），
+    可擋掉大部分，但 LLM 呼叫本身無法回收。
   */
   const generateSeq = useRef(0);
   const generateAbort = useRef<AbortController | null>(null);
@@ -137,25 +142,37 @@ export function ReportGenerator({
     if (!dateOk) return;
     let stale = false;
     const timer = setTimeout(() => {
-      loadPeriodReportAction(projectId, type, refDate).then((data) => {
-        if (stale) return;
-        setError(null);
-        setPeriodLabel(data?.periodLabel ?? null);
-        setShown(
-          data?.saved
-            ? {
-                markdown: data.saved.markdown,
-                persisted: true,
-                savedId: data.saved.status === "DRAFT" ? data.saved.id : null,
-                confirmedId:
-                  data.saved.status === "CONFIRMED" ? data.saved.id : null,
-                generatedAt: data.saved.generatedAt,
-                generatedBy: data.saved.generatedBy,
-              }
-            : null,
-        );
-        setLoadedKey(key);
-      });
+      loadPeriodReportAction(projectId, type, refDate)
+        .then((data) => {
+          if (stale) return;
+          setError(null);
+          setPeriodLabel(data?.periodLabel ?? null);
+          setShown(
+            data?.saved
+              ? {
+                  markdown: data.saved.markdown,
+                  persisted: true,
+                  savedId: data.saved.status === "DRAFT" ? data.saved.id : null,
+                  confirmedId:
+                    data.saved.status === "CONFIRMED" ? data.saved.id : null,
+                  generatedAt: data.saved.generatedAt,
+                  generatedBy: data.saved.generatedBy,
+                }
+              : null,
+          );
+          setLoadedKey(key);
+        })
+        .catch(() => {
+          /*
+            沒有 catch 時，任何例外（session 過期導向、DB 錯誤、網路）都會讓
+            `loadedKey` 永遠停在舊值：面板卡在「載入已留存的報表…」、
+            「產生報表」按鈕因 busy 而永久停用，而且畫面不說任何原因。
+          */
+          if (stale) return;
+          setError("無法載入本期的留存報表，請重新整理後再試。");
+          setShown(null);
+          setLoadedKey(key);
+        });
     }, 400);
     return () => {
       stale = true;

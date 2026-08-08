@@ -3,41 +3,17 @@ import * as supervisionRepo from "@/repository/supervisionReport.repository";
 import * as memberRepo from "@/repository/projectMember.repository";
 import * as savedReportRepo from "@/repository/generatedReport.repository";
 import { getWorkItemDetails } from "@/service/project.service";
-import { derivedProgress } from "@/service/obligation-rollup";
 import * as faith from "@/service/faith.service";
 import { canSeeAllProjects } from "@/lib/auth";
 import { isPeriodReportFrozen } from "@/constant/pmis";
-import {
-  buildWorkItemSCurve,
-  isSchedulable,
-  plannedProgressAt,
-  weightedProgressDelta,
-} from "@/service/scurve";
-import {
-  PERIOD_LABEL,
-  PERIOD_REPORT_NAME,
-  describeGap,
-  monthLabel,
-  summarizeDuration,
-  summarizeWorkDays,
-  trimCurveWindow,
-} from "@/service/report-period";
-import {
-  buildReportMarkdown,
-  type ProgressCurvePoint,
-  type WorkItemRow,
-} from "@/service/report-template";
+import { PERIOD_LABEL, PERIOD_REPORT_NAME } from "@/service/report-period";
+import { buildReportMarkdown } from "@/service/report-template";
+import { assembleReport } from "@/service/report-assemble";
 import {
   loadDailyQtyTotalsInPeriod,
   loadDailyQtyTotalsUpTo,
 } from "@/service/daily-qty.service";
-import {
-  effectiveCompletedQty,
-  effectiveProgress,
-} from "@/service/work-item-effective";
-import { parseRefDate, periodKeyFor, weekStart } from "@/service/period-key";
-import { multiply, percent } from "@/service/work-item-ledger";
-import { countsTowardQty } from "@/constant/pmis";
+import { periodKeyFor, weekStart } from "@/service/period-key";
 import { formatDate } from "@/lib/utils";
 import type { AccountRole } from "@/generated/prisma/enums";
 
@@ -65,13 +41,59 @@ const startOfDay = (d: Date) =>
 const endOfDay = (d: Date) =>
   new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
 
-/*
-  基準日的解析（`parseRefDate`）與期間身分鍵同住在 `period-key.ts`：
-  兩者是同一件事的兩半 —— 解析決定「使用者心中的那一天」，
-  鍵決定「那一天屬於哪個期間」，拆開放會讓時區慣例再次分岔。
-  該檔零相依，故回填腳本與純函式測試都能直接匯入。
-*/
-export { parseRefDate };
+/**
+ * 基準日的合理範圍。
+ *
+ * `<input type="date">` 在年份欄位逐鍵輸入時會**每按一鍵就送出一次**
+ * 完整日期：輸入 2026 依序產生 0002／0020／0202／2026 年。
+ * 沒有守門的話，西元 2 年、20 年、202 年會各自成為一個「期間」而各留一份報表。
+ * 用戶端防抖只能減少次數，不能保證 —— 守門必須在伺服器端。
+ */
+const MIN_YEAR = 2000;
+const MAX_YEAR = 2100;
+
+/** 表單送來的純日期（`<input type="date">` 的格式）。 */
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * 解析基準日；無效或超出合理範圍時回 `null`（呼叫端應拒絕該請求）。
+ *
+ * 未給定則以今日為準 —— 那是使用者沒有指定期間時唯一合理的預設。
+ *
+ * **純日期字串一律以「本地日曆日」解析，不用 `new Date(str)`。**
+ * JS 對 `"YYYY-MM-DD"` 是以 UTC 午夜解析，而下游的 `periodRange`
+ * 用本地取值（`getFullYear`／`getMonth`）決定期間與身分鍵 —— 兩套慣例混用時，
+ * 在 UTC 偏移為負的部署選 2026-01-01 會得到 `ANNUAL:2025`：
+ * 使用者以為在產 2026 年報，系統卻覆寫了 2025 年的草稿。
+ * 期間鍵是留存的身分，這種漂移沒有任何跡象可循。
+ * 上面〈日曆日與時間點的界線〉那段講的是同一件事，只是那時只修了日報邊界。
+ *
+ * 帶時間的 ISO 字串（少見，非表單路徑）維持原樣解析：
+ * 那種輸入本來就指定了時點，沒有「使用者心中的日曆日」可還原。
+ */
+export function parseRefDate(refIso: string | undefined): Date | null {
+  if (!refIso) return new Date();
+  const m = DATE_ONLY.exec(refIso);
+  const d = m
+    ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+    : new Date(refIso);
+  if (Number.isNaN(d.getTime())) return null;
+  const y = d.getFullYear();
+  if (y < MIN_YEAR || y > MAX_YEAR) return null;
+  /*
+    `new Date(2026, 12, 40)` 不會是 NaN，而是靜默進位到隔年 ——
+    純日期字串的年月日必須原樣還原，否則 `2026-13-01` 會變成 2027 年 1 月。
+  */
+  if (
+    m &&
+    (d.getFullYear() !== Number(m[1]) ||
+      d.getMonth() !== Number(m[2]) - 1 ||
+      d.getDate() !== Number(m[3]))
+  ) {
+    return null;
+  }
+  return d;
+}
 
 /*
   ── 日曆日與時間點的界線 ───────────────────────────────────
@@ -158,13 +180,6 @@ function periodRange(type: ReportType, ref: Date) {
   }
 }
 
-/** Prisma Decimal → number（於 service 邊界轉換，沿用專案既有慣例）。 */
-const toNum = (v: unknown): number | null => {
-  if (v == null) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-};
-
 export async function canAccess(projectId: string, actor: Actor) {
   if (canSeeAllProjects(actor.role)) return true;
   return Boolean(await memberRepo.exists(projectId, actor.id));
@@ -214,38 +229,16 @@ export async function generateReport(
   const periodWord = PERIOD_LABEL[type];
 
   /*
-    月報一律只採計「已提送／已核備」的日報（決策 G）。
+    取數：期間內的全部日報（含草稿）、進度基準用的工項明細、兩組數量加總。
 
-    先前此處取全部日報，導致同一份月報混用兩套母體：
-    4.1 的施工天數與 4.2 的逐日明細含草稿，3.3 的數量卻只計已提送者
-    ——審核時兩邊對不起來，且沒有任何說明。
-    月報是法定文件，草稿本就不應計入；被排除的天數另行註明，
-    以免報表看起來異常稀疏而讓人誤以為資料遺失。
+    決策 G 的過濾**不在此處做**，交給 `assembleReport` ——
+    由呼叫端過濾就會出現「有人記得、有人忘記」的兩套母體，
+    那正是先前施工天數含草稿而數量不含的成因。
   */
   // 與 reportDate 同基準（見 utcDayStart 的說明）；直接用本地邊界會漏掉當月第一天
   const qStart = utcDayStart(start);
   const qEnd = utcDayEnd(end);
 
-  const allDailyReports = await supervisionRepo.listByProjectInPeriod(
-    projectId,
-    qStart,
-    qEnd,
-  );
-  const dailyReports = allDailyReports.filter((r) => countsTowardQty(r.status));
-  const excludedDraftDays = allDailyReports.length - dailyReports.length;
-
-  /*
-    ── 進度：一律採工程分項基準（決策 I-2）─────────────────────
-
-    先前預定與完成皆取自履約事項（權重 × 期限，階梯式），
-    但日報的「當日預定進度」依決策 C 採工程分項基準（預定起訖線性展開）。
-    兩者並存會讓日報逐日預定的期末值不等於月報的累計預定，
-    等同在預定側製造第二個真實來源 —— 正是決策 A／F 要消滅的問題。
-    故此處改為同一基準：權重＝預定工期天數，預定線性展開、完成取有效進度。
-
-    履約事項並未失效，仍是里程碑管理與契約應辦事項的載體；
-    只是不再作為月報進度數字的基準。
-  */
   /*
     累計一律以**期末**為上限，不是「現在」。
 
@@ -255,211 +248,52 @@ export async function generateReport(
     同一 codebase 的日報進度條（`getDailyProgress`）本就以當日為界，
     兩者若不同界，同一天會出現兩個「累計完成」，正是決策 A 要消滅的問題。
   */
-  const [wiDetails, cumulativeQtyTotals, periodQtyTotals] = await Promise.all([
-    getWorkItemDetails(projectId, end),
-    loadDailyQtyTotalsUpTo(projectId, qEnd),
-    loadDailyQtyTotalsInPeriod(projectId, qStart, qEnd),
-  ]);
+  const [allDailyReports, wiDetails, cumulativeQtyTotals, periodQtyTotals] =
+    await Promise.all([
+      supervisionRepo.listByProjectInPeriod(projectId, qStart, qEnd),
+      getWorkItemDetails(projectId, end),
+      loadDailyQtyTotalsUpTo(projectId, qEnd),
+      loadDailyQtyTotalsInPeriod(projectId, qStart, qEnd),
+    ]);
 
   /*
-    ── 進度比對的母體：只取具預定起訖日的工項 ──────────────────
-
-    預定與完成必須算在同一批工項上。未設定預定起訖者沒有預定值可比，
-    先前完成側納入、預定側排除，落差便純粹來自母體不同：
-    1 個排程工項做完 100%、另有 20 個無預定日的工項，
-    會算出預定 100%、完成 60%，報表宣稱落後 40 個百分點。
-    這個數字會進入工期展延爭議。
-
-    被排除的工項不是被忽略 —— 其累計完成仍列於 3.3，
-    且排除數量會在報表上明白標示（`unscheduledWorkItems`）。
+    每個數字是什麼，全部由純函式決定（`report-assemble`）。
+    本函式只剩取數、呼叫 LLM、蓋產出時間三件事 ——
+    歷次出問題的都是組裝而非算式，組裝可測才守得住。
   */
-  const basis = wiDetails.filter(isSchedulable);
-  const unscheduledWorkItems = wiDetails.length - basis.length;
-
-  // 累計完成：各工項截至期末的有效進度（決策 F）以預定工期天數加權
-  const cumulativeActual = basis.length > 0 ? derivedProgress(basis) : null;
-  // 累計預定：各工項於預定期間線性展開至期末
-  const cumulativePlanned = plannedProgressAt(basis, end);
-
-  /*
-    本期預定增量＝期末預定 − 期初前一刻預定。
-    取期初「前一刻」而非期初當日，否則期初當日的增量會被算進上一期。
-  */
-  const beforeStart = new Date(start.getTime() - 1);
-  const plannedAtStart = plannedProgressAt(basis, beforeStart);
-  const currentPlanned =
-    cumulativePlanned != null && plannedAtStart != null
-      ? Math.round((cumulativePlanned - plannedAtStart) * 100) / 100
-      : null;
-
-  /*
-    本期完成增量：各工項期間內的日報數量占契約數量之比例，同樣加權。
-    未計量工項（無契約數量）於本期貢獻 0 —— 其進度僅能人工填報，
-    無法得知期間內的增量，此為決策 F 下已知且已於 3.3 註明的限制。
-  */
-  const currentActual = weightedProgressDelta(
-    basis.map((w) => {
-      const contract = toNum(w.contractQty);
-      const periodQty = periodQtyTotals.get(w.id) ?? 0;
-      return {
-        plannedStart: w.plannedStart,
-        plannedEnd: w.plannedEnd,
-        delta:
-          contract != null && contract > 0 ? (periodQty / contract) * 100 : 0,
-      };
-    }),
-  );
-
-  // ── S-Curve：同採工程分項基準，與上方數字一致 ──
-  const curveAll = buildWorkItemSCurve(wiDetails);
-  const curve: ProgressCurvePoint[] = trimCurveWindow(
-    curveAll,
-    monthLabel(end),
-    6,
-  ).map((p) => ({
-    label: p.label,
-    planned: p.planned,
-    ...(p.actual != null ? { actual: p.actual } : {}),
-  }));
-
-  /*
-    ── 工項估驗明細（3.3）──────────────────────────────────────
-    自決策 A 起，累計與本期完成皆取自日報數量表：
-      累計 = 期初(WorkItem.completedQty) + Σ 全期間 dailyQty
-      本期 = Σ 期間內 dailyQty
-    先前此處因無期末快照而把本期兩欄填 null（報表顯示「—」），
-    已不再需要 WorkItemPeriodSnapshot —— 日報本身就是流水帳。
-    僅計入已提送／已核備的日報（決策 G，見 daily-qty.service）。
-  */
-  /*
-    本期無任何日報數量紀錄時，各工項的本期欄位應為「無資料」而非 0。
-    兩者意義不同：0 代表「本期確實沒做」，「—」代表「沒有數量紀錄可據」。
-    若一律填 0，尚未導入日報填報的專案會被誤讀為本期毫無進展。
-    反之，只要本期有任何紀錄，未出現於加總中的工項即為確實未施作 → 0。
-  */
-  const hasPeriodQty = periodQtyTotals.size > 0;
-
-  const workItems: WorkItemRow[] = project.workItems.map((w) => {
-    const qty = toNum(w.contractQty);
-    const price = toNum(w.unitPrice);
-    const opening = toNum(w.completedQty);
-
-    const cumulativeDone = effectiveCompletedQty(
-      opening,
-      cumulativeQtyTotals.get(w.id) ?? null,
-    );
-    const periodDone = hasPeriodQty ? (periodQtyTotals.get(w.id) ?? 0) : null;
-
-    return {
-      code: w.wbsCode ?? w.code ?? null,
-      name: w.name,
-      contractAmount: multiply(qty, price),
-      // 已計量工項以數量推導；未計量者沿用人工填報進度（決策 F）
-      cumulativePercent: effectiveProgress(
-        {
-          contractQty: qty,
-          unitPrice: price,
-          completedQty: cumulativeDone,
-          // 估驗狀態不在本表呈現，故不取這兩個量
-          inspectedQty: null,
-          valuatedQty: null,
-        },
-        Number.isFinite(w.progress) ? w.progress : 0,
-      ),
-      cumulativeAmount: multiply(cumulativeDone, price),
-      currentPercent: percent(periodDone, qty),
-      currentAmount: multiply(periodDone, price),
-    };
-  });
-
-  const duration = summarizeDuration(
-    project.startDate,
-    end,
-    project.contractWorkDays ?? null,
-  );
-  const workDays = summarizeWorkDays(
-    dailyReports.map((r) => ({
-      reportDate: r.reportDate,
-      weather: r.weather,
-      summary: r.summary,
-      // 決策 H：停工原因是判定的權威來源，未傳入則會退回舊的敘述推測分支
-      stopReason: r.stopReason,
-      excludedFromDuration: r.excludedFromDuration,
-    })),
-  );
-
-  // ── 期間評述：僅餵摘要層既算數字，LLM 不得引入其他資訊 ──
-  /*
-    缺任一側就沒有落差可言。先前以 0 代入等於宣稱「與預定相符」，
-    而那正是缺值時最容易被當真的一句話。
-  */
-  const gap =
-    cumulativePlanned != null && cumulativeActual != null
-      ? cumulativeActual - cumulativePlanned
-      : null;
-  const factsText = [
-    `專案：${project.name}（${project.code}）`,
-    `期間：${label}（${typeLabel}）`,
-    `${periodWord}預定進度 ${currentPlanned ?? "—"}%，${periodWord}完成進度 ${currentActual ?? "—"}%`,
-    `累計預定進度 ${cumulativePlanned ?? "—"}%，累計完成進度 ${cumulativeActual ?? "—"}%，${
-      gap != null ? describeGap(gap) : "缺預定或完成值，無法比對落差"
-    }`,
-    unscheduledWorkItems > 0
-      ? `註：另有 ${unscheduledWorkItems} 項工程分項未設定預定起訖日，未納入上述整體進度比對`
-      : "全部工程分項均已設定預定起訖日",
-    duration.elapsed != null && duration.total != null
-      ? `工期使用 ${duration.elapsed} / ${duration.total} 天，剩餘 ${duration.remaining} 天`
-      : "工期資料不完整（契約工期或開工日未填）",
-    `${periodWord}監造日報 ${workDays.total} 篇：施工 ${workDays.working} 天、天氣因素停工 ${workDays.weatherStop} 天、地震停工 ${workDays.earthquakeStop} 天、例假日 ${workDays.holiday} 天`,
-    workItems.length > 0
-      ? `工程分項 ${workItems.length} 項，累計完成百分比：${workItems
-          .map((w) => `${w.name} ${w.cumulativePercent ?? "—"}%`)
-          .join("、")}`
-      : "本期無工程分項資料",
-  ].join("\n");
-
-  const review = await faith.generatePeriodReview(
-    factsText,
-    periodWord,
-    PERIOD_REPORT_NAME[type],
-  );
-
-  const markdown = buildReportMarkdown({
+  const { template, facts } = assembleReport({
     type,
-    periodLabel: label,
-    periodStart: start,
-    periodEnd: end,
-    generatedAt: new Date(),
+    typeLabel,
+    period: { start, end, label },
     project: {
       name: project.name,
       code: project.code,
       client: project.client,
       contractor: project.contractor,
       supervisor: project.supervisor,
-      budget: toNum(project.budget),
+      budget: project.budget,
       startDate: project.startDate,
       endDate: project.endDate,
+      contractWorkDays: project.contractWorkDays ?? null,
+      scopeTitles: project.scopeItems.map((s) => s.title),
     },
-    scopeItems: project.scopeItems.map((s) => s.title),
-    excludedDraftDays,
-    unscheduledWorkItems,
-    duration,
-    progress: {
-      currentPlanned,
-      currentActual,
-      // 無任何具預定起訖日的工項時無從計算；以 0 呈現會誤導，故沿用 null 語意
-      cumulativePlanned,
-      cumulativeActual,
-    },
-    curve,
-    workItems,
-    workDays,
-    dailyLogs: dailyReports.map((r) => ({
-      reportDate: r.reportDate,
-      weather: r.weather,
-      summary: r.summary,
-      keyNotes: r.keyNotes,
-    })),
+    dailyReports: allDailyReports,
+    workItemDetails: wiDetails,
+    ledgerWorkItems: project.workItems,
+    cumulativeQtyTotals,
+    periodQtyTotals,
+  });
+
+  // ── 期間評述：僅餵摘要層既算數字，LLM 不得引入其他資訊 ──
+  const review = await faith.generatePeriodReview(
+    facts,
+    periodWord,
+    PERIOD_REPORT_NAME[type],
+  );
+
+  const markdown = buildReportMarkdown({
+    ...template,
+    generatedAt: new Date(),
     review,
   });
 

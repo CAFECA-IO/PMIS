@@ -341,3 +341,49 @@ test("表格單元內的 | 與換行被安全轉義", () => {
   assert.ok(row.includes("<br>"), "換行應轉為 <br>");
   assert.equal(row.split("|").length - 1, 5, "欄數應維持 4 欄（5 個分隔符）");
 });
+
+test("3.2 進度圖的欄數整個圍欄一致，不逐列擺盪", () => {
+  /*
+    先前是逐列判斷 currentPercent 有無，於是同一個圍欄裡混有 3 欄與 2 欄。
+    解析器容忍 2–4 欄不會壞，但兩欄的那幾列會靜默失去本期標記 ——
+    讀圖的人無從分辨那是「本期為 0」還是「這一列沒有本期資料」。
+  */
+  const md = buildReportMarkdown({
+    ...base,
+    workItems: [
+      {
+        code: "A",
+        name: "管線工程",
+        contractAmount: 1_000_000,
+        cumulativePercent: 70,
+        cumulativeAmount: 700_000,
+        currentPercent: 2,
+        currentAmount: 20_000,
+      },
+      {
+        code: "B",
+        name: "雜項工程",
+        contractAmount: 300_000,
+        cumulativePercent: 30,
+        cumulativeAmount: 90_000,
+        // 無契約數量者算不出百分比，但金額仍可能有值
+        currentPercent: null,
+        currentAmount: 5_000,
+      },
+    ],
+  });
+
+  const fence = md.split("```custom-progress")[1].split("```")[0];
+  const dataRows = fence
+    .split("\n")
+    .filter((l) => l.includes(",") && !l.startsWith("title") && !l.startsWith("unit"))
+    .filter((l) => l.trim() !== "");
+  assert.equal(dataRows.length, 2, `資料列數：${dataRows.join(" / ")}`);
+  const widths = new Set(dataRows.map((l) => l.split(",").length));
+  assert.equal(widths.size, 1, `同一圍欄的欄數應一致，實得 ${[...widths]}`);
+  assert.equal([...widths][0], 2, "有任一列缺本期時，整個圍欄都不放第三欄");
+  assert.ok(
+    md.includes("部分工程項目本期無日報數量紀錄"),
+    "省略第三欄時須說明原因，否則讀圖者以為本來就沒有本期資料",
+  );
+});
