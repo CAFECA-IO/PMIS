@@ -163,8 +163,18 @@ test("唯讀載入不得呼叫 LLM", () => {
 });
 
 test("基準日在伺服器端守門，不合理者拒絕而非退回今天", () => {
-  const service = read("src/service/report.service.ts");
-  assert.match(service, /export function parseRefDate/);
+  /*
+    `parseRefDate` 已移到零相依的 `period-key.ts`（與期間鍵同住 ——
+    解析決定「使用者心中的那一天」、鍵決定「那天屬於哪個期間」，
+    拆開放會讓時區慣例再次分岔），`report.service` 再匯出。
+    其行為由 `period-key.test.ts` 以真實輸入輸出驗證，含跨時區案例；
+    此處只確認守門仍在伺服器端、且 API route 確實有用它。
+  */
+  assert.match(
+    read("src/service/period-key.ts"),
+    /export function parseRefDate/,
+  );
+  assert.match(read("src/service/report.service.ts"), /parseRefDate/);
   // 用戶端防抖擋不住直接打 API 的請求，守門必須在伺服器端
   assert.match(read("src/app/api/report/route.ts"), /parseRefDate/);
 });

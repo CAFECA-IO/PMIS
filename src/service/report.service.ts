@@ -35,6 +35,7 @@ import {
   effectiveCompletedQty,
   effectiveProgress,
 } from "@/service/work-item-effective";
+import { parseRefDate, periodKeyFor, weekStart } from "@/service/period-key";
 import { multiply, percent } from "@/service/work-item-ledger";
 import { countsTowardQty } from "@/constant/pmis";
 import { formatDate } from "@/lib/utils";
@@ -64,30 +65,13 @@ const startOfDay = (d: Date) =>
 const endOfDay = (d: Date) =>
   new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
 
-/**
- * 基準日的合理範圍。
- *
- * `<input type="date">` 在年份欄位逐鍵輸入時會**每按一鍵就送出一次**
- * 完整日期：輸入 2026 依序產生 0002／0020／0202／2026 年。
- * 沒有守門的話，西元 2 年、20 年、202 年會各自成為一個「期間」而各留一份報表。
- * 用戶端防抖只能減少次數，不能保證 —— 守門必須在伺服器端。
- */
-const MIN_YEAR = 2000;
-const MAX_YEAR = 2100;
-
-/**
- * 解析基準日；無效或超出合理範圍時回 `null`（呼叫端應拒絕該請求）。
- *
- * 未給定則以今日為準 —— 那是使用者沒有指定期間時唯一合理的預設。
- */
-export function parseRefDate(refIso: string | undefined): Date | null {
-  if (!refIso) return new Date();
-  const d = new Date(refIso);
-  if (Number.isNaN(d.getTime())) return null;
-  const y = d.getFullYear();
-  if (y < MIN_YEAR || y > MAX_YEAR) return null;
-  return d;
-}
+/*
+  基準日的解析（`parseRefDate`）與期間身分鍵同住在 `period-key.ts`：
+  兩者是同一件事的兩半 —— 解析決定「使用者心中的那一天」，
+  鍵決定「那一天屬於哪個期間」，拆開放會讓時區慣例再次分岔。
+  該檔零相依，故回填腳本與純函式測試都能直接匯入。
+*/
+export { parseRefDate };
 
 /*
   ── 日曆日與時間點的界線 ───────────────────────────────────
@@ -109,36 +93,42 @@ const utcDayEnd = (d: Date) =>
     Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999),
   );
 
-const pad = (n: number) => String(n).padStart(2, "0");
-const ymdKey = (d: Date) =>
-  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-
 /**
  * 期間的起訖、顯示標籤與**身分鍵**。
  *
- * `key` 是留存的身分（見 schema 對 `periodKey` 的說明）：
- * 以文字表達「哪一個期間」，不隨伺服器時區漂移。
+ * `key` 一律取自 `period-key.periodKeyFor`，不在此另寫一份 ——
+ * 回填腳本需要同一套算法，兩份實作靠註解約定一致遲早會分岔，
+ * 而分岔的後果是新舊資料被當成不同期間，且定稿無法事後修正。
+ *
+ * 鍵取自 `ref` 的**本地日曆日**，故呼叫端必須先以 `parseRefDate` 解析，
+ * 讓 `ref` 代表使用者心中的那一天（見該函式的說明）。
  */
 function periodRange(type: ReportType, ref: Date) {
   const y = ref.getFullYear();
   const m = ref.getMonth();
+  const key = periodKeyFor(type, ref);
   switch (type) {
     case "DAILY":
       return {
         start: startOfDay(ref),
         end: endOfDay(ref),
         label: `${formatDate(ref)}`,
-        key: `DAILY:${ymdKey(ref)}`,
+        key,
       };
     case "WEEKLY": {
-      const dow = (ref.getDay() + 6) % 7; // Info: (20260721 - Luphia) 0 = 星期一
-      const start = startOfDay(new Date(y, m, ref.getDate() - dow));
-      const end = endOfDay(new Date(y, m, ref.getDate() - dow + 6));
+      const start = startOfDay(weekStart(ref));
+      const end = endOfDay(
+        new Date(
+          start.getFullYear(),
+          start.getMonth(),
+          start.getDate() + 6,
+        ),
+      );
       return {
         start,
         end,
         label: `${formatDate(start)} ~ ${formatDate(end)}`,
-        key: `WEEKLY:${ymdKey(start)}`,
+        key,
       };
     }
     case "MONTHLY":
@@ -146,7 +136,7 @@ function periodRange(type: ReportType, ref: Date) {
         start: new Date(y, m, 1),
         end: endOfDay(new Date(y, m + 1, 0)),
         label: `${y} 年 ${m + 1} 月`,
-        key: `MONTHLY:${y}-${pad(m + 1)}`,
+        key,
       };
     case "QUARTERLY": {
       const q = Math.floor(m / 3);
@@ -154,7 +144,7 @@ function periodRange(type: ReportType, ref: Date) {
         start: new Date(y, q * 3, 1),
         end: endOfDay(new Date(y, q * 3 + 3, 0)),
         label: `${y} 年 Q${q + 1}`,
-        key: `QUARTERLY:${y}-Q${q + 1}`,
+        key,
       };
     }
     case "ANNUAL":
@@ -163,7 +153,7 @@ function periodRange(type: ReportType, ref: Date) {
         start: new Date(y, 0, 1),
         end: endOfDay(new Date(y, 11, 31)),
         label: `${y} 年`,
-        key: `ANNUAL:${y}`,
+        key,
       };
   }
 }
@@ -658,6 +648,22 @@ export async function confirmSavedReport(
     return { ok: false, error: "無權確認此報表。" };
   }
   if (isPeriodReportFrozen(row.status)) return { ok: true };
+
+  /*
+    期間鍵為空的列只可能來自「schema 已加 periodKey，但回填腳本還沒跑」
+    的過渡狀態（見 prisma/backfill-period-key.ts 的三步驟）。
+    此時放行會寫入 confirmedPeriodKey = ""，而唯一約束是
+    (projectId, confirmedPeriodKey) —— 空字串會讓它退化成
+    「每個專案只能有一份定稿」：定稿九月時會收到「八月已有定稿」。
+    那個錯誤訊息完全指不到真正的原因，故在此擋下並明說要做什麼。
+  */
+  if (!row.periodKey.trim()) {
+    return {
+      ok: false,
+      error:
+        "此留存缺少期間鍵，尚未完成資料回填，暫時無法定稿。請先執行 npm run db:backfill -- --apply。",
+    };
+  }
 
   if (row.generatedAt.getTime() !== expectedGeneratedAt) {
     return {

@@ -12,8 +12,14 @@ import { PrismaClient } from "../src/generated/prisma/client";
  * 為何不重置資料庫：裡面有已定稿的報表，那是送審依據的留存。
  *
  * 用法：
- *   npx tsx prisma/backfill-period-key.ts          # 只列出將要做的事，不寫入
- *   npx tsx prisma/backfill-period-key.ts --apply  # 實際寫入
+ *   npm run db:backfill              # 只列出將要做的事，不寫入
+ *   npm run db:backfill -- --apply   # 實際寫入
+ *
+ * ⚠️ **必須以當初寫入這些資料的時區執行**，例如
+ *   TZ=Asia/Taipei npm run db:backfill -- --apply
+ * `periodStart` 存的是絕對時點，本腳本以本地取值把它讀回日曆日；
+ * 時區不同會推出相鄰期間的鍵，而那個錯誤在產品內無法修正（定稿不可刪改）。
+ * 腳本會拿推導鍵與既有的 `periodLabel` 比對，不一致即中止並提示。
  *
  * 可重複執行：已回填的列會被跳過。
  *
@@ -104,6 +110,68 @@ async function main() {
   }));
 
   /*
+    ── 時區前提的自我檢查（必要，不是保險）─────────────────────
+
+    `periodStart` 在資料庫裡是**絕對時點**，本腳本卻用本地取值把它讀回
+    日曆日。這個還原只在「腳本執行的時區＝當初寫入的時區」時才正確。
+
+    以台北寫入的 2026 年 8 月報表為例，`periodStart` 存成
+    2026-07-31T16:00:00Z；若在 TZ=UTC 的容器裡跑，會推出
+    `MONTHLY:2026-07`。而應用程式（同樣在 UTC）查八月時用的是
+    `MONTHLY:2026-08` —— 這列定稿從此永遠查不到，
+    「同期只有一份定稿」的守門靜默失效，而定稿不可刪不可改，
+    產品內無從修正。
+
+    `periodLabel` 是當初以正確時區產生的**文字**，不會隨執行環境改變。
+    拿它與推導鍵比對，就能在寫入前把整批錯誤攔下來。
+    僅對標籤格式固定的週期（月／季／年）檢查；日／週的標籤帶格式化日期，
+    不在此判斷。
+  */
+  const labelOfKey = (key: string): string | null => {
+    const [type, rest] = key.split(":");
+    if (!rest) return null;
+    if (type === "MONTHLY") {
+      const [y, m] = rest.split("-");
+      return y && m ? `${y} 年 ${Number(m)} 月` : null;
+    }
+    if (type === "QUARTERLY") {
+      const [y, q] = rest.split("-");
+      return y && q ? `${y} 年 ${q}` : null;
+    }
+    if (type === "ANNUAL") return `${rest} 年`;
+    return null;
+  };
+
+  const mismatched = planned.filter((r) => {
+    const expected = labelOfKey(r.nextKey);
+    return expected !== null && expected !== r.periodLabel;
+  });
+  if (mismatched.length > 0) {
+    console.error(
+      `\n⛔ 推導出的期間鍵與既有的 periodLabel 不一致（${mismatched.length} 筆）。`,
+    );
+    console.error(
+      `   目前時區：${process.env.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone}`,
+    );
+    for (const r of mismatched.slice(0, 20)) {
+      console.error(
+        `    - id=${r.id}  標籤「${r.periodLabel}」 → 推導鍵 ${r.nextKey}（應為「${labelOfKey(r.nextKey)}」）`,
+      );
+    }
+    if (mismatched.length > 20) {
+      console.error(`    …另有 ${mismatched.length - 20} 筆`);
+    }
+    console.error(
+      "\n這幾乎可以確定是**執行時區與當初寫入時不同**。" +
+        "\n請以寫入這些資料的時區重跑，例如：" +
+        "\n    TZ=Asia/Taipei npx tsx prisma/backfill-period-key.ts --apply" +
+        "\n在錯誤時區下回填會產生永久對不上的鍵，且定稿無法在產品內修正。",
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  /*
     先檢查同期是否已有多份定稿。
 
     舊的「先查再寫」擋不住並行確認，資料庫裡有可能已經存在兩份同期定稿；
@@ -142,7 +210,9 @@ async function main() {
   const todo = planned.filter(
     (r) =>
       r.periodKey !== r.nextKey ||
-      (r.status === "CONFIRMED" && r.confirmedPeriodKey !== r.nextKey),
+      (r.status === "CONFIRMED"
+        ? r.confirmedPeriodKey !== r.nextKey
+        : r.confirmedPeriodKey !== null),
   );
 
   if (todo.length === 0) {
@@ -204,9 +274,15 @@ async function main() {
         where: { id: r.id },
         data: {
           periodKey: r.nextKey,
+          /*
+            草稿一律把 confirmedPeriodKey 清為 null。
+            該欄是「定稿唯一」約束的載體，草稿上殘留舊值會占用
+            (projectId, confirmedPeriodKey) 這個位置，
+            使該期間真正要定稿時撞上唯一約束卻找不到對應的定稿列。
+          */
           ...(r.status === "CONFIRMED"
             ? { confirmedPeriodKey: r.nextKey }
-            : {}),
+            : { confirmedPeriodKey: null }),
         },
       }),
     ),

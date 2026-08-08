@@ -201,7 +201,35 @@ npm run dev          # 啟動開發伺服器
 | `npm run db:generate` | 產生 Prisma Client |
 | `npm run db:seed` | 匯入範例資料 |
 | `npm run db:studio` | 開啟 Prisma Studio |
-| `npm run db:reset` | 重置資料庫並重新 seed |
+| `npm run db:backfill` | 回填 `GeneratedReport.periodKey`（見下方〈既有資料庫的結構升級〉） |
+| `npm run db:reset` | 重置資料庫並重新 seed（**會清空資料**） |
+
+### 既有資料庫的結構升級
+
+本專案採 `prisma db push`，沒有 `prisma/migrations`。對**已有資料**的資料庫，
+新增必填欄位時 `db push` 會被擋下，而 `--accept-data-loss` 會清掉資料
+—— 其中包含已定稿的彙整報表，那是送審依據的留存。
+
+目前唯一需要這樣處理的是 `GeneratedReport.periodKey`（2026-08-08 新增）。
+若你的資料庫建立於該日之前且 `GeneratedReport` 已有資料：
+
+```bash
+# 1. 在 schema 的 periodKey 暫時加上 @default("")
+npx prisma db push && npx prisma generate
+
+# 2. 回填（務必以當初寫入資料的時區執行）
+TZ=Asia/Taipei npm run db:backfill             # 先預覽
+TZ=Asia/Taipei npm run db:backfill -- --apply  # 確認後寫入
+
+# 3. 移除該 @default("")
+npx prisma db push && npx prisma generate
+```
+
+回填腳本會比對推導鍵與既有的 `periodLabel`，時區不符即中止 ——
+在錯誤時區下回填會產生永久對不上的鍵，而定稿不可刪改、無法事後修正。
+腳本可重複執行，已回填的列會跳過。全部環境完成後即可刪除該腳本。
+
+> 步驟 1 與 3 之間，尚未回填的留存無法「確認定稿」，畫面會提示先執行回填。
 
 ---
 

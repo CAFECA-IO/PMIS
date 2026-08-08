@@ -58,24 +58,49 @@ export async function upsertDraft(data: CreateGeneratedReportData) {
     orderBy: { generatedAt: "desc" },
     select: { id: true },
   });
-  if (!existing) {
-    return prisma.generatedReport.create({ data: { ...data, generatedAt: stamp() } });
+  /*
+    ── 為何是 updateMany 而不是 update ────────────────────────
+
+    上面的 findFirst 與這裡的寫入之間有一段空窗（產製要跑 LLM，以秒計）。
+    若那段期間內有人把這份草稿確認定稿，`update({ where: { id } })`
+    會直接改寫**已凍結的送審依據**：該列仍顯示 CONFIRMED、仍帶著對方的
+    定稿時間，內容卻換成了這次重新產生的版本。定稿在系統中不可修改也不可
+    刪除，這會是唯一能改動它的路徑，而且事後無從察覺、無從復原。
+
+    把 status=DRAFT 納入寫入條件後，更新到 0 列即代表「它在這段空窗裡被
+    定稿或刪除了」；此時落到下方新建一份草稿 —— 預覽本來就該顯示現況，
+    而「現況與已凍結的那一份不同」正是使用者需要看到的資訊。
+
+    建立路徑刻意只有一條（在函式末端）：多一條就會有一條不套用
+    「同期只留一份草稿」的入口，於是出現兩份自稱同一個月的報表。
+  */
+  if (existing) {
+    const { count } = await prisma.generatedReport.updateMany({
+      where: { id: existing.id, status: "DRAFT" },
+      data: {
+        periodStart: data.periodStart,
+        periodEnd: data.periodEnd,
+        periodLabel: data.periodLabel,
+        title: data.title,
+        markdown: data.markdown,
+        sources: data.sources ?? null,
+        aiAuthored: data.aiAuthored,
+        generatedAt: stamp(),
+        generatedById: data.generatedById ?? null,
+        generatedBy: data.generatedBy ?? null,
+      },
+    });
+    if (count > 0) {
+      // updateMany 不回傳資料列，故補查一次；查不到代表剛好被刪，往下新建
+      const row = await prisma.generatedReport.findUnique({
+        where: { id: existing.id },
+      });
+      if (row) return row;
+    }
   }
-  // 期間鍵（projectId／periodKey）即查找條件，不重複寫入
-  return prisma.generatedReport.update({
-    where: { id: existing.id },
-    data: {
-      periodStart: data.periodStart,
-      periodEnd: data.periodEnd,
-      periodLabel: data.periodLabel,
-      title: data.title,
-      markdown: data.markdown,
-      sources: data.sources ?? null,
-      aiAuthored: data.aiAuthored,
-      generatedAt: stamp(),
-      generatedById: data.generatedById ?? null,
-      generatedBy: data.generatedBy ?? null,
-    },
+
+  return prisma.generatedReport.create({
+    data: { ...data, generatedAt: stamp() },
   });
 }
 

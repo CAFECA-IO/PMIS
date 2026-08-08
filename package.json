@@ -14,6 +14,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:demos": "tsx prisma/seeds/seed-design-demos.ts",
     "db:studio": "prisma studio",
+    "db:backfill": "tsx prisma/backfill-period-key.ts",
     "db:reset": "prisma db push && npm run db:generate && npm run db:seed && npm run db:seed:demos",
     "gis:fetch": "tsx scripts/gis-fetch.ts"
   },
