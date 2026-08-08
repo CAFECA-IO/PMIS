@@ -43,6 +43,7 @@ next-env.d.ts
 # prisma
 /prisma/*.db
 /prisma/*.db-journal
+/prisma/*.db.bak-*
 /prisma/migrations/dev.db*
 
 # generated prisma client
@@ -50,3 +51,6 @@ next-env.d.ts
 
 # uploaded files (local storage)
 /storage
+
+# package-lock
+package-lock.json

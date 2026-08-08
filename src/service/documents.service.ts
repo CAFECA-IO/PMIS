@@ -107,7 +107,10 @@ export type UploadInput = {
   category?: string;
 };
 
-/** 上傳文件（pdf/png/jpg），存檔並建立 MediaAsset 記錄。 */
+/**
+ * 上傳文件（pdf/png/jpg；HEIC／HEIF 由 storage 轉為 jpg），
+ * 存檔並建立 MediaAsset 記錄。
+ */
 export async function uploadDocument(
   input: UploadInput,
   file: File,
@@ -115,7 +118,9 @@ export async function uploadDocument(
 ): Promise<boolean> {
   if (!input.projectId || !(file instanceof File) || file.size === 0) return false;
   if (!(await canAccess(input.projectId, actor))) return false;
-  if (!storage.isAllowed(file.type)) return false;
+  // 併傳檔名：手機照片的 MIME 回報不一致（空字串或 octet-stream），
+  // 僅看 file.type 會讓 HEIC 在此就被誤擋
+  if (!storage.isAllowed(file.type, file.name)) return false;
 
   const saved = await storage.saveFile(file);
   if (!saved) return false;

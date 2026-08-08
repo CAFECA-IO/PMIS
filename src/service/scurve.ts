@@ -164,11 +164,105 @@ export type WorkItemInput = {
   progress: number;
 };
 
+/**
+ * 工程分項的排程權重＝預定工期天數（無預定起訖則為 1）。
+ *
+ * 與 `buildWorkItemSCurve` 內部使用的權重同一定義，抽出以供
+ * 月報的預定／完成進度共用 —— 否則同一份報表會出現兩種加權方式。
+ */
+export function workItemWeight(w: {
+  plannedStart: Date | null;
+  plannedEnd: Date | null;
+}): number {
+  if (!w.plannedStart || !w.plannedEnd) return 1;
+  return Math.max(1, (w.plannedEnd.getTime() - w.plannedStart.getTime()) / DAY);
+}
+
+/**
+ * 是否具備可比對的排程（有預定起訖日）。
+ *
+ * **這是進度計算的母體定義，全檔共用。** 預定與完成必須算在同一批工項上：
+ * 未設定預定起訖的工項沒有預定值可比，若只在其中一側納入，
+ * 落差就會純粹來自母體不同 —— 例如 1 個排程工項做完 100%、
+ * 另有 20 個無預定日的工項，預定算 100%、完成算 60%，
+ * 報表便宣稱落後 40 個百分點，而實際上該做的都做完了。
+ * 這種數字會進入工期展延爭議，不能只是「看起來怪怪的」。
+ */
+export function isSchedulable(w: {
+  plannedStart: Date | null;
+  plannedEnd: Date | null;
+}): boolean {
+  return Boolean(w.plannedStart && w.plannedEnd);
+}
+
+/**
+ * 指定時點的**預定累計進度**（%），工程分項基準（決策 C／I）。
+ *
+ * 各工項於其預定期間 [plannedStart, plannedEnd] 內線性展開，
+ * 以預定工期天數加權後彙總。與 `buildWorkItemSCurve` 的 planned 同一算法，
+ * 差別僅在此處可取任意日期，而非僅月底 —— 日報的「當日預定進度」即用此函式。
+ *
+ * 無任何具備預定起訖日的工項時回 `null`（無從計算，不臆造 0）。
+ */
+export function plannedProgressAt(
+  items: WorkItemInput[],
+  at: Date,
+): number | null {
+  const schedulable = items.filter(isSchedulable);
+  if (schedulable.length === 0) return null;
+
+  const totalWeight = schedulable.reduce((s, w) => s + workItemWeight(w), 0);
+  if (totalWeight === 0) return null;
+
+  const cutoff = at.getTime();
+  const done = schedulable.reduce((sum, w) => {
+    const a = w.plannedStart!.getTime();
+    const b = w.plannedEnd!.getTime();
+    const frac = b <= a ? (cutoff >= b ? 1 : 0) : clamp01((cutoff - a) / (b - a));
+    return sum + workItemWeight(w) * frac;
+  }, 0);
+
+  return round((done / totalWeight) * 100);
+}
+
+/**
+ * 以預定工期天數加權的**進度增量**（百分點）。
+ *
+ * 各工項的 `delta` 為該工項於期間內完成的比例（0–100），由呼叫端依
+ * 期間內的日報數量算出；本函式只負責加權彙總，不涉及數量來源，
+ * 以保持純函式與可測性。
+ *
+ * **母體與 `plannedProgressAt` 相同**：僅計具預定起訖日的工項。
+ * 篩選寫在函式內而非交由呼叫端自律 —— 先前兩者母體不同正是靠呼叫端
+ * 各自過濾而失守的，而失守時報表照樣印得出漂亮的數字。
+ * 無排程工項的完成量仍會出現在 3.3 逐工項明細，只是不參與整體落差比對。
+ *
+ * 無可比對的工項時回 `null`（與 `plannedProgressAt` 一致，不臆造 0）。
+ */
+export function weightedProgressDelta(
+  items: {
+    plannedStart: Date | null;
+    plannedEnd: Date | null;
+    /** 該工項本期完成比例（0–100） */
+    delta: number;
+  }[],
+): number | null {
+  const schedulable = items.filter(isSchedulable);
+  if (schedulable.length === 0) return null;
+  const totalWeight = schedulable.reduce((s, w) => s + workItemWeight(w), 0);
+  if (totalWeight === 0) return null;
+  const sum = schedulable.reduce(
+    (s, w) => s + workItemWeight(w) * clamp01(w.delta / 100) * 100,
+    0,
+  );
+  return round(sum / totalWeight);
+}
+
 export function buildWorkItemSCurve(
   items: WorkItemInput[],
   nowTs: number = Date.now(),
 ): SCurvePoint[] {
-  const schedulable = items.filter((w) => w.plannedStart && w.plannedEnd);
+  const schedulable = items.filter(isSchedulable);
   if (schedulable.length === 0) return [];
 
   const weightOf = (w: WorkItemInput) =>

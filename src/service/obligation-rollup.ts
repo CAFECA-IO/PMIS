@@ -75,7 +75,14 @@ export type ProgressWorkItem = RollupItem & { obligationId: string | null };
 /**
  * 專案進度（截至 now）＝以履約事項權重加權的達成度，達成與否由工程分項上捲後的
  * 有效實際完成日判定（見 effectiveObligationActual）。回傳 overall / planned / gap。
- * 此為全系統單一定義：專案列表、專案總覽、履約事項分頁、費思摘要、報表、儀表板皆共用。
+ * 適用範圍（2026-08-07 決策 I 後縮小）：專案列表、專案總覽、履約事項分頁、
+ * 費思摘要、儀表板。**監造月報不再使用本函式**——月報的預定與完成進度
+ * 已改採工程分項基準（權重＝預定工期天數，預定依起訖線性展開），
+ * 以與監造日報的「當日預定進度」同基準，見 `scurve.plannedProgressAt`。
+ *
+ * 兩者並存是刻意的：本函式是「履約事項達成度」（事件式里程碑），
+ * 月報用的是「工序完成度」（期間式）。數值不會相等，用途也不同；
+ * 若要在同一畫面並陳，須註明各自基準。
  */
 export function rolledUpProgress(
   obligations: ProgressObligation[],

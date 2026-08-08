@@ -87,7 +87,8 @@
 
 - 施工紀錄、材料取樣試驗、安衛環保、業主指示、上級/主管機關稽查、首件檢驗導讀等紀錄。
 - 工程照片、影片、圖檔、掃描文件與試驗報告之上傳、預覽與歸檔編號管理。
-- **監造報表**：每日填報按圖施工概況、材料管理、人機管理、取樣試驗與重要事項，可由當日查驗紀錄自動匯入。
+- **監造報表（監造日報）**：每日填報按圖施工概況、材料管理、人機管理、取樣試驗與重要事項；
+  文字敘述可由當日查驗／缺失紀錄一鍵帶入，**數量表則是施工數量與進度的來源**（見下方〈監造日報為單一真實來源〉）。
 - 建物歷程檢索（依構造物分類彙整抽查資料）、空間使用量統計，作為數位轉型量化佐證。
 
 ---
@@ -127,15 +128,49 @@
 資料模型依 8 大模組設計，以 **Project** 為核心串聯：
 
 - **PMIS-03 契約履約**：`Project`、`ContractChange`（契約變更）、`Milestone`（里程碑/展延）、`PaymentNode`（付款節點）
-- **PMIS-04 時程進度**：`WorkItem`（分項工程，預定/實際/進度）
+- **PMIS-04 時程進度**：`WorkItem`（分項工程；**預定**起訖與契約數量為主，
+  實際完成量與進度改由監造日報推導 —— `progress` 欄位僅為未計量工項的人工填報值）
 - **PMIS-07 品質稽核**：`Inspection`（查驗）、`Defect`（缺失）
 - **PMIS-01 行事曆**：`ReminderEvent`（提醒/預警）
 - **PMIS-02 待辦**：`TodoItem`（跨單位待辦）
 - **PMIS-05 環安衛**：`EhsAudit`（安衛/環保/交通稽核）
 - **PMIS-06 送審**：`Submittal`（送審與退件）
-- **PMIS-08 資料庫**：`MediaAsset`（照片/影片/文件）、`SupervisionReport`（監造報表）
+- **PMIS-08 資料庫**：`MediaAsset`（照片/影片/文件）、`SupervisionReport`（監造日報）、
+  `SupervisionReportItem`（日報數量表）、`GeneratedReport`（彙整報表留存）、
+  `SupervisionReportAuditLog`（日報變更軌跡）
+  > 監造日報雖存放於本模組，其數量表同時是 PMIS-04 進度與估驗金額的來源，
+  > 職責跨越兩個模組，見〈監造日報為單一真實來源〉。
 
 Schema 定義於 `prisma/schema.prisma`，資料庫連線設定於 `prisma.config.ts`。
+
+### 監造日報為單一真實來源
+
+施工數量與進度的資料流方向是**日報 → 台帳／月報**，而非反過來：
+
+```
+監造日報數量表 (SupervisionReportItem.dailyQty)
+        ↓  僅計入已提送／已核備者
+累計完成量 = WorkItem.completedQty（期初基準）+ Σ dailyQty
+        ↓
+估驗台帳金額、完成率、估驗狀態
+工項有效進度 → S 曲線、履約事項上捲
+監造月報 3.3 的本期／累計完成
+```
+
+由此衍生的幾項約定：
+
+- `WorkItem.completedQty` 是**期初累計基準**，非當前累計。台帳上可編輯的是**期初**，
+  當前有效累計為推導值、唯讀，任何路徑都不回寫。已有日報計入後修改期初會連帶
+  改寫歷史月報的累計，故須經確認。
+- `WorkItem.progress` 是**人工填報進度**，僅作為未計量工項（無契約數量）的唯一來源；
+  已計量工項的進度由數量推導，且推導值**不回寫**欄位。
+- 月報的預定與完成進度採**工程分項基準**（權重＝預定工期天數，預定依起訖線性展開），
+  與日報的「當日預定進度」同基準。履約事項的加權達成度（`rolledUpProgress`）
+  仍用於專案列表、總覽與儀表板，兩者用途不同、數值不相等。
+- 工項單位一旦被日報引用即不可變更，避免新舊紀錄量綱不一致。
+- 彙整報表產出即留存（`GeneratedReport`），經人工確認後內容凍結，作為送審依據。
+
+設計脈絡與決策紀錄見 `docs/日報月報計劃整合檢視.md`。
 
 ---
 
@@ -166,7 +201,35 @@ npm run dev          # 啟動開發伺服器
 | `npm run db:generate` | 產生 Prisma Client |
 | `npm run db:seed` | 匯入範例資料 |
 | `npm run db:studio` | 開啟 Prisma Studio |
-| `npm run db:reset` | 重置資料庫並重新 seed |
+| `npm run db:backfill` | 回填 `GeneratedReport.periodKey`（見下方〈既有資料庫的結構升級〉） |
+| `npm run db:reset` | 重置資料庫並重新 seed（**會清空資料**） |
+
+### 既有資料庫的結構升級
+
+本專案採 `prisma db push`，沒有 `prisma/migrations`。對**已有資料**的資料庫，
+新增必填欄位時 `db push` 會被擋下，而 `--accept-data-loss` 會清掉資料
+—— 其中包含已定稿的彙整報表，那是送審依據的留存。
+
+目前唯一需要這樣處理的是 `GeneratedReport.periodKey`（2026-08-08 新增）。
+若你的資料庫建立於該日之前且 `GeneratedReport` 已有資料：
+
+```bash
+# 1. 在 schema 的 periodKey 暫時加上 @default("")
+npx prisma db push && npx prisma generate
+
+# 2. 回填（務必以當初寫入資料的時區執行）
+TZ=Asia/Taipei npm run db:backfill             # 先預覽
+TZ=Asia/Taipei npm run db:backfill -- --apply  # 確認後寫入
+
+# 3. 移除該 @default("")
+npx prisma db push && npx prisma generate
+```
+
+回填腳本會比對推導鍵與既有的 `periodLabel`，時區不符即中止 ——
+在錯誤時區下回填會產生永久對不上的鍵，而定稿不可刪改、無法事後修正。
+腳本可重複執行，已回填的列會跳過。全部環境完成後即可刪除該腳本。
+
+> 步驟 1 與 3 之間，尚未回填的留存無法「確認定稿」，畫面會提示先執行回填。
 
 ---
 

@@ -73,6 +73,7 @@ model Project {
   fileFolders       FileFolder[]
   projectFiles      ProjectFile[]
   designVersions    DesignVersion[]
+  generatedReports  GeneratedReport[]
 }
 
 /// Staffing — links an account to a project with a project-scoped role (配置人力).
@@ -301,7 +302,14 @@ model WorkItem {
   plannedEnd   DateTime?
   actualStart  DateTime?
   actualEnd    DateTime?
-  progress     Int            @default(0) // percent 0-100
+  /// 人工填報進度（0-100）。
+  ///
+  /// 決策 F（2026-08-05）：本欄是**未計量工項**（無 contractQty／unit，
+  /// 例如自表單新增而尚未登錄數量者）的唯一進度來源，亦為已計量工項的後備值。
+  /// 已計量工項的進度以數量推導為準，見 work-item-effective.effectiveProgress；
+  /// 推導值刻意**不回寫**本欄，故本欄不代表當前有效進度。
+  /// 下游（S 曲線、履約事項上捲）應讀有效進度而非本欄。
+  progress     Int            @default(0)
   status       WorkItemStatus @default(NOT_STARTED)
 
   // ── 數量與估驗（詳細工項數量與估驗台帳）──────────────────
@@ -313,7 +321,19 @@ model WorkItem {
   unit         String? // 計量單位，如 m3、m、組、式
   contractQty  Decimal? // 契約數量
   unitPrice    Decimal? // 單價
-  completedQty Decimal? // 累計完成量（人工更新）
+  /// 期初累計完成量。
+  ///
+  /// 語意已於 2026-08-05（決策 A）改變：此欄不再是「當前累計完成量」，
+  /// 而是「開始以日報填報之前的累計基準」。當前有效累計量為
+  ///   期初(本欄) + Σ 日報 SupervisionReportItem.dailyQty
+  /// 由 work-item-effective.effectiveCompletedQty 推導，不回寫本欄。
+  ///
+  /// 台帳上「可編輯的是本欄（期初），不是畫面上那個累計」：
+  /// 有效累計為推導值、唯讀，任何路徑都不得回寫，
+  /// 以免與日報加總並存成為第二個來源。
+  /// 期初本身必須可編輯 —— 導入日報前已完成的量只能由此登錄；
+  /// 但已有日報計入後再改期初會連帶改寫歷史月報的累計，故 UI 須明確確認。
+  completedQty Decimal?
   inspectedQty Decimal? // 查驗合格量
   valuatedQty  Decimal? // 累計估驗量
 
@@ -326,6 +346,8 @@ model WorkItem {
   inspections  Inspection[]
   defects      Defect[]
   carbonEntries CarbonEntry[]
+  /// 日報數量表中引用本分項的列（累計完成量的來源）。
+  reportItems  SupervisionReportItem[]
 
   @@index([projectId])
   @@index([obligationId])
@@ -860,13 +882,73 @@ model SupervisionReport {
   equipment  String?
   keyNotes   String? // 重要事項
   filedBy    String?
+  /// 是否免計工期（E5）。
+  ///
+  /// 具法律效果的宣告，非描述 —— 做成布林才能算出「本期免計工期共 N 天」，
+  /// 該數字在結算與工期展延爭議中有金額意義。
+  /// 與 stopReason 分離：停工原因說明「為何沒做」，本欄說明「這天算不算工期」，
+  /// 兩者不必然一致（例假日在日曆天契約下仍計工期；雨停未必都免計）。
+  excludedFromDuration Boolean @default(false)
+  /// 免計工期的契約依據，如「工程契約書第 7 條」。
+  /// 認定由監造確認，系統不推測。
+  exclusionBasis       String?
+
+  /// 當日未施工的原因；null 代表當日有施工（決策 H）。
+  ///
+  /// 這是工作日統計的**權威來源**：月報的施工天數／雨天停工／例假日
+  /// 一律依此欄位統計，不再以天氣或敘述文字推測（決策 D）。
+  stopReason WorkStopReason?
   status     ReportStatus @default(DRAFT)
   createdAt  DateTime     @default(now())
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// 數量表：本日各施工項目的完成數量。
+  items   SupervisionReportItem[]
 
   @@unique([projectId, reportDate])
   @@index([projectId])
+}
+
+/// 監造日報的數量表一列（E1）。
+///
+/// 只存「本日完成量」，不存累計 —— 累計 = 期初 + Σ 本日。
+/// 兩者都存必然對不起來，而對帳時無從判斷哪個是真的
+/// （與 WorkItem 數量欄位「推導而不儲存」的原則一致）。
+///
+/// 依決策 A，本表的加總是月報累計完成量與逐工項本期完成的**權威來源**，
+/// 取代原先規劃的 WorkItemPeriodSnapshot 月結快照。
+model SupervisionReportItem {
+  id       String @id @default(cuid())
+  reportId String
+
+  /// 對應的工程分項。
+  ///
+  /// 允許為 null 以容納契約外的臨時項目（如未登錄於台帳的「化冀池打除」）。
+  /// null 的列僅存在於該日報中，**不計入任何工項的累計量**
+  /// —— 否則日報會成為繞過契約管控、憑空建立工項的旁路。
+  workItemId String?
+
+  /// 施工項目名稱快照。
+  ///
+  /// 刻意複製而非僅靠關聯：工程分項日後更名或刪除後，
+  /// 歷史日報仍須還原當時的內容（法定文件不可回溯改寫）。
+  itemName String
+  /// 計量單位快照；應取自 WorkItem.unit，不由使用者自填，
+  /// 否則同一工項在不同日報用不同單位而無法加總。
+  unit     String?
+  /// 本日完成數量。
+  dailyQty Decimal
+  note     String?
+  /// 表單與報表中的排列順序。
+  sortOrder Int @default(0)
+
+  report   SupervisionReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  /// SetNull 而非 Cascade：工項被刪除時，該日的施工紀錄仍是法定文件的一部分，
+  /// 應保留並以 itemName 快照呈現，不可連帶消失。
+  workItem WorkItem?         @relation(fields: [workItemId], references: [id], onDelete: SetNull)
+
+  @@index([reportId])
+  @@index([workItemId])
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1002,6 +1084,169 @@ enum ReportStatus {
   DRAFT
   SUBMITTED
   APPROVED
+}
+
+/// 當日未施工的原因（決策 H）。
+/// 天氣欄位僅供紀錄、不參與此判定（決策 D）。
+/// 監造日報的變更軌跡（決策 J-b）。
+///
+/// 日報是施工紀錄本，本就允許更正 —— 規矩不是「不准改」，而是
+/// **改了要看得出來**（紙本的劃線蓋章即是此意）。且依決策 A，
+/// 日報數量是月報金額與進度的權威來源，事後修正會改變彙整結果，
+/// 沒有軌跡就無從說明差異從何而來。
+///
+/// **刻意不設 reportId 外鍵**（與 CarbonAuditLog 的 inventoryId 慣例不同）：
+/// 整份日報被刪除正是最需要留存的事件，設了 Cascade 會把該紀錄一併抹除。
+/// 故以純字串保存 id，並另存 projectId 以便按專案查詢。
+///
+/// 本階段**只記錄、不鎖定**：日報的 APPROVED 目前僅是下拉選項、
+/// 非簽核流程的產物，據以上鎖只會提供假的保證。待正式簽核流程上線
+/// （接既有 ApprovalDocument）再議鎖定。
+model SupervisionReportAuditLog {
+  id        String @id @default(cuid())
+  /// 無外鍵；日報刪除後本紀錄仍須存在。
+  reportId  String
+  projectId String
+  /// 針對數量表的哪一列（可空 = 針對整份日報）。
+  itemId    String?
+
+  /// CREATE / UPDATE / STATUS / ITEMS / DELETE
+  action    String
+  actorId   String?
+  actorName String?
+
+  /// 該日報的報表日期。
+  ///
+  /// 刻意冗餘保存而非查 `SupervisionReport`：本表無外鍵，日報刪除後
+  /// 只剩 `reportId` 這個已無對應的字串，看軌跡的人無從得知刪掉的是哪一天
+  /// —— 而「哪一天的量被移除」正是月報金額變動時唯一要問的問題。
+  /// 可空僅為相容本欄加入前的既有紀錄。
+  reportDate DateTime?
+
+  fromStatus ReportStatus?
+  toStatus   ReportStatus?
+
+  /// 供人閱讀的摘要，如「天氣：晴 → 雨」。過長的值已截斷，且可能含換行。
+  detail String?
+
+  /// 變更前（或建立時）的完整內容 JSON，未截斷，使內容可回溯重建。
+  ///
+  /// 與 `detail` 分欄而非塞在同一欄，是因為摘要含有使用者原文，
+  /// 而原文可能有換行：先前以「第一個換行之後即為 JSON」切分，
+  /// 遇到 `施工概況：上午澆置\n下午養護` 就會把後半段標成「變更前明細」——
+  /// 出現在一列 CREATE 上，而 CREATE 根本沒有變更前。
+  /// 兩種東西就該放兩個欄位，不要靠嗅探。
+  snapshot String?
+
+  createdAt DateTime @default(now())
+
+  @@index([reportId])
+  @@index([projectId, createdAt])
+}
+
+/// 彙整報表的週期別（與 service 的 ReportType 一致）。
+enum PeriodReportType {
+  DAILY
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+/// 彙整報表的定稿狀態（治理：人在迴路）。
+enum PeriodReportStatus {
+  /// AI 生成草稿，尚未經人工確認，不得作為正式文件歸檔。
+  DRAFT
+  /// 監造人員已確認；內容自此不可修改，作為當時送審依據的留存。
+  CONFIRMED
+}
+
+enum WorkStopReason {
+  /// 雨天/颱風停工
+  WEATHER
+  /// 地震
+  EARTHQUAKE
+  /// 例假日
+  HOLIDAY
+  /// 未排工（非假日但當日無預定工作）
+  NO_SCHEDULE
+  /// 其他原因（宜於敘述欄補充）
+  OTHER
+}
+
+/// 已產出的彙整報表（週／月／季／年）的留存。
+///
+/// 為何要存：報表的每個數字都是即時推導（決策 A／F／I），
+/// 同一期間在不同時間產生會得到不同結果。若不留存，
+/// 「送審出去的是哪一版」在系統中不存在，
+/// 且治理原則要求的「草稿 → 人工確認後方可歸檔」無處可標記。
+///
+/// 已確認（CONFIRMED）者內容不可修改 —— 它就是當時那份文件的快照，
+/// 其中的進度、金額、逐日明細一律凍結，不隨日報事後修正而變動。
+/// 需要更新時請重新產生一份新的報表，而非改寫既有紀錄。
+model GeneratedReport {
+  id          String             @id @default(cuid())
+  projectId   String
+  type        PeriodReportType
+  /// 期間身分（如 `MONTHLY:2026-08`）。
+  ///
+  /// 「同期只允許一份定稿」「同期草稿覆寫」都以本欄為鍵，而**不用**
+  /// `periodStart` 相等比對：後者由伺服器時區推導，部署時區一改
+  /// （例如 UTC → Asia/Taipei），既有列與新查詢的值就不再相等 ——
+  /// `upsertDraft` 開始堆重複草稿，`findConfirmedForPeriod` 靜默回 null，
+  /// 而那道守門是「哪一份才是那個月的送審依據」的唯一保證。
+  /// 文字鍵不會因時區漂移。
+  periodKey   String
+
+  /// 期間起訖；供顯示與範圍查詢，不作為身分。
+  periodStart DateTime
+  periodEnd   DateTime
+  /// 顯示用期間標籤，如「2026 年 5 月」。
+  periodLabel String
+  title       String
+
+  /// 報表全文（markdown）。這是留存的主體。
+  markdown    String
+  status      PeriodReportStatus @default(DRAFT)
+
+  /// 本次生成引用的數據來源，供稽核回溯（以換行分隔）。
+  sources     String?
+  /// 本體是否由 LLM 主導（false = 決定論回退組裝）。
+  aiAuthored  Boolean            @default(false)
+
+  /// 本份內容的產出時間。
+  ///
+  /// 與 `createdAt` 分開的理由：草稿以「同專案／同週期／同期間」覆寫，
+  /// 覆寫後 `createdAt`（這一列何時建立）仍是舊值，
+  /// 拿它當「產生於」顯示就是錯的 —— 而這是送審依據的留存紀錄，
+  /// 時間標錯比不標更糟。定稿動作不改本欄（定稿沒有重新產出內容）。
+  generatedAt   DateTime @default(now())
+
+  /// 定稿時填入 `periodKey`，草稿恆為 null。
+  ///
+  /// 存在的唯一理由是讓「同期只允許一份定稿」由資料庫保證：
+  /// 服務層原本是 check-then-write（先查有沒有定稿、再寫），
+  /// 兩個並行的確認都會通過檢查而各寫一份，屆時無從判斷哪一份才是送審依據。
+  /// 直接對 `periodKey` 下唯一約束會連草稿一起擋掉（同期草稿與定稿需並存），
+  /// 而 SQL 的唯一索引視每個 NULL 為相異值 —— 草稿全填 null 即可並存，
+  /// 定稿則因填入 periodKey 而同期至多一份。
+  /// （Prisma schema 不支援 partial index，此為其等效寫法。）
+  confirmedPeriodKey String?
+
+  generatedById String?
+  generatedBy   String?
+  confirmedAt   DateTime?
+  confirmedById String?
+  confirmedBy   String?
+
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, confirmedPeriodKey])
+  @@index([projectId, periodKey])
+  @@index([projectId, type, periodStart])
+  @@index([status])
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -17,6 +17,9 @@ import type {
   ReviewResult,
   MediaType,
   ReportStatus,
+  PeriodReportStatus,
+  PeriodReportType,
+  WorkStopReason,
   ProjectMemberRole,
   CarbonScope,
   CarbonEntryStatus,
@@ -240,6 +243,88 @@ export const reportStatusMeta: Record<ReportStatus, Meta> = {
   SUBMITTED: { label: "已提送", variant: "info" },
   APPROVED: { label: "已核備", variant: "success" },
 };
+
+/**
+ * 停工原因的顯示標籤（決策 H）。
+ *
+ * 值為空（null）代表當日有施工，故不在此列舉之內。
+ * 月報的工作日統計一律依此欄位，不再以天氣或敘述推測（決策 D）。
+ */
+export const workStopReasonMeta: Record<WorkStopReason, Meta> = {
+  WEATHER: { label: "天氣因素停工", variant: "info" },
+  EARTHQUAKE: { label: "地震停工", variant: "warning" },
+  HOLIDAY: { label: "例假日", variant: "muted" },
+  NO_SCHEDULE: { label: "未排工", variant: "muted" },
+  OTHER: { label: "其他停工", variant: "warning" },
+};
+
+export const workStopReasonOptions = Object.entries(workStopReasonMeta).map(
+  ([value, meta]) => ({ value, label: meta.label }),
+);
+
+/**
+ * 彙整報表（週／月／季／年）留存的狀態標籤（決策 J-a）。
+ *
+ * 與日報的 `reportStatusMeta` 是不同的狀態機，不可共用：
+ * 日報有 DRAFT／SUBMITTED／APPROVED 三態，彙整報表只有草稿與定稿。
+ */
+/** 彙整報表的週期別標籤（清單需標示，否則同期間的週報與月報分不出來）。 */
+export const periodReportTypeMeta: Record<PeriodReportType, Meta> = {
+  DAILY: { label: "日報", variant: "muted" },
+  WEEKLY: { label: "週報", variant: "secondary" },
+  MONTHLY: { label: "月報", variant: "secondary" },
+  QUARTERLY: { label: "季報", variant: "secondary" },
+  ANNUAL: { label: "年報", variant: "secondary" },
+};
+
+export const periodReportStatusMeta: Record<PeriodReportStatus, Meta> = {
+  DRAFT: { label: "草稿", variant: "muted" },
+  CONFIRMED: { label: "已確認", variant: "success" },
+};
+
+/**
+ * 該留存是否已凍結（送審依據，不可修改或刪除）。
+ *
+ * 「CONFIRMED 即凍結」是業務規則，出現在服務層的確認與刪除守門、
+ * 以及畫面的按鈕可見性三處。收在此處以免三份各自內聯字面值 ——
+ * 狀態機日後若增加一態（例如「作廢」），漏改的那一處會讓已送審的報表可被刪除。
+ */
+export function isPeriodReportFrozen(status: PeriodReportStatus): boolean {
+  return status === "CONFIRMED";
+}
+
+/**
+ * 日報數量計入累計完成量的狀態（決策 G，2026-08-05）。
+ *
+ * **草稿不計入。** 依決策 A，日報數量表的加總是月報累計完成量與估驗金額的
+ * 權威來源；若草稿即計入，未經簽核的數字會直接流進正式報表與金額。
+ *
+ * 代價是「監造今天填的量，在提送前不會反映到台帳與月報上」。
+ * 因此台帳／日報畫面宜另外標示「草稿中尚未計入的數量」，
+ * 否則使用者會誤以為自己填的數字遺失了。
+ *
+ * 本常數是該規則的單一來源：查詢日報加總的 where 條件一律引用它，
+ * 不在各處各寫一份狀態清單，否則規則變更時必然漏改。
+ */
+export const QTY_COUNTED_REPORT_STATUSES: readonly ReportStatus[] = [
+  "SUBMITTED",
+  "APPROVED",
+];
+
+/** 該狀態的日報數量是否計入累計完成量。 */
+export function countsTowardQty(status: ReportStatus): boolean {
+  return QTY_COUNTED_REPORT_STATUSES.includes(status);
+}
+
+/**
+ * 日報數量「尚未計入」累計的狀態（決策 G 的可見性配套）。
+ *
+ * 由計入清單反推而非另列一份：計入規則若變更（例如改為僅已核備才計入），
+ * 本清單自動跟著改，不會出現兩份清單各說各話。
+ */
+export const QTY_PENDING_REPORT_STATUSES: readonly ReportStatus[] = (
+  Object.keys(reportStatusMeta) as ReportStatus[]
+).filter((s) => !QTY_COUNTED_REPORT_STATUSES.includes(s));
 
 export const projectStatusOptions = Object.entries(projectStatusMeta).map(
   ([value, meta]) => ({ value, label: meta.label }),

@@ -55,7 +55,7 @@ const base: ReportTemplateInput = {
       currentAmount: null,
     },
   ],
-  workDays: { working: 22, rainStop: 5, holiday: 4, total: 31 },
+  workDays: { working: 22, weatherStop: 5, earthquakeStop: 0, holiday: 4, noSchedule: 0, otherStop: 0, unclassified: 0, excludedDays: 0, total: 31 },
   dailyLogs: [
     {
       reportDate: new Date("2026-05-01"),
@@ -72,6 +72,49 @@ const base: ReportTemplateInput = {
   ],
   review: "本月完成 4.00%，高於預定 3.00%。",
 };
+
+test("累計進度缺值時呈現「—」而非 0，且不宣稱與預定相符", () => {
+  /*
+    0 代表「確實毫無進度」，缺值代表「無從計算」——在送審文件上意義完全不同。
+    先前以 `?? 0` 代入，表格印 0.00% 而餵給 LLM 的事實文字是「—」，
+    同一份報表兩個說法；落差還會被算成 0 而寫出「與預定相符」。
+  */
+  const md = buildReportMarkdown({
+    ...base,
+    progress: {
+      currentPlanned: null,
+      currentActual: null,
+      cumulativePlanned: null,
+      cumulativeActual: null,
+    },
+    review: null,
+  });
+  const row = (needle: string) =>
+    md.split("\n").find((l) => l.includes(needle)) ?? "";
+
+  assert.ok(
+    !row("累計預定進度").includes("%"),
+    `累計預定應為「—」，實得：${row("累計預定進度")}`,
+  );
+  assert.ok(
+    !row("累計完成進度").includes("%"),
+    `累計完成應為「—」，實得：${row("累計完成進度")}`,
+  );
+  assert.ok(!md.includes("與預定相符"), "缺值不得被算成落差 0");
+  assert.ok(md.includes("無法比對落差"));
+});
+
+test("未納入進度比對的工項數必須揭露", () => {
+  // 20 項裡只有 1 項參與比對時，「累計完成 100%」是誤導性的真話
+  const md = buildReportMarkdown({ ...base, unscheduledWorkItems: 20 });
+  assert.ok(md.includes("20 項未設定預定起訖日"), "3.1 需說明涵蓋範圍");
+  assert.ok(md.includes("| 未納入進度比對 | 20 項"), "註記表需列示");
+});
+
+test("全部工項皆有預定起訖日時不加註記，避免無謂雜訊", () => {
+  const md = buildReportMarkdown({ ...base, unscheduledWorkItems: 0 });
+  assert.ok(!md.includes("未納入進度比對"));
+});
 
 test("五層標題齊備、法定識別欄位不遺漏", () => {
   const md = buildReportMarkdown(base);
@@ -127,9 +170,105 @@ test("落差以「超前 N 個百分點」表述，不使用達成率", () => {
   assert.ok(!md.includes("達成率"), "不應出現自創指標『達成率』");
 });
 
-test("本期完成缺快照時顯示 — 並加註說明", () => {
+test("本期無日報數量紀錄時顯示 — 並加註原因", () => {
+  // base 的 workItems 兩列的 currentPercent／currentAmount 皆為 null
   const md = buildReportMarkdown(base);
-  assert.ok(md.includes("需期末快照方能計算"), "應註明本期完成暫缺原因");
+  assert.ok(
+    md.includes("尚無已提送或已核備的日報數量紀錄"),
+    "應註明本期完成暫缺的原因",
+  );
+});
+
+test("部分工項無本期數量時，說明合計未含這些項目（避免被誤讀為總和）", () => {
+  const md = buildReportMarkdown({
+    ...base,
+    workItems: [
+      {
+        code: "1-1",
+        name: "管線工程",
+        contractAmount: 40_000_000,
+        cumulativePercent: 70,
+        cumulativeAmount: 30_000_000,
+        currentPercent: 2,
+        currentAmount: 2_000_000,
+      },
+      {
+        // 未計量工項：本期兩欄恆為 null，其金額不會進合計
+        code: "1-2",
+        name: "雜項",
+        contractAmount: null,
+        cumulativePercent: 30,
+        cumulativeAmount: null,
+        currentPercent: null,
+        currentAmount: null,
+      },
+    ],
+  });
+  assert.ok(
+    md.includes("1 項工程項目本期無日報數量紀錄"),
+    "混合情況應說明有幾項缺本期值",
+  );
+  assert.ok(
+    md.includes("合計未包含這些項目"),
+    "須明講合計未涵蓋，否則會被讀成全部工項的總和",
+  );
+  assert.ok(
+    !md.includes("本期尚無已提送或已核備的日報數量紀錄"),
+    "並非全部缺值，不應印出全缺的說明",
+  );
+});
+
+test("草稿日報天數列於工作統計，說明其未計入（決策 G）", () => {
+  const md = buildReportMarkdown({ ...base, excludedDraftDays: 3 });
+  assert.ok(md.includes("草稿未計入"), "應列出被排除的天數");
+  assert.ok(md.includes("| 草稿未計入 | 3 天 |"), "天數應正確");
+  assert.ok(
+    md.includes("尚未提送"),
+    "須說明原因，否則會被誤認為資料遺失",
+  );
+});
+
+test("無草稿日報時不出現草稿列", () => {
+  assert.ok(!buildReportMarkdown(base).includes("草稿未計入"));
+  assert.ok(
+    !buildReportMarkdown({ ...base, excludedDraftDays: 0 }).includes("草稿未計入"),
+  );
+});
+
+test("有日報數量時填入本期完成欄位，且不再出現暫缺註記", () => {
+  // 決策 A：本期完成 = 期間內該工項的日報 dailyQty 之和
+  const md = buildReportMarkdown({
+    ...base,
+    workItems: [
+      {
+        code: "1-1",
+        name: "管線工程",
+        contractAmount: 40_000_000,
+        cumulativePercent: 70,
+        cumulativeAmount: 30_000_000,
+        currentPercent: 2,
+        currentAmount: 2_000_000,
+      },
+      {
+        code: "1-2",
+        name: "雜項",
+        contractAmount: 300_000,
+        cumulativePercent: 30,
+        cumulativeAmount: 800_000,
+        // 本期未施作。0 與 null 意義不同：此列為「確實沒做」
+        currentPercent: 0,
+        currentAmount: 0,
+      },
+    ],
+  });
+
+  assert.ok(
+    !md.includes("尚無已提送或已核備的日報數量紀錄"),
+    "有資料時不應再出現暫缺註記",
+  );
+  assert.ok(md.includes("**2,000,000**"), "本期完成金額合計應補齊");
+  // 3.2 進度圖的第三欄即本期增量
+  assert.ok(md.includes("管線工程, 70, 2"), "進度圖應帶入本期增量作為第三欄");
 });
 
 test("圖表圍欄語法正確（custom-scurve / custom-progress / mermaid pie）", () => {
@@ -139,7 +278,7 @@ test("圖表圍欄語法正確（custom-scurve / custom-progress / mermaid pie�
   assert.ok(md.includes("```custom-progress"));
   assert.ok(md.includes("管線工程, 70"), "進度圖資料列格式");
   assert.ok(md.includes("```mermaid"));
-  assert.ok(md.includes('"雨天停工" : 5'));
+  assert.ok(md.includes('"天氣因素停工" : 5'));
 });
 
 test("逐日明細完整列出，含星期與重要事項", () => {
@@ -173,7 +312,7 @@ test("空資料不崩：無工項、無日誌、無概要、契約工期未填",
     workItems: [],
     dailyLogs: [],
     curve: [],
-    workDays: { working: 0, rainStop: 0, holiday: 0, total: 0 },
+    workDays: { working: 0, weatherStop: 0, earthquakeStop: 0, holiday: 0, noSchedule: 0, otherStop: 0, unclassified: 0, excludedDays: 0, total: 0 },
     duration: { total: null, elapsed: null, remaining: null, usedPercent: null },
     project: { ...base.project, budget: null, startDate: null, endDate: null },
     review: null,
@@ -201,4 +340,50 @@ test("表格單元內的 | 與換行被安全轉義", () => {
   assert.ok(row.includes("A／B"), "| 應轉為全形以免破壞表格");
   assert.ok(row.includes("<br>"), "換行應轉為 <br>");
   assert.equal(row.split("|").length - 1, 5, "欄數應維持 4 欄（5 個分隔符）");
+});
+
+test("3.2 進度圖的欄數整個圍欄一致，不逐列擺盪", () => {
+  /*
+    先前是逐列判斷 currentPercent 有無，於是同一個圍欄裡混有 3 欄與 2 欄。
+    解析器容忍 2–4 欄不會壞，但兩欄的那幾列會靜默失去本期標記 ——
+    讀圖的人無從分辨那是「本期為 0」還是「這一列沒有本期資料」。
+  */
+  const md = buildReportMarkdown({
+    ...base,
+    workItems: [
+      {
+        code: "A",
+        name: "管線工程",
+        contractAmount: 1_000_000,
+        cumulativePercent: 70,
+        cumulativeAmount: 700_000,
+        currentPercent: 2,
+        currentAmount: 20_000,
+      },
+      {
+        code: "B",
+        name: "雜項工程",
+        contractAmount: 300_000,
+        cumulativePercent: 30,
+        cumulativeAmount: 90_000,
+        // 無契約數量者算不出百分比，但金額仍可能有值
+        currentPercent: null,
+        currentAmount: 5_000,
+      },
+    ],
+  });
+
+  const fence = md.split("```custom-progress")[1].split("```")[0];
+  const dataRows = fence
+    .split("\n")
+    .filter((l) => l.includes(",") && !l.startsWith("title") && !l.startsWith("unit"))
+    .filter((l) => l.trim() !== "");
+  assert.equal(dataRows.length, 2, `資料列數：${dataRows.join(" / ")}`);
+  const widths = new Set(dataRows.map((l) => l.split(",").length));
+  assert.equal(widths.size, 1, `同一圍欄的欄數應一致，實得 ${[...widths]}`);
+  assert.equal([...widths][0], 2, "有任一列缺本期時，整個圍欄都不放第三欄");
+  assert.ok(
+    md.includes("部分工程項目本期無日報數量紀錄"),
+    "省略第三欄時須說明原因，否則讀圖者以為本來就沒有本期資料",
+  );
 });

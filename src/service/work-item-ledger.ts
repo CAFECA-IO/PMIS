@@ -235,8 +235,13 @@ export function groupByWbs(
   return out;
 }
 
-/** 只取數量互相矛盾的列（差異異常檢視）。 */
-export function anomalyRows(rows: LedgerRow[]): LedgerRow[] {
+/**
+ * 只取數量互相矛盾的列（差異異常檢視）。
+ *
+ * 以泛型保留輸入的具體型別：呼叫端可能傳入帶額外欄位的列
+ * （如附帶 pendingQty 的台帳列），過濾不應把那些欄位從型別上抹掉。
+ */
+export function anomalyRows<T extends LedgerRow>(rows: T[]): T[] {
   return rows.filter((r) => r.anomalies.length > 0);
 }
 
@@ -245,10 +250,15 @@ export function anomalyRows(rows: LedgerRow[]): LedgerRow[] {
 /**
  * 由數量推得的進度百分比（整數）。
  *
- * WorkItem.progress 是既有的 S 曲線與上捲計算來源。有了數量之後，
- * 進度應以數量比例為準並在存檔時同步寫回 progress，
- * 讓下游只有一個真實來源 —— 否則會出現「台帳說 37%、S 曲線說 60%」。
- * 數量不齊時回 null，代表沿用人工填的百分比。
+ * 數量不齊時回 `null`，代表沿用人工填的 `WorkItem.progress`
+ * —— 未計量工項（無契約數量）沒有可推導的來源，那是它們唯一的進度。
+ *
+ * **推導值不回寫 `progress`（決策 F，2026-08-06）。**
+ * 本註解原先寫的是「應在存檔時同步寫回 progress」，而該回寫已移除：
+ * 累計量會隨日報填報隨時改變，回寫等於同時存在欄位值與日報加總兩份資料，
+ * 只要有一個寫入路徑忘了重算，就會出現「日報已更新、S 曲線仍是舊值」
+ * 而兩邊都自稱正確。下游改為在取數處以 `withEffectiveProgressAll` 換算，
+ * 見 `work-item-effective.ts`。**請勿把回寫加回來。**
  */
 export function progressFromQty(qty: LedgerQty): number | null {
   const rate = percent(qty.completedQty, qty.contractQty);

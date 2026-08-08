@@ -78,6 +78,9 @@ const detailSelect = {
   name: true,
   status: true,
   progress: true,
+  // 供推導有效進度（決策 F）：進度以日報數量為準，本欄僅為未計量工項的後備值
+  contractQty: true,
+  completedQty: true,
   plannedStart: true,
   plannedEnd: true,
   actualStart: true,
@@ -119,8 +122,13 @@ export type LedgerWorkItemRow = Awaited<
 >[number];
 
 const metricSelect = {
+  // id 為對應日報數量加總所必需（決策 F 的有效進度換算以 workItemId 為鍵）
+  id: true,
   projectId: true,
   progress: true,
+  // 同 detailSelect：供推導有效進度（決策 F）
+  contractQty: true,
+  completedQty: true,
   plannedStart: true,
   plannedEnd: true,
   actualStart: true,

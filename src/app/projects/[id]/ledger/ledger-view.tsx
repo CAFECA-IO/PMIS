@@ -18,7 +18,7 @@ import {
   wbsCategoryOptions,
 } from "@/constant/ledger";
 import type { ProjectLedger } from "@/service/ledger.service";
-import type { LedgerRow } from "@/service/work-item-ledger";
+import type { LedgerRowWithPending } from "@/service/ledger.service";
 import { updateLedgerQtyAction } from "./actions";
 
 /**
@@ -199,7 +199,7 @@ function ItemTable({
 }: {
   ledger: ProjectLedger;
   canEdit: boolean;
-  rows: LedgerRow[];
+  rows: LedgerRowWithPending[];
 }) {
   const [editing, setEditing] = useState<string | null>(null);
 
@@ -230,7 +230,12 @@ function ItemTable({
                 <span className="text-right">契約數量</span>
                 <span className="text-right">單價</span>
                 <span className="text-right">契約複價</span>
-                <span className="text-right">累計完成</span>
+                <span
+                  className="text-right"
+                  title="期初 + 已提送／已核備日報之本日完成量（決策 A：日報為單一真實來源）"
+                >
+                  累計完成
+                </span>
                 <span className="text-right">查驗合格</span>
                 <span className="text-right">累計估驗</span>
                 <span className="text-right">完成率</span>
@@ -268,7 +273,7 @@ function ViewRow({
   canEdit,
   onEdit,
 }: {
-  row: LedgerRow;
+  row: LedgerRowWithPending;
   canEdit: boolean;
   onEdit: () => void;
 }) {
@@ -299,7 +304,30 @@ function ViewRow({
       <span className="text-right tabular-nums">{qty(row.contractQty)}</span>
       <span className="text-right tabular-nums">{money(row.unitPrice)}</span>
       <span className="text-right tabular-nums">{money(row.contractAmount)}</span>
-      <span className="text-right tabular-nums">{qty(row.completedQty)}</span>
+      <span className="text-right tabular-nums">
+        {qty(row.completedQty)}
+        {/*
+          期初與有效累計不同時標出期初，讓「這個數字是推導來的」在畫面上看得見。
+          相同（尚無日報計入）時不顯示，避免每一列都掛一行雜訊。
+        */}
+        {row.openingQty !== null && row.openingQty !== row.completedQty ? (
+          <span
+            className="block text-[11px] font-normal text-muted-foreground"
+            title="有效累計 = 期初 + 已提送／已核備日報之本日完成量；期初為台帳上可編輯的基準值。"
+          >
+            期初 {qty(row.openingQty)}
+          </span>
+        ) : null}
+        {/* 草稿日報已填但尚未計入的量：不顯示會被誤認為資料遺失（決策 G） */}
+        {row.pendingQty != null && row.pendingQty !== 0 ? (
+          <span
+            className="block text-[11px] font-normal text-muted-foreground"
+            title="草稿日報已填報但尚未計入累計；日報提送後才會併入。"
+          >
+            草稿 +{qty(row.pendingQty)}
+          </span>
+        ) : null}
+      </span>
       <span className="text-right tabular-nums">{qty(row.inspectedQty)}</span>
       <span className="text-right tabular-nums">{qty(row.valuatedQty)}</span>
       <span className="text-right tabular-nums">{rate(row.completionRate)}</span>
@@ -330,7 +358,7 @@ function EditRow({
   projectId,
   onDone,
 }: {
-  row: LedgerRow;
+  row: LedgerRowWithPending;
   projectId: string;
   onDone: () => void;
 }) {
@@ -344,7 +372,13 @@ function EditRow({
     unit: row.unit ?? "",
     contractQty: row.contractQty === null ? "" : String(row.contractQty),
     unitPrice: row.unitPrice === null ? "" : String(row.unitPrice),
-    completedQty: row.completedQty === null ? "" : String(row.completedQty),
+    /*
+      這裡刻意取 openingQty 而非 completedQty。
+      row.completedQty 已是有效累計（期初 + 日報加總）的推導值；
+      拿它當初值再存回去，期初就會把日報加總吃進來，下次讀取又再加一輪，
+      累計每存一次檔翻一倍（決策 A：本欄語意為「期初」）。
+    */
+    completedQty: row.openingQty === null ? "" : String(row.openingQty),
     inspectedQty: row.inspectedQty === null ? "" : String(row.inspectedQty),
     valuatedQty: row.valuatedQty === null ? "" : String(row.valuatedQty),
   });
@@ -364,6 +398,31 @@ function EditRow({
         description:
           "累計估驗量是對外請領的依據，確認後將一併更新完成率與專案進度。",
         confirmLabel: "確認更新",
+      });
+      if (!ok) return;
+    }
+
+    /*
+      期初是「開始以日報填報之前的累計基準」（決策 A）。
+      一旦已有日報計入，改期初等於同時改寫所有歷史期間的累計 ——
+      包含已定稿送審的月報所依據的數字。這仍是合法操作（基準本來就可能填錯），
+      但不能無聲發生，故此處明確確認。
+
+      判定直接看「該工項有沒有已計入的日報數量」（countedQty），
+      不用「有效累計 ≠ 期初」推斷：期初為 null 而日報已計入 100 時，
+      推斷法會因為 openingQty 是 null 而判成「無日報」，
+      於是把期初從空白填成 50 完全不會出現確認 —— 而所有歷史期間的累計
+      立刻加 50，包含已定稿月報所依據的數字。那正是最需要守的情形。
+    */
+    const changesOpening =
+      form.completedQty !== (row.openingQty === null ? "" : String(row.openingQty));
+    const hasCountedDailyQty = row.countedQty !== null;
+    if (changesOpening && hasCountedDailyQty) {
+      const ok = await confirm({
+        title: `更新「${row.name}」的期初累計量？`,
+        description:
+          "此工項已有日報數量計入，修改期初會一併改變所有歷史期間的累計完成量與金額，包括已留存或已定稿的月報所依據的數字。",
+        confirmLabel: "確認更新期初",
       });
       if (!ok) return;
     }
@@ -421,7 +480,19 @@ function EditRow({
       <NumberCell value={form.contractQty} onChange={(v) => set("contractQty", v)} />
       <NumberCell value={form.unitPrice} onChange={(v) => set("unitPrice", v)} />
       <span className="pt-2 text-right text-xs text-muted-foreground">自動計算</span>
-      <NumberCell value={form.completedQty} onChange={(v) => set("completedQty", v)} />
+      {/*
+        可編輯的是「期初」，不是畫面上那個累計 ——
+        欄位下方同時顯示目前有效累計，讓填的人知道自己動的不是同一個數字。
+      */}
+      <span className="space-y-0.5">
+        <NumberCell value={form.completedQty} onChange={(v) => set("completedQty", v)} />
+        <span
+          className="block text-right text-[10px] leading-tight text-muted-foreground"
+          title="期初為此欄；有效累計 = 期初 + 已提送／已核備日報之本日完成量，由系統推導、不可直接編輯。"
+        >
+          期初｜有效累計 {qty(row.completedQty)}
+        </span>
+      </span>
       <NumberCell value={form.inspectedQty} onChange={(v) => set("inspectedQty", v)} />
       <NumberCell value={form.valuatedQty} onChange={(v) => set("valuatedQty", v)} />
       <span className="pt-2 text-right text-xs text-muted-foreground">自動</span>
