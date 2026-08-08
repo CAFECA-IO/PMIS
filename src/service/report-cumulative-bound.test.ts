@@ -35,12 +35,22 @@ test("月報不得使用無上限的日報累計", () => {
   );
 });
 
-test("月報的有效進度以期末為界取得", () => {
+test("月報的有效進度以期末為界取得，且與其他查詢同基準", () => {
+  /*
+    這條守門原本寫的是 `getWorkItemDetails(projectId, end)` —— 也就是把缺陷
+    鎖成了規則，還與下方〈與 reportDate 比較的期間邊界一律換算成同一基準〉
+    互相矛盾（同一個 Promise.all 裡其他三個查詢都用 qEnd）。
+
+    `getWorkItemDetails(projectId, asOf)` 內部走 `loadDailyQtyTotalsUpTo`，
+    與那三個是同一條查詢路徑、同樣拿去和 reportDate（UTC 午夜）比對，
+    所以界必須一致。傳本地的 `end` 會讓 §3.1 的累計進度與 §3.3 的累計數量
+    在負偏移部署差一天份的工作量。
+  */
   const source = read("src/service/report.service.ts");
   assert.match(
     source,
-    /getWorkItemDetails\(projectId,\s*end\)/,
-    "省略第二個參數等於取「至今」的進度，與同一份報表的累計預定不同界",
+    /getWorkItemDetails\(projectId,\s*qEnd\)/,
+    "省略第二個參數等於取「至今」；傳本地 end 則與同批查詢不同界",
   );
 });
 
@@ -566,6 +576,21 @@ test("與 reportDate 比較的期間邊界一律換算成同一基準", () => {
     service,
     /loadDailyQtyTotalsInPeriod\(projectId, qStart, qEnd\)/,
     "數量加總須用換算後的邊界",
+  );
+
+  /*
+    整批取數一起檢查，而不是逐個列舉 —— 先前就是「三個用 qEnd、一個用 end」
+    而兩條守門各自只看自己那幾個，於是不一致被鎖在中間沒人發現。
+    這裡直接斷言那個區塊裡不存在以本地 start／end 當界的呼叫。
+  */
+  const block = service.slice(
+    service.indexOf("await Promise.all(["),
+    service.indexOf("]);", service.indexOf("await Promise.all([")),
+  );
+  assert.ok(block.length > 0, "找不到取數區塊，守門失效");
+  assert.ok(
+    !/,\s*(start|end)\s*[,)]/.test(block),
+    `取數區塊不得以本地 start／end 當查詢界：\n${block}`,
   );
 
   assert.match(

@@ -247,11 +247,22 @@ export async function generateReport(
     印出「累計超前」這種當時並不存在的數字 —— 而月報是送審文件。
     同一 codebase 的日報進度條（`getDailyProgress`）本就以當日為界，
     兩者若不同界，同一天會出現兩個「累計完成」，正是決策 A 要消滅的問題。
+
+    **四個查詢一律用換算後的 `qStart`／`qEnd`，不得混用本地的 `start`／`end`。**
+    它們最終都會拿去和 `reportDate`（UTC 午夜）比對 ——
+    包含 `getWorkItemDetails(projectId, asOf)`，它內部走的是
+    `loadDailyQtyTotalsUpTo`，與下面兩個加總是同一條查詢路徑。
+
+    先前這一行傳的是本地的 `end`。在 UTC−5 部署產二月月報時：
+      end  = 2026-03-01T04:59:59Z → 3/1 的日報**被算進**有效進度
+      qEnd = 2026-02-28T23:59:59Z → 3/1 的日報**沒算進**累計數量
+    於是 §3.1 的累計完成進度含 3/1 的工作、§3.3 的累計完成數量與金額不含
+    —— 同一份送審文件裡兩個「累計」對不起來，而在 UTC+8 完全看不出來。
   */
   const [allDailyReports, wiDetails, cumulativeQtyTotals, periodQtyTotals] =
     await Promise.all([
       supervisionRepo.listByProjectInPeriod(projectId, qStart, qEnd),
-      getWorkItemDetails(projectId, end),
+      getWorkItemDetails(projectId, qEnd),
       loadDailyQtyTotalsUpTo(projectId, qEnd),
       loadDailyQtyTotalsInPeriod(projectId, qStart, qEnd),
     ]);
