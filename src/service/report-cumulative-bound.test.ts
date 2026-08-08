@@ -315,19 +315,33 @@ test("每一種軌跡動作都保存完整快照，而非只留截斷的摘要",
   }
 
   /*
-    服務層要真的把快照寫進去，而不是只寫摘要。
-    每一筆帶 detail 的軌跡都必須有對應的 snapshot —— 摘要是截斷過的提示。
+    「每種動作各自帶對的 detail／snapshot」改由 `report-audit.test.ts` 以
+    真實前後值驗證（buildAuditRows 已移入純函式）。
+
+    先前此處是比對整個服務檔是否含 `detail: fieldChanges!.summary` 之類的
+    字面值配對 —— 那擋不住真正的失誤：把 UPDATE 分支換成
+    `snapshot: qtyChanges!.before` 照樣全綠，因為兩個字面值都還在檔案裡的某處。
+    這裡只保留「組裝不得搬回服務層」這個結構性約束。
   */
   const service = read("src/service/supervisionReport.service.ts");
-  for (const [summary, snapshot] of [
-    ["detail: fieldChanges!.summary", "snapshot: fieldChanges!.before"],
-    ["detail: qtyChanges!.summary", "snapshot: qtyChanges!.before"],
-    ["detail: creation.summary", "snapshot: creation.before"],
-    ["detail: detail.summary", "snapshot: detail.before"],
-  ]) {
-    assert.ok(service.includes(summary), `應寫入摘要：${summary}`);
-    assert.ok(service.includes(snapshot), `應一併寫入快照：${snapshot}`);
-  }
+  assert.ok(
+    !service.includes("function buildAuditRows"),
+    "軌跡列的組裝應留在 report-audit（純函式、可測），不得搬回服務層",
+  );
+  assert.match(service, /buildAuditRows\(/, "服務層仍須實際呼叫它");
+});
+
+test("回填腳本與應用程式共用同一份期間鍵算法", () => {
+  /*
+    先前腳本是手抄的第二份實作，靠註解約定一致。兩份分岔的後果是
+    回填出來的鍵永遠對不上，而定稿不可刪改、無法在產品內修正。
+  */
+  const script = read("prisma/backfill-period-key.ts");
+  assert.match(script, /from "\.\.\/src\/service\/period-key"/);
+  assert.ok(
+    !/switch\s*\(type\)/.test(script),
+    "腳本不得自行實作期間鍵的分支",
+  );
 });
 
 test("契約外同名項目不得以名稱當唯一鍵", () => {

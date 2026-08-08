@@ -1,4 +1,6 @@
 import type { AuditAction } from "@/repository/supervisionReportAudit.repository";
+import type { AuditRowData } from "@/repository/supervisionReport.repository";
+import type { ReportStatus } from "@/generated/prisma/enums";
 
 /**
  * 日報變更軌跡的差異描述（純函式，無 I/O，便於單元測試）。
@@ -330,3 +332,97 @@ export function actionsFor(input: {
   if (input.qtyChanges) out.push("ITEMS");
   return out;
 }
+
+/**
+ * 把一次儲存轉換成要寫入的軌跡列（純函式）。
+ *
+ * 這一段先前住在 `supervisionReport.service`，只能以原始碼字串比對守著
+ * ——例如比對整個檔案是否含 `detail: fieldChanges!.summary`。
+ * 那種斷言擋不住真正的失誤：把 UPDATE 分支換成 `snapshot: qtyChanges!.before`
+ * （對的欄位配錯的來源）照樣全綠，因為兩個字面值都還在檔案裡的某處。
+ * 移到純函式後即可用真實的前後值驗證每一種動作各自帶了什麼。
+ */
+export function buildAuditRows(input: {
+  reportId: string;
+  projectId: string;
+  /** 該日報的報表日期；使軌跡在日報刪除後仍看得出是哪一天。 */
+  reportDate: Date;
+  actor: { id: string; name?: string | null };
+  isNew: boolean;
+  beforeFields: ComparableFields | null;
+  afterFields: ComparableFields;
+  fromStatus: ReportStatus | null;
+  toStatus: ReportStatus;
+  beforeItems: QtySnapshotRow[];
+  afterItems: QtySnapshotRow[] | null;
+}): AuditRowData[] {
+  const fieldChanges = input.beforeFields
+    ? describeFieldChanges(input.beforeFields, input.afterFields)
+    : null;
+  const statusChanged =
+    !input.isNew && input.fromStatus !== null && input.fromStatus !== input.toStatus;
+  const qtyChanges = input.afterItems
+    ? describeQtyChanges(input.beforeItems, input.afterItems)
+    : null;
+
+  const actions = actionsFor({
+    isNew: input.isNew,
+    fieldChanges,
+    statusChanged,
+    qtyChanges,
+  });
+  if (actions.length === 0) return [];
+
+  const base = {
+    reportId: input.reportId,
+    projectId: input.projectId,
+    reportDate: input.reportDate,
+    actorId: input.actor.id,
+    actorName: input.actor.name ?? null,
+  };
+  return actions.map((action) => {
+      if (action === "STATUS") {
+        return {
+          ...base,
+          action,
+          fromStatus: input.fromStatus,
+          toStatus: input.toStatus,
+        };
+      }
+      if (action === "ITEMS") {
+        return {
+          ...base,
+          action,
+          // 保存變更「前」的明細：變更後的值讀現況即得，變更前的一旦覆寫即永久消失
+          detail: qtyChanges!.summary,
+          snapshot: qtyChanges!.before,
+        };
+      }
+      if (action === "CREATE") {
+        /*
+          CREATE 先前只寫下 action 而 detail 為 null（新建無「變更前」可比對），
+          軌跡上只看得到「有人建了一份」。缺了初始內容與初始狀態，
+          後續的「舊 → 新」就接不回起點。
+        */
+        const creation = describeCreation(
+          input.afterFields,
+          input.afterItems ?? [],
+        );
+        return {
+          ...base,
+          action,
+          toStatus: input.toStatus,
+          detail: creation.summary,
+          snapshot: creation.before,
+        };
+      }
+      // UPDATE：摘要中的值會截斷，故一併保存未截斷的變更前欄位
+      return {
+        ...base,
+        action,
+        detail: fieldChanges!.summary,
+        snapshot: fieldChanges!.before,
+      };
+  });
+}
+

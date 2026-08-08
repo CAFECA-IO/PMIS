@@ -1,6 +1,19 @@
 import "dotenv/config";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "../src/generated/prisma/client";
+/*
+  期間鍵的算法與應用程式**共用同一份**。
+
+  這裡先前是手抄的第二份實作，靠註解約定「必須與 periodRange 完全一致」——
+  兩份今天一致，但沒有任何東西在其中一份改動時攔下來，
+  而不一致的後果是回填出來的鍵永遠對不上，且定稿無法在產品內修正。
+  `period-key.ts` 刻意零相依（不引用任何 `@/` 別名），故此處可用相對路徑匯入。
+*/
+import {
+  labelForKey,
+  periodKeyFor,
+  type PeriodKeyType,
+} from "../src/service/period-key";
 
 /**
  * 回填 `GeneratedReport.periodKey` 與 `confirmedPeriodKey`（2026-08-08）。
@@ -50,34 +63,15 @@ const prisma = new PrismaClient({ adapter });
 
 const APPLY = process.argv.includes("--apply");
 
-const pad = (n: number) => String(n).padStart(2, "0");
-const ymd = (d: Date) =>
-  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-
 /**
  * 由 `type` 與 `periodStart` 推回期間鍵。
  *
- * 必須與 `report.service.ts` 的 `periodRange` 產生的鍵完全一致 ——
- * 兩邊算法若有出入，回填後的舊資料與新產生的報表會被視為不同期間。
- * `periodStart` 當初即以本地建構子寫入，故此處同樣以本地取值還原。
+ * 算法取自 `period-key.periodKeyFor`，不在此另寫一份。
+ * `periodStart` 當初即以本地建構子寫入，故此處同樣以本地取值還原
+ * —— 這個前提由下方的 periodLabel 一致性檢查把關。
  */
 function periodKeyOf(type: string, periodStart: Date): string {
-  const y = periodStart.getFullYear();
-  const m = periodStart.getMonth();
-  switch (type) {
-    case "DAILY":
-      return `DAILY:${ymd(periodStart)}`;
-    case "WEEKLY":
-      return `WEEKLY:${ymd(periodStart)}`;
-    case "MONTHLY":
-      return `MONTHLY:${y}-${pad(m + 1)}`;
-    case "QUARTERLY":
-      return `QUARTERLY:${y}-Q${Math.floor(m / 3) + 1}`;
-    case "ANNUAL":
-      return `ANNUAL:${y}`;
-    default:
-      throw new Error(`未知的報表週期：${type}`);
-  }
+  return periodKeyFor(type as PeriodKeyType, periodStart);
 }
 
 async function main() {
@@ -127,23 +121,9 @@ async function main() {
     僅對標籤格式固定的週期（月／季／年）檢查；日／週的標籤帶格式化日期，
     不在此判斷。
   */
-  const labelOfKey = (key: string): string | null => {
-    const [type, rest] = key.split(":");
-    if (!rest) return null;
-    if (type === "MONTHLY") {
-      const [y, m] = rest.split("-");
-      return y && m ? `${y} 年 ${Number(m)} 月` : null;
-    }
-    if (type === "QUARTERLY") {
-      const [y, q] = rest.split("-");
-      return y && q ? `${y} 年 ${q}` : null;
-    }
-    if (type === "ANNUAL") return `${rest} 年`;
-    return null;
-  };
 
   const mismatched = planned.filter((r) => {
-    const expected = labelOfKey(r.nextKey);
+    const expected = labelForKey(r.nextKey);
     return expected !== null && expected !== r.periodLabel;
   });
   if (mismatched.length > 0) {
@@ -155,7 +135,7 @@ async function main() {
     );
     for (const r of mismatched.slice(0, 20)) {
       console.error(
-        `    - id=${r.id}  標籤「${r.periodLabel}」 → 推導鍵 ${r.nextKey}（應為「${labelOfKey(r.nextKey)}」）`,
+        `    - id=${r.id}  標籤「${r.periodLabel}」 → 推導鍵 ${r.nextKey}（應為「${labelForKey(r.nextKey)}」）`,
       );
     }
     if (mismatched.length > 20) {

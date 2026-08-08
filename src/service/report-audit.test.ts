@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   actionsFor,
+  buildAuditRows,
   describeCreation,
   describeDeletion,
   describeFieldChanges,
@@ -373,4 +374,107 @@ test("describeQtyChanges 重複列整組移除時記得每一列", () => {
   )!;
   assert.ok(c.summary.includes("10"), `實得：${c.summary}`);
   assert.ok(c.summary.includes("25"));
+});
+
+
+// ── buildAuditRows：每種動作各自帶對的 detail／snapshot ──────────
+
+const rowsFor = (over: Parameters<typeof buildAuditRows>[0]) =>
+  buildAuditRows(over);
+
+const baseArgs = {
+  reportId: "r1",
+  projectId: "p1",
+  reportDate: new Date("2026-08-03T00:00:00Z"),
+  actor: { id: "u1", name: "王小明" },
+  isNew: false,
+  beforeFields: { weather: "晴", summary: "澆置" },
+  afterFields: { weather: "晴", summary: "澆置" },
+  fromStatus: "DRAFT" as const,
+  toStatus: "DRAFT" as const,
+  beforeItems: [] as ReturnType<typeof row>[],
+  afterItems: null,
+};
+
+test("buildAuditRows 無異動時不產生任何列", () => {
+  assert.deepEqual(rowsFor(baseArgs), []);
+});
+
+test("buildAuditRows：UPDATE 帶的是欄位差異，不是數量差異", () => {
+  /*
+    先前這件事只以「整個檔案是否含 detail: fieldChanges!.summary」比對，
+    把這一支換成 qtyChanges!.before 照樣全綠 —— 兩個字面值都還在檔案裡。
+  */
+  const [r] = rowsFor({
+    ...baseArgs,
+    afterFields: { weather: "雨", summary: "澆置" },
+    beforeItems: [row("a", "管線", 10)],
+    afterItems: [row("a", "管線", 30)],
+  }).filter((x) => x.action === "UPDATE");
+
+  assert.ok(r.detail?.includes("天氣"), `UPDATE 應描述欄位：${r.detail}`);
+  assert.ok(!r.detail?.includes("管線"), "UPDATE 不該混入數量表的描述");
+  const snap = JSON.parse(r.snapshot!);
+  assert.equal(snap.weather, "晴", "快照是變更前的欄位值");
+  assert.ok(!Array.isArray(snap), "欄位快照不是數量表陣列");
+});
+
+test("buildAuditRows：ITEMS 帶的是數量差異與變更前的明細陣列", () => {
+  const [r] = rowsFor({
+    ...baseArgs,
+    beforeItems: [row("a", "管線", 10)],
+    afterItems: [row("a", "管線", 30)],
+  }).filter((x) => x.action === "ITEMS");
+
+  assert.ok(r.detail?.includes("管線 10 → 30"), `實得：${r.detail}`);
+  const snap = JSON.parse(r.snapshot!);
+  assert.ok(Array.isArray(snap), "數量快照應為陣列");
+  assert.equal(snap[0].dailyQty, 10, "保存的是變更前的量");
+});
+
+test("buildAuditRows：CREATE 記下初始內容與初始狀態", () => {
+  const rows = rowsFor({
+    ...baseArgs,
+    isNew: true,
+    beforeFields: null,
+    fromStatus: null,
+    toStatus: "APPROVED",
+    afterFields: { weather: "雨", summary: "澆置" },
+    afterItems: [row("a", "管線", 10)],
+  });
+  assert.equal(rows.length, 1, "建立只寫一列");
+  const [r] = rows;
+  assert.equal(r.action, "CREATE");
+  assert.equal(r.toStatus, "APPROVED", "出生時的狀態必須記下");
+  assert.ok(r.detail && r.snapshot, "初始內容與快照都要有");
+  assert.ok(r.detail.includes("雨"), `實得：${r.detail}`);
+});
+
+test("buildAuditRows：STATUS 只記狀態轉換，不帶 detail", () => {
+  const [r] = rowsFor({
+    ...baseArgs,
+    fromStatus: "DRAFT",
+    toStatus: "SUBMITTED",
+  }).filter((x) => x.action === "STATUS");
+
+  assert.equal(r.fromStatus, "DRAFT");
+  assert.equal(r.toStatus, "SUBMITTED");
+  assert.ok(!r.detail, "狀態轉換本身就是全部資訊，不需要 detail");
+});
+
+test("buildAuditRows：一次儲存同時改欄位、狀態與數量時各寫一列", () => {
+  const rows = rowsFor({
+    ...baseArgs,
+    afterFields: { weather: "雨", summary: "澆置" },
+    toStatus: "SUBMITTED",
+    beforeItems: [row("a", "管線", 10)],
+    afterItems: [row("a", "管線", 30)],
+  });
+  assert.deepEqual(
+    rows.map((r) => r.action).sort(),
+    ["ITEMS", "STATUS", "UPDATE"],
+    "三種異動不得互相蓋掉",
+  );
+  // 每一列都要帶到自己的報表日期，否則刪除後認不出是哪一天
+  assert.ok(rows.every((r) => r.reportDate?.getTime() === baseArgs.reportDate.getTime()));
 });
