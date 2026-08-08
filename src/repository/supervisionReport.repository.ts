@@ -60,6 +60,105 @@ export function remove(id: string) {
   return prisma.supervisionReport.delete({ where: { id } });
 }
 
+// ── 一次交易：日報異動與其稽核軌跡（決策 J-b）──────────────
+
+/*
+  日報的異動與它的軌跡必須同進同出。
+
+  先前是分開的兩次寫入：`update` 成功、`createMany` 之前程序死掉，
+  資料就永遠少一筆軌跡 —— 而軌跡的用途正是說明「數字為什麼變了」，
+  缺一筆等於那次變動在系統中沒有發生過。
+  故以下三個函式把「寫日報 + 寫數量表 + 寫軌跡」包在同一個交易內。
+
+  軌跡屬於另一個 model，但同屬一個工作單元；交由服務層各自呼叫
+  就回不到單一交易，因此在此一併寫入。
+*/
+
+/** 軌跡列（形狀與 supervisionReportAudit.repository 的 CreateAuditData 相同）。 */
+export type AuditRowData = {
+  reportId: string;
+  projectId: string;
+  reportDate?: Date | null;
+  itemId?: string | null;
+  action: string;
+  actorId?: string | null;
+  actorName?: string | null;
+  fromStatus?: ReportStatus | null;
+  toStatus?: ReportStatus | null;
+  detail?: string | null;
+  snapshot?: string | null;
+};
+
+/**
+ * 新建日報、數量表與軌跡，單一交易。
+ *
+ * 軌跡需要新建的 id，故以工廠函式接收：`create` 之後才產生軌跡列，
+ * 但仍在同一個交易內。
+ */
+export function createWithAudit(
+  projectId: string,
+  data: SupervisionReportData,
+  items: SupervisionReportItemData[] | null,
+  buildAudits: (reportId: string) => AuditRowData[],
+) {
+  return prisma.$transaction(async (tx) => {
+    const created = await tx.supervisionReport.create({
+      data: { projectId, ...data },
+    });
+    if (items && items.length > 0) {
+      await tx.supervisionReportItem.createMany({
+        data: items.map((i) => ({ reportId: created.id, ...i })),
+      });
+    }
+    const audits = buildAudits(created.id);
+    if (audits.length > 0) {
+      await tx.supervisionReportAuditLog.createMany({ data: audits });
+    }
+    return created;
+  });
+}
+
+/**
+ * 更新日報、（可選）取代數量表、寫入軌跡，單一交易。
+ *
+ * `items` 為 null 代表該表單沒有數量表區塊，此時不動既有明細；
+ * 給定空陣列則是使用者把數量全部清掉，照實取代。
+ */
+export function updateWithAudit(
+  id: string,
+  data: Partial<Omit<SupervisionReportData, "reportDate">>,
+  items: SupervisionReportItemData[] | null,
+  audits: AuditRowData[],
+) {
+  return prisma.$transaction(async (tx) => {
+    await tx.supervisionReport.update({ where: { id }, data });
+    if (items) {
+      await tx.supervisionReportItem.deleteMany({ where: { reportId: id } });
+      if (items.length > 0) {
+        await tx.supervisionReportItem.createMany({
+          data: items.map((i) => ({ reportId: id, ...i })),
+        });
+      }
+    }
+    if (audits.length > 0) {
+      await tx.supervisionReportAuditLog.createMany({ data: audits });
+    }
+  });
+}
+
+/**
+ * 刪除日報並寫入軌跡，單一交易。
+ *
+ * 刪除是唯一「內容自此消失」的動作，最不能容忍軌跡寫不進去。
+ * 軌跡表刻意不設外鍵，故刪除後該列仍存在。
+ */
+export function removeWithAudit(id: string, audit: AuditRowData) {
+  return prisma.$transaction(async (tx) => {
+    await tx.supervisionReport.delete({ where: { id } });
+    await tx.supervisionReportAuditLog.create({ data: audit });
+  });
+}
+
 // ── 日報數量表（E1）─────────────────────────────────────────
 
 /** 依工項加總的一列結果；`total` 為 null 代表分組無可加總的數值。 */

@@ -425,33 +425,32 @@ export async function fileReport(
   };
 
   const items = await parseQtyEntries(input.projectId, input.items);
-  const created = await reportRepo.create(input.projectId, {
-    reportDate,
-    filedBy: actor.name || null,
-    ...data,
-  });
+  const afterItems = input.items !== undefined ? toSnapshot(items) : null;
 
   /*
-    僅在表單確實帶了 items 欄位時才動數量表。
-    未帶（undefined）代表該表單沒有數量表區塊。
+    建立、數量表與軌跡在同一個交易內完成。
+    分開寫的話，日報寫成功而軌跡沒寫成，那次變動在系統中等於沒發生過。
+    未帶 items 欄位（undefined）代表該表單沒有數量表區塊，不建任何明細。
   */
-  if (input.items !== undefined) {
-    await reportRepo.replaceItems(created.id, items);
-  }
-
-  await writeAudit({
-    reportId: created.id,
-    projectId: input.projectId,
-    reportDate,
-    actor,
-    isNew: true,
-    beforeFields: null,
-    afterFields: comparable({ ...data, exclusionBasis: data.exclusionBasis }),
-    fromStatus: null,
-    toStatus: data.status,
-    beforeItems: [],
-    afterItems: input.items !== undefined ? toSnapshot(items) : null,
-  });
+  await reportRepo.createWithAudit(
+    input.projectId,
+    { reportDate, filedBy: actor.name || null, ...data },
+    input.items !== undefined ? items : null,
+    (reportId) =>
+      buildAuditRows({
+        reportId,
+        projectId: input.projectId,
+        reportDate,
+        actor,
+        isNew: true,
+        beforeFields: null,
+        afterFields: comparable({ ...data, exclusionBasis: data.exclusionBasis }),
+        fromStatus: null,
+        toStatus: data.status,
+        beforeItems: [],
+        afterItems,
+      }),
+  );
   return { ok: true };
 }
 
@@ -482,7 +481,7 @@ export async function checkReportDate(
  * 只在確實有異動時寫入：每次儲存都記一筆會讓軌跡淹沒在雜訊裡，
  * 對帳時反而找不到真正的變更。
  */
-async function writeAudit(input: {
+function buildAuditRows(input: {
   reportId: string;
   projectId: string;
   /** 該日報的報表日期；使軌跡在日報刪除後仍看得出是哪一天。 */
@@ -495,7 +494,7 @@ async function writeAudit(input: {
   toStatus: ReportStatus;
   beforeItems: QtySnapshotRow[];
   afterItems: QtySnapshotRow[] | null;
-}): Promise<void> {
+}): reportRepo.AuditRowData[] {
   const fieldChanges = input.beforeFields
     ? describeFieldChanges(input.beforeFields, input.afterFields)
     : null;
@@ -511,7 +510,7 @@ async function writeAudit(input: {
     statusChanged,
     qtyChanges,
   });
-  if (actions.length === 0) return;
+  if (actions.length === 0) return [];
 
   const base = {
     reportId: input.reportId,
@@ -520,8 +519,7 @@ async function writeAudit(input: {
     actorId: input.actor.id,
     actorName: input.actor.name ?? null,
   };
-  await auditRepo.createMany(
-    actions.map((action) => {
+  return actions.map((action) => {
       if (action === "STATUS") {
         return {
           ...base,
@@ -564,8 +562,7 @@ async function writeAudit(input: {
         detail: fieldChanges!.summary,
         snapshot: fieldChanges!.before,
       };
-    }),
-  );
+  });
 }
 
 export async function updateReport(
@@ -579,7 +576,8 @@ export async function updateReport(
   const beforeItems =
     input.items !== undefined ? toSnapshot(await reportRepo.listItems(id)) : [];
   const nextStatus = parseStatus(input.status);
-  await reportRepo.update(id, {
+  // 欄位值只算一次，避免更新與軌跡各自 trim 出不同結果
+  const data = {
     weather: input.weather?.trim() || null,
     summary: input.summary?.trim() || null,
     manpower: input.manpower?.trim() || null,
@@ -589,37 +587,34 @@ export async function updateReport(
     // checkbox 未勾選時 formData 不帶該鍵，故以「有值即為真」判定
     excludedFromDuration: Boolean(input.excludedFromDuration),
     exclusionBasis: input.exclusionBasis?.trim() || null,
-    status: parseStatus(input.status),
-  });
+    status: nextStatus,
+  };
+
   // 同 fileReport：未帶 items 者不動既有數量表
   const nextItems =
     input.items !== undefined
       ? await parseQtyEntries(existing.projectId, input.items)
       : null;
-  if (nextItems) await reportRepo.replaceItems(id, nextItems);
 
-  await writeAudit({
-    reportId: id,
-    projectId: existing.projectId,
-    reportDate: existing.reportDate,
-    actor,
-    isNew: false,
-    beforeFields,
-    afterFields: comparable({
-      weather: input.weather?.trim() || null,
-      summary: input.summary?.trim() || null,
-      manpower: input.manpower?.trim() || null,
-      equipment: input.equipment?.trim() || null,
-      keyNotes: input.keyNotes?.trim() || null,
-      stopReason: parseStopReason(input.stopReason),
-      excludedFromDuration: Boolean(input.excludedFromDuration),
-      exclusionBasis: input.exclusionBasis?.trim() || null,
+  // 更新、數量表與軌跡同一交易：軌跡寫不進去等於那次變動沒發生過
+  await reportRepo.updateWithAudit(
+    id,
+    data,
+    nextItems,
+    buildAuditRows({
+      reportId: id,
+      projectId: existing.projectId,
+      reportDate: existing.reportDate,
+      actor,
+      isNew: false,
+      beforeFields,
+      afterFields: comparable(data),
+      fromStatus: existing.status,
+      toStatus: nextStatus,
+      beforeItems,
+      afterItems: nextItems ? toSnapshot(nextItems) : null,
     }),
-    fromStatus: existing.status,
-    toStatus: nextStatus,
-    beforeItems,
-    afterItems: nextItems ? toSnapshot(nextItems) : null,
-  });
+  );
   return true;
 }
 
@@ -641,8 +636,8 @@ export async function deleteReport(id: string, actor: Actor) {
     items,
   });
 
-  await reportRepo.remove(id);
-  await auditRepo.create({
+  // 刪除與軌跡同一交易：刪除是唯一「內容自此消失」的動作，最不能漏記
+  await reportRepo.removeWithAudit(id, {
     reportId: id,
     projectId: existing.projectId,
     reportDate: existing.reportDate,
@@ -770,9 +765,24 @@ export async function getDailyProgress(
   if (!(await canAccess(projectId, actor))) return null;
   const date = new Date(dateISO);
   if (Number.isNaN(date.getTime())) return null;
-  // 當日結束時點，確保含當日的日報
-  const endOfDay = new Date(date);
-  endOfDay.setHours(23, 59, 59, 999);
+  /*
+    當日結束時點，確保含當日的日報。
+
+    以 **UTC** 組成而非 `setHours`：`reportDate` 由 `new Date("YYYY-MM-DD")`
+    產生，JS 對純日期字串一律以 UTC 午夜解析。用本地時間組界線，
+    在 UTC 偏移為負的部署中會與 reportDate 錯開一天。
+  */
+  const endOfDay = new Date(
+    Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth(),
+      date.getUTCDate(),
+      23,
+      59,
+      59,
+      999,
+    ),
+  );
 
   const [rows, totalsToDate] = await Promise.all([
     workItemRepo.listDetailByProject(projectId),

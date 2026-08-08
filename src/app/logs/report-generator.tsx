@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, FileText, Lock, RefreshCw, Sparkles } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -106,6 +106,16 @@ export function ReportGenerator({
    * 確認定稿或刪除後則必須重載，因為留存狀態已改變。
    */
   const [loadToken, setLoadToken] = useState(0);
+  /*
+    產製請求的序號。
+
+    產製耗時且長短不一：點週報（20 秒）再點月報（3 秒），月報會先回來，
+    週報後到而覆寫畫面與 savedId —— 結果是月報分頁亮著、內容卻是週報，
+    而「留存的是哪一版」也跟著錯。故只採用最後一次發出的請求，
+    並中止先前那次（伺服器端已寫入的草稿由期間鍵覆寫，不會殘留）。
+  */
+  const generateSeq = useRef(0);
+  const generateAbort = useRef<AbortController | null>(null);
 
   const dateOk = isValidRefDate(refDate);
   const key = `${projectId}|${type}|${refDate}|${loadToken}`;
@@ -155,6 +165,12 @@ export function ReportGenerator({
 
   /** 產製一份並同時留存（唯一會呼叫 LLM 與寫入的路徑）。 */
   const generate = useCallback(async () => {
+    generateAbort.current?.abort();
+    const controller = new AbortController();
+    generateAbort.current = controller;
+    const seq = ++generateSeq.current;
+    const isStale = () => seq !== generateSeq.current;
+
     setGenerating(true);
     setError(null);
     try {
@@ -162,8 +178,10 @@ export function ReportGenerator({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId, type, refDate }),
+        signal: controller.signal,
       });
       const data = (await res.json()) as ReportResponse;
+      if (isStale()) return;
       if (!res.ok) throw new Error(data.error ?? "報告生成失敗");
       setShown({
         markdown: data.markdown ?? "",
@@ -177,9 +195,11 @@ export function ReportGenerator({
       setLoadedKey(key);
       setArchiveToken((n) => n + 1);
     } catch (e) {
+      // 被自己取消的請求不是錯誤，也不該蓋掉新請求的狀態
+      if (controller.signal.aborted || isStale()) return;
       setError(e instanceof Error ? e.message : "報告生成失敗");
     } finally {
-      setGenerating(false);
+      if (!isStale()) setGenerating(false);
     }
   }, [projectId, type, refDate, key]);
 

@@ -90,7 +90,10 @@ test("留存不得另跑一次產製", () => {
 test("留存的內容讀得回來", () => {
   // 只列 metadata 而讀不到全文，等於存進去再也打不開
   assert.match(read("src/app/logs/actions.ts"), /openSavedReportAction/);
-  assert.match(read("src/app/logs/report-archive.tsx"), /openSavedReportAction/);
+  assert.match(
+    read("src/app/logs/report-archive.tsx"),
+    /openSavedReportAction/,
+  );
 });
 
 // ── 產製是明示動作，不得自動發生 ──────────────────────────
@@ -101,6 +104,11 @@ function bodyAfter(source: string, from: string): string {
   if (i < 0) return "";
   const j = source.indexOf("\nexport ", i + from.length);
   return source.slice(i, j < 0 ? source.length : j);
+}
+
+/** 去掉註解，讓原始碼的比對不被註解干擾。 */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 }
 
 /** 取出所有 useEffect 的內容（以括號配對掃描，避免依賴縮排）。 */
@@ -172,7 +180,9 @@ test("定稿不與草稿共用同一個截斷", () => {
   );
   assert.match(body, /status:\s*"CONFIRMED"/, "定稿應單獨查詢");
   assert.ok(
-    !/\btake\b/.test(body.slice(body.indexOf('"CONFIRMED"'), body.indexOf('"DRAFT"'))),
+    !/\btake\b/.test(
+      body.slice(body.indexOf('"CONFIRMED"'), body.indexOf('"DRAFT"')),
+    ),
     "定稿查詢不應設 take",
   );
 });
@@ -319,10 +329,7 @@ test("契約外同名項目不得以名稱當唯一鍵", () => {
     read("src/service/report-audit.ts"),
     "export function describeQtyChanges",
   );
-  assert.ok(
-    !/`x:\$\{/.test(body),
-    "同名列必須成組比對，不能用名稱當唯一鍵",
-  );
+  assert.ok(!/`x:\$\{/.test(body), "同名列必須成組比對，不能用名稱當唯一鍵");
   assert.match(body, /groupSig|groupByName/, "應以整組簽章比對同名列");
 });
 
@@ -358,6 +365,192 @@ test("數量表備註必須能讀出、顯示並送回", () => {
   assert.match(formRow, /note:/, "預帶清單需帶出既有備註");
 
   const table = read("src/app/logs/report-qty-table.tsx");
-  assert.match(table, /aria-label={`\${r\.name} 備註`}/, "台帳工項列需可填備註");
+  assert.match(
+    table,
+    /aria-label={`\${r\.name} 備註`}/,
+    "台帳工項列需可填備註",
+  );
   assert.match(table, /note:\s*\(notes\[/, "送出的 payload 需帶備註");
+});
+
+// ── 期間身分、時鐘與請求競態 ────────────────────────────────
+
+test("期間身分用文字鍵，不用時間相等比對", () => {
+  /*
+    periodStart 由伺服器時區推導。部署時區一改（UTC → Asia/Taipei），
+    既有列與新查詢的值就不再相等：upsertDraft 開始堆重複草稿，
+    findConfirmedForPeriod 靜默回 null —— 「同期只有一份定稿」的守門
+    無聲關閉，而那是「哪一份才是那個月的送審依據」的唯一保證。
+  */
+  const repo = read("src/repository/generatedReport.repository.ts");
+  for (const fn of [
+    "export function findDraftForPeriod",
+    "export function findConfirmedForPeriod",
+  ]) {
+    // 去掉註解再比對：說明文字本來就會提到 periodStart
+    const body = stripComments(bodyAfter(repo, fn));
+    assert.match(
+      body,
+      /where: \{ projectId, periodKey/,
+      `${fn} 應以 periodKey 查找`,
+    );
+    assert.ok(
+      !/periodStart/.test(body),
+      `${fn} 不得以 periodStart 相等比對當身分`,
+    );
+  }
+  assert.match(
+    bodyAfter(repo, "export async function upsertDraft"),
+    /periodKey: data\.periodKey/,
+    "草稿覆寫也要以 periodKey 為鍵",
+  );
+});
+
+test("基準日只解析一次，不在下游再讀時鐘", () => {
+  // 跨月的午夜前後產製，兩次 new Date() 會讓 label 與 periodKey 落在不同月份
+  const service = read("src/service/report.service.ts");
+  const body = stripComments(
+    bodyAfter(service, "export async function generateReport"),
+  );
+  assert.match(body, /ref: Date,/, "應收已解析的 ref");
+  assert.ok(
+    !/parseRefDate/.test(body),
+    "generateReport 不得自行解析基準日 —— 那等於再讀一次時鐘",
+  );
+});
+
+test("彙整報表端點不接受 DAILY", () => {
+  /*
+    日報是監造人工填報的 SupervisionReport，與 GeneratedReport 是兩種東西。
+    放行 DAILY 會讓有編輯權限者每天多留一列，且清單上與週報難以分辨。
+  */
+  assert.match(
+    read("src/app/api/report/route.ts"),
+    /const VALID: ReportType\[\] = \["WEEKLY"/,
+    "VALID 不應含 DAILY",
+  );
+});
+
+test("重疊的產製請求只採用最後一次", () => {
+  // 點週報（慢）再點月報（快）→ 週報後到會覆寫畫面與 savedId
+  const source = read("src/app/logs/report-generator.tsx");
+  assert.match(source, /AbortController/);
+  assert.match(source, /generateSeq/, "需要請求序號，只採用最後一次");
+});
+
+test("留存清單的載入失敗與無權限都要說出來", () => {
+  const ui = read("src/app/logs/report-archive.tsx");
+  assert.match(ui, /\.catch\(/, "失敗不得靜默，否則畫面停在舊資料");
+  assert.match(ui, /data === null/, "無權限需與「查無留存」分開呈現");
+
+  const body = bodyAfter(
+    read("src/service/report.service.ts"),
+    "export async function listSavedReports",
+  );
+  assert.match(body, /return null/, "無權限應回 null 而非空陣列");
+});
+
+test("每一份草稿都可刪除，包含畫面上顯示的那一份", () => {
+  // 這是唯一的清理路徑；對正在看的那一列不可用等於沒有
+  const ui = read("src/app/logs/report-archive.tsx");
+  assert.ok(
+    !/r\.id !== currentId && \(\s*<Button/.test(ui),
+    "不應依 currentId 隱藏刪除鍵",
+  );
+});
+
+// ── 不變式由資料庫與交易保證，不只靠服務層 ──────────────────
+
+test("同期只允許一份定稿由資料庫的唯一約束保證", () => {
+  /*
+    服務層的「先查有沒有定稿、再寫」是 check-then-write：
+    兩個並行的確認都會通過檢查而各寫一份，屆時無從判斷哪一份是送審依據。
+    對 periodKey 直接下唯一約束會連草稿一起擋掉（同期草稿與定稿需並存），
+    故以「定稿才填值、草稿為 null」的欄位取得等效的 partial unique。
+  */
+  const schema = read("prisma/schema.prisma");
+  assert.match(
+    schema,
+    /confirmedPeriodKey String\?/,
+    "草稿需可為 null 才能並存",
+  );
+  assert.match(
+    schema,
+    /@@unique\(\[projectId, confirmedPeriodKey\]\)/,
+    "同期只允許一份定稿必須由資料庫保證",
+  );
+
+  const repo = read("src/repository/generatedReport.repository.ts");
+  assert.match(
+    bodyAfter(repo, "export function confirm"),
+    /confirmedPeriodKey: periodKey/,
+    "定稿時必須填入期間鍵，約束才會生效",
+  );
+
+  // 競態下由資料庫擋下，服務層要把它轉成可讀訊息而非 500
+  assert.match(read("src/service/report.service.ts"), /isUniqueViolation/);
+});
+
+test("日報異動與其稽核軌跡寫在同一個交易", () => {
+  /*
+    分開兩次寫入時，日報寫成功而軌跡沒寫成，那次變動在系統中等於沒發生過
+    —— 而軌跡的用途正是說明「月報數字為什麼變了」。
+  */
+  const repo = read("src/repository/supervisionReport.repository.ts");
+  for (const fn of [
+    "export function createWithAudit",
+    "export function updateWithAudit",
+    "export function removeWithAudit",
+  ]) {
+    const body = bodyAfter(repo, fn);
+    assert.ok(body.length > 0, `${fn} 應存在`);
+    assert.match(body, /\$transaction/, `${fn} 必須是單一交易`);
+    assert.match(body, /supervisionReportAuditLog/, `${fn} 需在交易內寫軌跡`);
+  }
+
+  // 服務層不得再自行分開寫入軌跡
+  const service = stripComments(
+    read("src/service/supervisionReport.service.ts"),
+  );
+  assert.ok(
+    !/auditRepo\.create/.test(service),
+    "軌跡寫入必須經由交易，不得單獨呼叫",
+  );
+  assert.ok(
+    !/reportRepo\.(create|update|remove|replaceItems)\(/.test(service),
+    "被稽核的異動必須走 *WithAudit，不得繞過交易",
+  );
+});
+
+test("與 reportDate 比較的期間邊界一律換算成同一基準", () => {
+  /*
+    reportDate 由 `new Date("YYYY-MM-DD")` 產生，JS 對純日期字串以 UTC 午夜解析；
+    而期間邊界是本地建構的。兩套慣例混用時，在 UTC 偏移為負的部署中
+    「8 月 1 日的日報」會落在 8 月區間之外 —— 當月第一天整個消失，
+    而報表看起來完全正常。
+  */
+  const service = read("src/service/report.service.ts");
+  assert.match(service, /const utcDayStart =/);
+  assert.match(service, /const utcDayEnd =/);
+  assert.match(
+    service,
+    /listByProjectInPeriod\(\s*projectId,\s*qStart,\s*qEnd,/,
+    "日報查詢須用換算後的邊界",
+  );
+  assert.match(
+    service,
+    /loadDailyQtyTotalsInPeriod\(projectId, qStart, qEnd\)/,
+    "數量加總須用換算後的邊界",
+  );
+
+  assert.match(
+    stripComments(
+      bodyAfter(
+        read("src/service/supervisionReport.service.ts"),
+        "export async function getDailyProgress",
+      ),
+    ),
+    /Date\.UTC\(/,
+    "日報當日進度的日界也須與 reportDate 同基準",
+  );
 });

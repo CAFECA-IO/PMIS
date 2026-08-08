@@ -64,6 +64,15 @@ export type LedgerRowWithPending = LedgerRow & {
    * 累計會一路翻倍而使用者從未輸入過那些數字。
    */
   openingQty: number | null;
+  /**
+   * 已計入累計的日報數量總和；無任何已計入紀錄時為 null。
+   *
+   * 與「`completedQty` 減 `openingQty`」不等價：期初可能為 null，
+   * 而 null 減出來的差在畫面上與「沒有日報」分不出來 ——
+   * 修改期初的守門若靠那個差判斷，期初為 null 的工項就會漏掉守門，
+   * 而那正是最需要守的情形（期初從無到有，歷史累計全數平移）。
+   */
+  countedQty: number | null;
 };
 
 export type ProjectLedger = {
@@ -125,6 +134,7 @@ export async function getProjectLedger(
     ...r,
     pendingQty: pendingTotals.get(r.id) ?? null,
     openingQty: openingById.get(r.id) ?? null,
+    countedQty: dailyTotals.get(r.id) ?? null,
   }));
   return {
     projectId,

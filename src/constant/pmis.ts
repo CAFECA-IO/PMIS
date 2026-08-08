@@ -18,6 +18,7 @@ import type {
   MediaType,
   ReportStatus,
   PeriodReportStatus,
+  PeriodReportType,
   WorkStopReason,
   ProjectMemberRole,
   CarbonScope,
@@ -267,6 +268,15 @@ export const workStopReasonOptions = Object.entries(workStopReasonMeta).map(
  * 與日報的 `reportStatusMeta` 是不同的狀態機，不可共用：
  * 日報有 DRAFT／SUBMITTED／APPROVED 三態，彙整報表只有草稿與定稿。
  */
+/** 彙整報表的週期別標籤（清單需標示，否則同期間的週報與月報分不出來）。 */
+export const periodReportTypeMeta: Record<PeriodReportType, Meta> = {
+  DAILY: { label: "日報", variant: "muted" },
+  WEEKLY: { label: "週報", variant: "secondary" },
+  MONTHLY: { label: "月報", variant: "secondary" },
+  QUARTERLY: { label: "季報", variant: "secondary" },
+  ANNUAL: { label: "年報", variant: "secondary" },
+};
+
 export const periodReportStatusMeta: Record<PeriodReportStatus, Meta> = {
   DRAFT: { label: "草稿", variant: "muted" },
   CONFIRMED: { label: "已確認", variant: "success" },

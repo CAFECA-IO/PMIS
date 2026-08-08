@@ -89,6 +89,36 @@ export function parseRefDate(refIso: string | undefined): Date | null {
   return d;
 }
 
+/*
+  ── 日曆日與時間點的界線 ───────────────────────────────────
+
+  `SupervisionReport.reportDate` 存的是**日曆日**：它由
+  `new Date("YYYY-MM-DD")` 產生，而 JS 對純日期字串一律以 **UTC 午夜**解析。
+  但 `periodRange` 的期間邊界是用本地建構子算的。兩套慣例混用時，
+  在 UTC 偏移為負的部署（如 UTC−5）中，本地 8/1 00:00 等於 UTC 8/1 05:00，
+  於是「8 月 1 日的日報」（UTC 8/1 00:00）會落在 8 月的區間之外
+  —— 當月第一天的數量整個消失，而報表看起來完全正常。
+
+  故凡是要拿來和 `reportDate` 比較的邊界，一律先換算成同一個基準：
+  取該日期的**日曆日**，再組成 UTC 的當日起／迄。
+*/
+const utcDayStart = (d: Date) =>
+  new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+const utcDayEnd = (d: Date) =>
+  new Date(
+    Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999),
+  );
+
+const pad = (n: number) => String(n).padStart(2, "0");
+const ymdKey = (d: Date) =>
+  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+/**
+ * 期間的起訖、顯示標籤與**身分鍵**。
+ *
+ * `key` 是留存的身分（見 schema 對 `periodKey` 的說明）：
+ * 以文字表達「哪一個期間」，不隨伺服器時區漂移。
+ */
 function periodRange(type: ReportType, ref: Date) {
   const y = ref.getFullYear();
   const m = ref.getMonth();
@@ -98,18 +128,25 @@ function periodRange(type: ReportType, ref: Date) {
         start: startOfDay(ref),
         end: endOfDay(ref),
         label: `${formatDate(ref)}`,
+        key: `DAILY:${ymdKey(ref)}`,
       };
     case "WEEKLY": {
       const dow = (ref.getDay() + 6) % 7; // Info: (20260721 - Luphia) 0 = 星期一
       const start = startOfDay(new Date(y, m, ref.getDate() - dow));
       const end = endOfDay(new Date(y, m, ref.getDate() - dow + 6));
-      return { start, end, label: `${formatDate(start)} ~ ${formatDate(end)}` };
+      return {
+        start,
+        end,
+        label: `${formatDate(start)} ~ ${formatDate(end)}`,
+        key: `WEEKLY:${ymdKey(start)}`,
+      };
     }
     case "MONTHLY":
       return {
         start: new Date(y, m, 1),
         end: endOfDay(new Date(y, m + 1, 0)),
         label: `${y} 年 ${m + 1} 月`,
+        key: `MONTHLY:${y}-${pad(m + 1)}`,
       };
     case "QUARTERLY": {
       const q = Math.floor(m / 3);
@@ -117,6 +154,7 @@ function periodRange(type: ReportType, ref: Date) {
         start: new Date(y, q * 3, 1),
         end: endOfDay(new Date(y, q * 3 + 3, 0)),
         label: `${y} 年 Q${q + 1}`,
+        key: `QUARTERLY:${y}-Q${q + 1}`,
       };
     }
     case "ANNUAL":
@@ -125,6 +163,7 @@ function periodRange(type: ReportType, ref: Date) {
         start: new Date(y, 0, 1),
         end: endOfDay(new Date(y, 11, 31)),
         label: `${y} 年`,
+        key: `ANNUAL:${y}`,
       };
   }
 }
@@ -166,15 +205,20 @@ export type GeneratedReport = {
 export async function generateReport(
   projectId: string,
   type: ReportType,
-  refIso: string | undefined,
+  /**
+   * 基準日；由呼叫端以 `parseRefDate` 解析後傳入。
+   *
+   * 刻意不在此再讀一次時鐘：先前 `generateReportView` 與本函式各自
+   * `new Date()`，在跨月的午夜前後產製，`periodLabel` 與 `periodKey`
+   * 會落在不同月份 —— 報表標題寫 7 月、留存卻歸在 8 月。
+   */
+  ref: Date,
   actor: Actor,
 ): Promise<GeneratedReport | null> {
   if (!(await canAccess(projectId, actor))) return null;
   const project = await reportRepo.getProject(projectId);
   if (!project) return null;
 
-  const ref = parseRefDate(refIso);
-  if (!ref) return null;
   const { start, end, label } = periodRange(type, ref);
   const typeLabel = TYPE_LABEL[type];
   const periodWord = PERIOD_LABEL[type];
@@ -188,10 +232,14 @@ export async function generateReport(
     月報是法定文件，草稿本就不應計入；被排除的天數另行註明，
     以免報表看起來異常稀疏而讓人誤以為資料遺失。
   */
+  // 與 reportDate 同基準（見 utcDayStart 的說明）；直接用本地邊界會漏掉當月第一天
+  const qStart = utcDayStart(start);
+  const qEnd = utcDayEnd(end);
+
   const allDailyReports = await supervisionRepo.listByProjectInPeriod(
     projectId,
-    start,
-    end,
+    qStart,
+    qEnd,
   );
   const dailyReports = allDailyReports.filter((r) => countsTowardQty(r.status));
   const excludedDraftDays = allDailyReports.length - dailyReports.length;
@@ -219,8 +267,8 @@ export async function generateReport(
   */
   const [wiDetails, cumulativeQtyTotals, periodQtyTotals] = await Promise.all([
     getWorkItemDetails(projectId, end),
-    loadDailyQtyTotalsUpTo(projectId, end),
-    loadDailyQtyTotalsInPeriod(projectId, start, end),
+    loadDailyQtyTotalsUpTo(projectId, qEnd),
+    loadDailyQtyTotalsInPeriod(projectId, qStart, qEnd),
   ]);
 
   /*
@@ -485,15 +533,15 @@ export async function generateReportView(
   const ref = parseRefDate(refIso);
   if (!ref) return null;
 
-  const report = await generateReport(projectId, type, refIso, actor);
+  // ref 只解析一次，往下傳同一個時點
+  const report = await generateReport(projectId, type, ref, actor);
   if (!report) return null;
 
-  const { start, end } = periodRange(type, ref);
+  const { start, end, key } = periodRange(type, ref);
 
   const confirmed = await savedReportRepo.findConfirmedForPeriod(
     projectId,
-    type,
-    start,
+    key,
   );
   if (confirmed || !persist) {
     return { report, savedId: null, confirmedId: confirmed?.id ?? null };
@@ -502,6 +550,7 @@ export async function generateReportView(
   const saved = await savedReportRepo.upsertDraft({
     projectId,
     type,
+    periodKey: key,
     periodStart: start,
     periodEnd: end,
     periodLabel: report.periodLabel,
@@ -537,11 +586,11 @@ export async function getPeriodReport(
   if (!(await canAccess(projectId, actor))) return null;
   const ref = parseRefDate(refIso);
   if (!ref) return null;
-  const { start, label } = periodRange(type, ref);
+  const { label, key } = periodRange(type, ref);
 
   const row =
-    (await savedReportRepo.findConfirmedForPeriod(projectId, type, start)) ??
-    (await savedReportRepo.findDraftForPeriod(projectId, type, start));
+    (await savedReportRepo.findConfirmedForPeriod(projectId, key)) ??
+    (await savedReportRepo.findDraftForPeriod(projectId, key));
   if (!row) return { periodLabel: label, saved: null };
 
   return {
@@ -558,8 +607,14 @@ export async function getPeriodReport(
   };
 }
 
+/**
+ * 某專案的留存清單；無權限時回 `null` 而非空陣列。
+ *
+ * 兩者在畫面上意義不同：空陣列會顯示「尚無留存的報表」，
+ * 而實際情形是「你看不到」—— 使用者會以為報表從未產生過。
+ */
 export async function listSavedReports(projectId: string, actor: Actor) {
-  if (!(await canAccess(projectId, actor))) return [];
+  if (!(await canAccess(projectId, actor))) return null;
   return savedReportRepo.listByProject(projectId);
 }
 
@@ -611,10 +666,15 @@ export async function confirmSavedReport(
     };
   }
 
+  /*
+    先查一次只為了給出好讀的訊息；**真正的守門是資料庫的唯一約束**
+    （`@@unique([projectId, confirmedPeriodKey])`）。
+    只靠這裡的檢查是 check-then-write：兩個並行的確認都會通過檢查，
+    然後各寫一份定稿，屆時無從判斷哪一份才是送審依據。
+  */
   const existing = await savedReportRepo.findConfirmedForPeriod(
     row.projectId,
-    row.type,
-    row.periodStart,
+    row.periodKey,
   );
   if (existing) {
     return {
@@ -623,10 +683,21 @@ export async function confirmSavedReport(
     };
   }
 
-  await savedReportRepo.confirm(id, {
-    confirmedById: actor.id,
-    confirmedBy: actor.name || null,
-  });
+  try {
+    await savedReportRepo.confirm(id, row.periodKey, {
+      confirmedById: actor.id,
+      confirmedBy: actor.name || null,
+    });
+  } catch (e) {
+    // 競態下由資料庫擋下；轉成與上方相同的訊息，使用者不需要知道差別
+    if (savedReportRepo.isUniqueViolation(e)) {
+      return {
+        ok: false,
+        error: `${row.periodLabel}已有一份定稿報表，請先確認要以何者為準。`,
+      };
+    }
+    throw e;
+  }
   return { ok: true };
 }
 

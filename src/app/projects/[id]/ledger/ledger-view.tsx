@@ -408,13 +408,15 @@ function EditRow({
       包含已定稿送審的月報所依據的數字。這仍是合法操作（基準本來就可能填錯），
       但不能無聲發生，故此處明確確認。
 
-      以「有效累計 ≠ 期初」判定是否已有日報計入：兩者相等即代表
-      尚無已提送／已核備的日報數量，此時改期初沒有回溯影響，不需打擾。
+      判定直接看「該工項有沒有已計入的日報數量」（countedQty），
+      不用「有效累計 ≠ 期初」推斷：期初為 null 而日報已計入 100 時，
+      推斷法會因為 openingQty 是 null 而判成「無日報」，
+      於是把期初從空白填成 50 完全不會出現確認 —— 而所有歷史期間的累計
+      立刻加 50，包含已定稿月報所依據的數字。那正是最需要守的情形。
     */
     const changesOpening =
       form.completedQty !== (row.openingQty === null ? "" : String(row.openingQty));
-    const hasCountedDailyQty =
-      row.openingQty !== null && row.openingQty !== row.completedQty;
+    const hasCountedDailyQty = row.countedQty !== null;
     if (changesOpening && hasCountedDailyQty) {
       const ok = await confirm({
         title: `更新「${row.name}」的期初累計量？`,

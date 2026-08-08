@@ -16,8 +16,12 @@ import { formatDate } from "@/lib/utils";
 import {
   isPeriodReportFrozen,
   periodReportStatusMeta,
+  periodReportTypeMeta,
 } from "@/constant/pmis";
-import type { PeriodReportStatus } from "@/generated/prisma/enums";
+import type {
+  PeriodReportStatus,
+  PeriodReportType,
+} from "@/generated/prisma/enums";
 
 /*
   顯示到分鐘。清單依產出時間排序，而同一天內反覆重新生成是常態；
@@ -54,6 +58,8 @@ const stamp = (v: Date | string) => {
 type Row = {
   id: string;
   title: string;
+  /** 週期別；同一期間可能同時有週報與月報，不標就分不出來。 */
+  type: PeriodReportType;
   periodLabel: string;
   status: PeriodReportStatus;
   /** 本份內容的產出時間；草稿覆寫時會更新，故不用 createdAt。 */
@@ -115,9 +121,23 @@ export function ReportArchive({
   const key = `${projectId}|${reloadToken}`;
 
   const load = useCallback(() => {
-    listSavedReportsAction(projectId).then((data) => {
-      const fresh = data as Row[];
-      setRows(fresh);
+    /*
+      失敗不得靜默：先前沒有 .catch，查詢失敗會變成 unhandled rejection，
+      loadedKey 永不更新，畫面停在舊資料且沒有任何提示。
+      無權限（伺服器回 null）也要與「查無留存」分開講 ——
+      顯示「尚無留存的報表」會讓使用者以為報表從未產生過。
+    */
+    listSavedReportsAction(projectId)
+      .then((data) => {
+        if (data === null) {
+          setRows([]);
+          setError("你沒有檢視此專案留存報表的權限。");
+          setLoadedKey(key);
+          return;
+        }
+        const fresh = data as Row[];
+        setError(null);
+        setRows(fresh);
 
       /*
         清單每次重載都要重新驗證展開中的內容是否仍是同一版。
@@ -134,8 +154,12 @@ export function ReportArchive({
           setStaleId(open.id);
         }
       }
-      setLoadedKey(key);
-    });
+        setLoadedKey(key);
+      })
+      .catch(() => {
+        setError("無法載入留存清單，請重新整理後再試。");
+        setLoadedKey(key);
+      });
   }, [projectId, key]);
 
   useEffect(() => {
@@ -194,10 +218,12 @@ export function ReportArchive({
     else {
       if (opened?.id === id) setOpened(null);
       /*
-        刻意不通知產生器重新產製：那會立刻為當前期間再存一份草稿，
-        看起來像「刪不掉」。刪除只針對其他期間的舊草稿。
+        通知產生器重新「唯讀載入」（不是重新產製）。
+        刪掉的若正是上方顯示的那一份，畫面必須跟著回到「本期尚無留存報表」，
+        否則會繼續顯示一份已不存在的報表，還標著「已留存為本期草稿」。
       */
       load();
+      onChanged?.();
     }
   }
 
@@ -220,6 +246,7 @@ export function ReportArchive({
       <div className="divide-y rounded-lg border">
         {rows.map((r) => {
           const meta = periodReportStatusMeta[r.status];
+          const typeMeta = periodReportTypeMeta[r.type];
           const confirmed = isPeriodReportFrozen(r.status);
           const isOpen = opened?.id === r.id;
           return (
@@ -242,6 +269,7 @@ export function ReportArchive({
                   )}
                 </Button>
                 <Badge variant={meta.variant}>{meta.label}</Badge>
+                <Badge variant={typeMeta.variant}>{typeMeta.label}</Badge>
                 <span className="font-medium">{r.periodLabel}</span>
                 {/* 讓「上面那一版」與清單裡的哪一列對應得起來 */}
                 {r.id === currentId ? (
@@ -263,7 +291,7 @@ export function ReportArchive({
                   <span className="ml-auto flex gap-1">
                     {r.id === currentId && (
                       <span className="self-center mr-2 text-[11px] text-muted-foreground">
-                        重新生成即覆寫，無需刪除
+                        重新生成即覆寫
                       </span>
                     )}
                     <Button
@@ -276,18 +304,24 @@ export function ReportArchive({
                       <Check className="size-3.5" />
                       確認定稿
                     </Button>
-                    {r.id !== currentId && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        aria-label="刪除草稿"
-                        disabled={busy === r.id}
-                        onClick={() => onDelete(r.id)}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    )}
+                    {/*
+                      每一份草稿都可刪除，包含上方正在顯示的那一份。
+
+                      先前隱藏當期那一列，理由是「刪了下次產製又會存回來」——
+                      那在報表會自動產製時成立，而自動產製已經移除；
+                      現在產製只由使用者按下，刪除就是刪除。
+                      何況這是唯一的清理路徑，對正在看的那一列不可用等於沒有。
+                    */}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      aria-label="刪除草稿"
+                      disabled={busy === r.id}
+                      onClick={() => onDelete(r.id)}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
                   </span>
                 )}
                 {confirmed && (

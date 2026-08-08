@@ -8,7 +8,14 @@ import { toFaithError } from "@/service/faith-error";
 
 export const runtime = "nodejs";
 
-const VALID: ReportType[] = ["DAILY", "WEEKLY", "MONTHLY", "QUARTERLY", "ANNUAL"];
+/*
+  本端點只產彙整報表（週／月／季／年）。
+
+  刻意不含 DAILY：日報是監造人工填報的 `SupervisionReport`，
+  與這裡的 `GeneratedReport` 是兩種東西。放行 DAILY 會讓任何有編輯權限者
+  每天多留一列，而清單上與同期間的週報難以分辨。
+*/
+const VALID: ReportType[] = ["WEEKLY", "MONTHLY", "QUARTERLY", "ANNUAL"];
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();

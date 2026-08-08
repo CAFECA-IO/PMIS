@@ -1188,7 +1188,17 @@ model GeneratedReport {
   id          String             @id @default(cuid())
   projectId   String
   type        PeriodReportType
-  /// 期間起訖；供查找「某月的報表」並判定同期是否已有定稿。
+  /// 期間身分（如 `MONTHLY:2026-08`）。
+  ///
+  /// 「同期只允許一份定稿」「同期草稿覆寫」都以本欄為鍵，而**不用**
+  /// `periodStart` 相等比對：後者由伺服器時區推導，部署時區一改
+  /// （例如 UTC → Asia/Taipei），既有列與新查詢的值就不再相等 ——
+  /// `upsertDraft` 開始堆重複草稿，`findConfirmedForPeriod` 靜默回 null，
+  /// 而那道守門是「哪一份才是那個月的送審依據」的唯一保證。
+  /// 文字鍵不會因時區漂移。
+  periodKey   String
+
+  /// 期間起訖；供顯示與範圍查詢，不作為身分。
   periodStart DateTime
   periodEnd   DateTime
   /// 顯示用期間標籤，如「2026 年 5 月」。
@@ -1212,6 +1222,17 @@ model GeneratedReport {
   /// 時間標錯比不標更糟。定稿動作不改本欄（定稿沒有重新產出內容）。
   generatedAt   DateTime @default(now())
 
+  /// 定稿時填入 `periodKey`，草稿恆為 null。
+  ///
+  /// 存在的唯一理由是讓「同期只允許一份定稿」由資料庫保證：
+  /// 服務層原本是 check-then-write（先查有沒有定稿、再寫），
+  /// 兩個並行的確認都會通過檢查而各寫一份，屆時無從判斷哪一份才是送審依據。
+  /// 直接對 `periodKey` 下唯一約束會連草稿一起擋掉（同期草稿與定稿需並存），
+  /// 而 SQL 的唯一索引視每個 NULL 為相異值 —— 草稿全填 null 即可並存，
+  /// 定稿則因填入 periodKey 而同期至多一份。
+  /// （Prisma schema 不支援 partial index，此為其等效寫法。）
+  confirmedPeriodKey String?
+
   generatedById String?
   generatedBy   String?
   confirmedAt   DateTime?
@@ -1222,6 +1243,8 @@ model GeneratedReport {
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
+  @@unique([projectId, confirmedPeriodKey])
+  @@index([projectId, periodKey])
   @@index([projectId, type, periodStart])
   @@index([status])
 }

@@ -4,6 +4,8 @@ import type { PeriodReportType } from "@/generated/prisma/enums";
 export type CreateGeneratedReportData = {
   projectId: string;
   type: PeriodReportType;
+  /** 期間身分（如 `MONTHLY:2026-08`）；不受伺服器時區影響。 */
+  periodKey: string;
   periodStart: Date;
   periodEnd: Date;
   periodLabel: string;
@@ -34,22 +36,36 @@ const stamp = () => new Date();
  * 因為草稿本身可刪除，且定稿階段有「同期只允許一份 CONFIRMED」的守門。
  */
 export async function upsertDraft(data: CreateGeneratedReportData) {
+  /*
+    期間鍵是留存的身分，空字串會讓不同期間互相覆寫。
+    型別上它是必填，但字串的「必填」不排除空字串 ——
+    在此擋下，而非等到兩個月份的報表互相覆蓋才發現。
+  */
+  if (!data.periodKey.trim()) {
+    throw new Error("periodKey 不可為空：期間鍵是留存的身分");
+  }
+  /*
+    取最新的一筆。`findFirst` 不給 orderBy 時的順序是不確定的，
+    而歷史資料裡可能存在同期多份草稿（自動產製時代的殘骸）——
+    不指定排序會導致「畫面顯示的是 A、覆寫到的是 B」。
+  */
   const existing = await prisma.generatedReport.findFirst({
     where: {
       projectId: data.projectId,
-      type: data.type,
-      periodStart: data.periodStart,
+      periodKey: data.periodKey,
       status: "DRAFT",
     },
+    orderBy: { generatedAt: "desc" },
     select: { id: true },
   });
   if (!existing) {
     return prisma.generatedReport.create({ data: { ...data, generatedAt: stamp() } });
   }
-  // 期間鍵（projectId／type／periodStart）即查找條件，不重複寫入
+  // 期間鍵（projectId／periodKey）即查找條件，不重複寫入
   return prisma.generatedReport.update({
     where: { id: existing.id },
     data: {
+      periodStart: data.periodStart,
       periodEnd: data.periodEnd,
       periodLabel: data.periodLabel,
       title: data.title,
@@ -77,6 +93,7 @@ const LIST_SELECT = {
   title: true,
   status: true,
   aiAuthored: true,
+  periodKey: true,
   generatedAt: true,
   generatedBy: true,
   confirmedAt: true,
@@ -121,36 +138,59 @@ export async function listByProject(projectId: string, draftTake = 30) {
   );
 }
 
-/** 同一專案、同週期、同期間的草稿留存（同期只保留一份）。 */
-export function findDraftForPeriod(
-  projectId: string,
-  type: PeriodReportType,
-  periodStart: Date,
-) {
+/** 同一專案、同期間的草稿留存（同期只保留一份）。 */
+export function findDraftForPeriod(projectId: string, periodKey: string) {
+  // 同 upsertDraft：明確取最新一筆，避免同期多份草稿時取到不確定的那個
   return prisma.generatedReport.findFirst({
-    where: { projectId, type, periodStart, status: "DRAFT" },
+    where: { projectId, periodKey, status: "DRAFT" },
+    orderBy: { generatedAt: "desc" },
   });
 }
 
-/** 同一專案、同週期、同期間是否已有定稿（同期只允許一份 CONFIRMED）。 */
-export function findConfirmedForPeriod(
-  projectId: string,
-  type: PeriodReportType,
-  periodStart: Date,
-) {
+/**
+ * 同一專案、同期間是否已有定稿（同期只允許一份 CONFIRMED）。
+ *
+ * 以 `periodKey` 而非 `periodStart` 比對：後者由伺服器時區推導，
+ * 部署時區一改（例如 UTC → Asia/Taipei），既有列與新查詢的值就不再相等，
+ * 這道守門會**靜默**失效，而它是「哪一份才是那個月的送審依據」的唯一保證。
+ */
+export function findConfirmedForPeriod(projectId: string, periodKey: string) {
   return prisma.generatedReport.findFirst({
-    where: { projectId, type, periodStart, status: "CONFIRMED" },
+    where: { projectId, periodKey, status: "CONFIRMED" },
   });
 }
 
+/**
+ * 標記定稿。
+ *
+ * 一併寫入 `confirmedPeriodKey`，讓「同期只允許一份定稿」由資料庫的
+ * 唯一約束保證，而不是只靠服務層的 check-then-write —— 後者在兩個並行的
+ * 確認之下會各自通過檢查而寫出兩份定稿。
+ * 違反約束時 Prisma 丟 P2002，由呼叫端轉成可讀訊息。
+ */
 export function confirm(
   id: string,
+  periodKey: string,
   by: { confirmedById?: string | null; confirmedBy?: string | null },
 ) {
   return prisma.generatedReport.update({
     where: { id },
-    data: { status: "CONFIRMED", confirmedAt: new Date(), ...by },
+    data: {
+      status: "CONFIRMED",
+      confirmedAt: new Date(),
+      confirmedPeriodKey: periodKey,
+      ...by,
+    },
   });
+}
+
+/** Prisma 唯一約束違反。 */
+export function isUniqueViolation(e: unknown): boolean {
+  return (
+    typeof e === "object" &&
+    e !== null &&
+    (e as { code?: unknown }).code === "P2002"
+  );
 }
 
 /**
