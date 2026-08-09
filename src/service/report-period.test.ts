@@ -83,7 +83,7 @@ test("classifyWorkDay：stopReason 為判定的權威來源（決策 H）", () =
 });
 
 test("classifyWorkDay：天氣不參與判定（決策 D）", () => {
-  // 雨天但有施工 → 仍為施工日
+  // Info: (20260806 - Julian) 雨天但有施工 → 仍為施工日
   assert.equal(
     classifyWorkDay({
       reportDate: new Date(),
@@ -92,8 +92,8 @@ test("classifyWorkDay：天氣不參與判定（決策 D）", () => {
     }),
     "WORKING",
   );
-  // 天氣為雨、敘述提及暫停，但無 stopReason → 只能判為「其他停工」，
-  // 不得因為天氣是雨就推測為雨天停工（那正是決策 D 要移除的推測）
+  // Info: (20260806 - Julian) 天氣為雨、敘述提及暫停，但無 stopReason → 只能判為「其他停工」，
+  // Info: (20260806 - Julian) 不得因為天氣是雨就推測為雨天停工（那正是決策 D 要移除的推測）
   assert.equal(
     classifyWorkDay({
       reportDate: new Date(),
@@ -102,7 +102,7 @@ test("classifyWorkDay：天氣不參與判定（決策 D）", () => {
     }),
     "OTHER_STOP",
   );
-  // 同一份敘述，天氣改為晴，分類不應改變 —— 證明天氣已不影響結果
+  // Info: (20260806 - Julian) 同一份敘述，天氣改為晴，分類不應改變 —— 證明天氣已不影響結果
   assert.equal(
     classifyWorkDay({
       reportDate: new Date(),
@@ -111,7 +111,7 @@ test("classifyWorkDay：天氣不參與判定（決策 D）", () => {
     }),
     "OTHER_STOP",
   );
-  // 明確標記後才算雨天停工
+  // Info: (20260806 - Julian) 明確標記後才算雨天停工
   assert.equal(
     classifyWorkDay({
       reportDate: new Date(),
@@ -124,7 +124,7 @@ test("classifyWorkDay：天氣不參與判定（決策 D）", () => {
 });
 
 test("classifyWorkDay：敘述為空不臆測為例假日", () => {
-  // 先前把空敘述判為例假日，使漏填膨脹例假日、壓低施工天數
+  // Info: (20260806 - Julian) 先前把空敘述判為例假日，使漏填膨脹例假日、壓低施工天數
   assert.equal(
     classifyWorkDay({ reportDate: new Date(), weather: "晴", summary: null }),
     "UNCLASSIFIED",
@@ -169,10 +169,10 @@ test("summarizeWorkDays：分類總和守恆", () => {
 
 test("summarizeWorkDays：免計工期獨立累計，與停工分類正交", () => {
   const logs = [
-    // 施工日但依契約免計工期（例如部分停工）—— 證明兩者非同一件事
+    // Info: (20260806 - Julian) 施工日但依契約免計工期（例如部分停工）—— 證明兩者非同一件事
     { reportDate: new Date(), weather: "晴", summary: "施工中", excludedFromDuration: true },
     { reportDate: new Date(), weather: "雨", summary: "停工", stopReason: "WEATHER" as const, excludedFromDuration: true },
-    // 例假日但仍計工期（日曆天契約）
+    // Info: (20260806 - Julian) 例假日但仍計工期（日曆天契約）
     { reportDate: new Date(), weather: "晴", summary: "例假日", stopReason: "HOLIDAY" as const },
   ];
   const s = summarizeWorkDays(logs);

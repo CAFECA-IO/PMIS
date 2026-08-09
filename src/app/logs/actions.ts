@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import * as reportService from "@/service/supervisionReport.service";
-// 彙整報表（週/月/季/年）的服務，與上方日報服務不同
+// Info: (20260806 - Julian) 彙整報表（週/月/季/年）的服務，與上方日報服務不同
 import * as periodReportService from "@/service/report.service";
 import { requireUser } from "@/service/auth.service";
 import { currentUserCanEdit } from "@/service/access.service";
@@ -25,7 +25,7 @@ function refresh() {
 }
 
 /**
- * 新建日報。
+ * Info: (20260806 - Julian) 新建日報。
  *
  * 回傳 `{ error }` 時由 CreateRecordDialog 顯示並保持表單開啟 ——
  * 撞到既有日期時必須讓使用者看到原因，而不是靜默覆蓋當天的內容。
@@ -58,7 +58,7 @@ export async function fileReportAction(formData: FormData) {
   return { ok: true as const };
 }
 
-/** 某日是否已有日報（供新建表單即時提示）。 */
+/** Info: (20260806 - Julian) 某日是否已有日報（供新建表單即時提示）。 */
 export async function checkReportDateAction(
   projectId: string,
   dateISO: string,
@@ -103,7 +103,7 @@ export async function suggestReportAction(
 }
 
 /**
- * 數量表的預帶清單（E1）。
+ * Info: (20260806 - Julian) 數量表的預帶清單（E1）。
  *
  * 由表單在日期變更時取用：清單本身與日期無關，但該日已填的數量有關，
  * 故一併以日期查詢，讓編輯既有日報時能帶回已填內容。
@@ -116,7 +116,7 @@ export async function loadQtyFormAction(
 }
 
 /**
- * 某日的預定與實際累計進度（決策 C）。
+ * Info: (20260806 - Julian) 某日的預定與實際累計進度（決策 C）。
  *
  * 兩者皆即時推導，不存欄位；實際取截至該日的累計，
  * 故補填舊日報時呈現的是當時的進度，而非今日的。
@@ -128,13 +128,13 @@ export async function loadDailyProgressAction(
   return reportService.getDailyProgress(projectId, dateISO, await actor());
 }
 
-// ── 彙整報表留存（決策 J-a）───────────────────────────────
+// Info: (20260806 - Julian) ── 彙整報表留存（決策 J-a）───────────────────────────────
 //
-// 留存不再是獨立動作：報表產出時即留存（見 /api/report 與
-// report.service.generateReportView），故此處只有讀取、確認與刪除。
+// Info: (20260806 - Julian) 留存不再是獨立動作：報表產出時即留存（見 /api/report 與
+// Info: (20260806 - Julian) report.service.generateReportView），故此處只有讀取、確認與刪除。
 
 /**
- * 某期間已留存的報表（唯讀）。
+ * Info: (20260806 - Julian) 某期間已留存的報表（唯讀）。
  *
  * 供畫面掛載與切換期間使用：純讀取，不呼叫 LLM、不寫入任何紀錄。
  * 產製一份新的請走 `/api/report`（使用者明確按下「產生」時）。
@@ -157,7 +157,7 @@ export async function listSavedReportsAction(projectId: string) {
 }
 
 /**
- * 開啟一份留存報表的全文。
+ * Info: (20260806 - Julian) 開啟一份留存報表的全文。
  *
  * 留存的意義在於「事後能把當時送出的那份調出來看」；
  * 只列 metadata 而讀不到內容，等於存進去再也打不開。
@@ -179,7 +179,7 @@ export async function openSavedReportAction(id: string) {
 }
 
 /**
- * 確認定稿。
+ * Info: (20260806 - Julian) 確認定稿。
  *
  * `expectedGeneratedAt` 是畫面上那一份的產出時間 —— 草稿為原地覆寫，
  * 光憑 id 無法指明版本（見 confirmSavedReport 的說明）。
@@ -209,20 +209,20 @@ export async function deleteSavedReportAction(id: string) {
   return r;
 }
 
-/** 某份日報的變更軌跡（決策 J-b）。 */
+/** Info: (20260806 - Julian) 某份日報的變更軌跡（決策 J-b）。 */
 export async function listReportAuditAction(reportId: string) {
   return reportService.listReportAudit(reportId, await actor());
 }
 
 /**
- * 某專案的日報變更軌跡（含已刪除的日報）。
+ * Info: (20260806 - Julian) 某專案的日報變更軌跡（含已刪除的日報）。
  *
  * 已刪除日報的軌跡只能由此讀到 —— 逐份查詢需要 reportId，
  * 而日報刪除後使用者已無從得知那個 id。
  */
 export async function listProjectAuditAction(
   projectId: string,
-  /** 續讀游標：只取早於此時間的紀錄（ISO 字串，供跨 server action 邊界傳遞）。 */
+  /** Info: (20260806 - Julian) 續讀游標：只取早於此時間的紀錄（ISO 字串，供跨 server action 邊界傳遞）。 */
   beforeIso?: string,
 ) {
   const before = beforeIso ? new Date(beforeIso) : undefined;

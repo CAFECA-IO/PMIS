@@ -5,7 +5,7 @@ import {
 } from "@/constant/ledger";
 
 /**
- * 工項數量與估驗台帳的計算（純函式，無 I/O，便於單元測試）。
+ * Info: (20260806 - Julian) 工項數量與估驗台帳的計算（純函式，無 I/O，便於單元測試）。
  *
  * 台帳上只有四個量是資料，其餘全部推導：
  *   契約數量 × 單價 = 契約複價
@@ -16,17 +16,17 @@ import {
  * 「金額與數量對不起來」的紀錄，而對帳時無從判斷哪一個才是真的。
  */
 
-/** 台帳一列的原始數量（皆可為未填）。 */
+/** Info: (20260806 - Julian) 台帳一列的原始數量（皆可為未填）。 */
 export type LedgerQty = {
-  /** 契約數量。 */
+  /** Info: (20260806 - Julian) 契約數量。 */
   contractQty: number | null;
-  /** 單價。 */
+  /** Info: (20260806 - Julian) 單價。 */
   unitPrice: number | null;
-  /** 累計完成量。 */
+  /** Info: (20260806 - Julian) 累計完成量。 */
   completedQty: number | null;
-  /** 查驗合格量。 */
+  /** Info: (20260806 - Julian) 查驗合格量。 */
   inspectedQty: number | null;
-  /** 累計估驗量。 */
+  /** Info: (20260806 - Julian) 累計估驗量。 */
   valuatedQty: number | null;
 };
 
@@ -36,46 +36,46 @@ export type LedgerRowInput = LedgerQty & {
   name: string;
   unit: string | null;
   wbsCode: string | null;
-  /** WBS 類別 id；未分類者以 other 呈現。 */
+  /** Info: (20260806 - Julian) WBS 類別 id；未分類者以 other 呈現。 */
   wbsCategory: string | null;
 };
 
-/** 一列台帳的完整呈現值。 */
+/** Info: (20260806 - Julian) 一列台帳的完整呈現值。 */
 export type LedgerRow = LedgerRowInput & {
   categoryLabel: string;
-  /** 契約複價＝契約數量 × 單價。任一未填則為 null。 */
+  /** Info: (20260806 - Julian) 契約複價＝契約數量 × 單價。任一未填則為 null。 */
   contractAmount: number | null;
-  /** 完成金額＝累計完成 × 單價。 */
+  /** Info: (20260806 - Julian) 完成金額＝累計完成 × 單價。 */
   completedAmount: number | null;
-  /** 估驗金額＝累計估驗 × 單價。 */
+  /** Info: (20260806 - Julian) 估驗金額＝累計估驗 × 單價。 */
   valuatedAmount: number | null;
-  /** 完成率（百分比，一位小數）。契約數量未填或為 0 時為 null。 */
+  /** Info: (20260806 - Julian) 完成率（百分比，一位小數）。契約數量未填或為 0 時為 null。 */
   completionRate: number | null;
-  /** 估驗率（百分比，一位小數）。 */
+  /** Info: (20260806 - Julian) 估驗率（百分比，一位小數）。 */
   valuationRate: number | null;
   status: ValuationStatus;
-  /** 數量互相矛盾的具體說明；正常時為空陣列。 */
+  /** Info: (20260806 - Julian) 數量互相矛盾的具體說明；正常時為空陣列。 */
   anomalies: string[];
 };
 
 const n = (v: number | null | undefined): number | null =>
   v === null || v === undefined || !Number.isFinite(v) ? null : v;
 
-/** 兩數相乘；任一未填即無法計算，回 null 而非 0。 */
+/** Info: (20260806 - Julian) 兩數相乘；任一未填即無法計算，回 null 而非 0。 */
 export function multiply(a: number | null, b: number | null): number | null {
   const x = n(a);
   const y = n(b);
   return x === null || y === null ? null : round(x * y, 2);
 }
 
-/** 四捨五入到指定小數位，避免浮點誤差累積成 0.30000000000000004。 */
+/** Info: (20260806 - Julian) 四捨五入到指定小數位，避免浮點誤差累積成 0.30000000000000004。 */
 export function round(value: number, digits = 2): number {
   const f = 10 ** digits;
   return Math.round(value * f) / f;
 }
 
 /**
- * 百分比。
+ * Info: (20260806 - Julian) 百分比。
  *
  * 分母為 0 時回 null 而非 0 或 100 ——
  * 「契約數量 0」代表資料還沒填，不代表完成率是 0%。
@@ -88,7 +88,7 @@ export function percent(part: number | null, whole: number | null): number | nul
 }
 
 /**
- * 由數量推出估驗狀態。
+ * Info: (20260806 - Julian) 由數量推出估驗狀態。
  *
  * 判定順序即實務上的推進順序：施作 → 查驗 → 估驗。
  * 異常優先於一切，因為「估驗量多於查驗量」代表估驗了沒驗過的東西，
@@ -114,7 +114,7 @@ export function valuationStatus(qty: LedgerQty): ValuationStatus {
 }
 
 /**
- * 數量互相矛盾之處。
+ * Info: (20260806 - Julian) 數量互相矛盾之處。
  *
  * 逐項寫明而不只給一個「異常」標記：對帳時要能直接看出是哪一組數字不對，
  * 否則使用者得自己把四個數字兩兩相比。
@@ -138,7 +138,7 @@ export function anomaliesOf(qty: LedgerQty): string[] {
   return out;
 }
 
-/** 組出一列台帳的呈現值。 */
+/** Info: (20260806 - Julian) 組出一列台帳的呈現值。 */
 export function ledgerRow(input: LedgerRowInput): LedgerRow {
   return {
     ...input,
@@ -157,23 +157,23 @@ export function ledgerRows(inputs: LedgerRowInput[]): LedgerRow[] {
   return inputs.map(ledgerRow);
 }
 
-// ── 彙總 ────────────────────────────────────────────────────
+// Info: (20260806 - Julian) ── 彙總 ────────────────────────────────────────────────────
 
 export type LedgerTotals = {
-  /** 契約複價合計。 */
+  /** Info: (20260806 - Julian) 契約複價合計。 */
   contractAmount: number;
   completedAmount: number;
   valuatedAmount: number;
-  /** 以金額加權的完成率（百分比）。 */
+  /** Info: (20260806 - Julian) 以金額加權的完成率（百分比）。 */
   completionRate: number | null;
   valuationRate: number | null;
   rows: number;
-  /** 數量異常的列數。 */
+  /** Info: (20260806 - Julian) 數量異常的列數。 */
   anomalies: number;
 };
 
 /**
- * 合計。
+ * Info: (20260806 - Julian) 合計。
  *
  * 完成率以「金額加權」而非各列百分比的平均 ——
  * 一件 1.8 億的主幹管與一件 3 千萬的職安費若各算一票，
@@ -204,7 +204,7 @@ export type WbsGroup = LedgerTotals & {
 };
 
 /**
- * 依 WBS 類別彙整。
+ * Info: (20260806 - Julian) 依 WBS 類別彙整。
  *
  * 類別順序沿用常數的宣告順序（土建 → 管線 → 機械 → 電氣 → 職安 → 間接費），
  * 那是估驗台帳的慣用排列；改成依金額排序會讓每期報表的列序都不一樣。
@@ -228,7 +228,7 @@ export function groupByWbs(
     out.push({ category: c.id, label: c.label, ...ledgerTotals(list) });
     grouped.delete(c.id);
   }
-  // 不在既定順序內的類別（資料異常或日後新增）補在最後，不可默默丟掉
+  // Info: (20260806 - Julian) 不在既定順序內的類別（資料異常或日後新增）補在最後，不可默默丟掉
   for (const [key, list] of grouped) {
     out.push({ category: key, label: wbsCategoryLabel(key), ...ledgerTotals(list) });
   }
@@ -236,7 +236,7 @@ export function groupByWbs(
 }
 
 /**
- * 只取數量互相矛盾的列（差異異常檢視）。
+ * Info: (20260806 - Julian) 只取數量互相矛盾的列（差異異常檢視）。
  *
  * 以泛型保留輸入的具體型別：呼叫端可能傳入帶額外欄位的列
  * （如附帶 pendingQty 的台帳列），過濾不應把那些欄位從型別上抹掉。
@@ -245,10 +245,10 @@ export function anomalyRows<T extends LedgerRow>(rows: T[]): T[] {
   return rows.filter((r) => r.anomalies.length > 0);
 }
 
-// ── 與既有進度欄位的銜接 ────────────────────────────────────
+// Info: (20260806 - Julian) ── 與既有進度欄位的銜接 ────────────────────────────────────
 
 /**
- * 由數量推得的進度百分比（整數）。
+ * Info: (20260806 - Julian) 由數量推得的進度百分比（整數）。
  *
  * 數量不齊時回 `null`，代表沿用人工填的 `WorkItem.progress`
  * —— 未計量工項（無契約數量）沒有可推導的來源，那是它們唯一的進度。
@@ -266,7 +266,7 @@ export function progressFromQty(qty: LedgerQty): number | null {
   return Math.min(100, Math.max(0, Math.round(rate)));
 }
 
-/** 是否具備計量條件（有契約數量與單位才談得上台帳）。 */
+/** Info: (20260806 - Julian) 是否具備計量條件（有契約數量與單位才談得上台帳）。 */
 export function isMeasured(qty: { contractQty: number | null; unit: string | null }): boolean {
   return n(qty.contractQty) !== null && Boolean(qty.unit?.trim());
 }

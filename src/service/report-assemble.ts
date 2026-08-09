@@ -29,7 +29,7 @@ import type { ReportType } from "@/service/report.service";
 import type { ReportStatus, WorkStopReason } from "@/generated/prisma/enums";
 
 /**
- * 監造報表的**組裝核心**（純函式，無 I/O）。
+ * Info: (20260806 - Julian) 監造報表的**組裝核心**（純函式，無 I/O）。
  *
  * 為什麼要獨立成一個檔案：`generateReport` 先前把「取數」與「決定每個數字
  * 是什麼」寫在同一個 async 函式裡，於是那些數字完全無法測試 ——
@@ -48,7 +48,7 @@ import type { ReportStatus, WorkStopReason } from "@/generated/prisma/enums";
  * 保留在 `report.service` 的只剩三件事：取數、呼叫 LLM 寫評述、蓋產出時間。
  */
 
-/** 期間內的一份日報（僅取組裝需要的欄位）。 */
+/** Info: (20260806 - Julian) 期間內的一份日報（僅取組裝需要的欄位）。 */
 export type DailyReportRow = {
   reportDate: Date;
   weather: string | null;
@@ -59,7 +59,7 @@ export type DailyReportRow = {
   status: ReportStatus;
 };
 
-/** 3.3 估驗明細的一列來源（台帳欄位，Decimal 未轉型）。 */
+/** Info: (20260806 - Julian) 3.3 估驗明細的一列來源（台帳欄位，Decimal 未轉型）。 */
 export type LedgerWorkItem = {
   id: string;
   code: string | null;
@@ -74,7 +74,7 @@ export type LedgerWorkItem = {
 export type AssembleInput = {
   type: ReportType;
   typeLabel: string;
-  /** 期間起訖與標籤，由 `periodRange` 產生。 */
+  /** Info: (20260806 - Julian) 期間起訖與標籤，由 `periodRange` 產生。 */
   period: { start: Date; end: Date; label: string };
   project: {
     name: string;
@@ -89,31 +89,31 @@ export type AssembleInput = {
     scopeTitles: string[];
   };
   /**
-   * 期間內的**全部**日報，含草稿。
+   * Info: (20260806 - Julian) 期間內的**全部**日報，含草稿。
    *
    * 刻意不要求呼叫端先過濾：決策 G 的「哪些算數」是組裝規則的一部分，
    * 由呼叫端過濾就會出現「有人記得過濾、有人忘記」的兩套母體
    * —— 那正是先前施工天數含草稿而數量不含的成因。
    */
   dailyReports: DailyReportRow[];
-  /** 進度基準用的工程分項（`progress` 須為有效進度，截至期末）。 */
+  /** Info: (20260806 - Julian) 進度基準用的工程分項（`progress` 須為有效進度，截至期末）。 */
   workItemDetails: WorkItemDetail[];
-  /** 3.3 明細用的工項列。 */
+  /** Info: (20260806 - Julian) 3.3 明細用的工項列。 */
   ledgerWorkItems: LedgerWorkItem[];
-  /** 各工項截至**期末**的日報累計量。 */
+  /** Info: (20260806 - Julian) 各工項截至**期末**的日報累計量。 */
   cumulativeQtyTotals: ReadonlyMap<string, number>;
-  /** 各工項在**期間內**的日報數量。 */
+  /** Info: (20260806 - Julian) 各工項在**期間內**的日報數量。 */
   periodQtyTotals: ReadonlyMap<string, number>;
 };
 
 export type AssembleResult = {
-  /** 交給 `buildReportMarkdown` 的輸入，缺產出時間與 LLM 評述。 */
+  /** Info: (20260806 - Julian) 交給 `buildReportMarkdown` 的輸入，缺產出時間與 LLM 評述。 */
   template: Omit<ReportTemplateInput, "generatedAt" | "review">;
-  /** 餵給 LLM 的事實摘要；只含上方已算出的數字，不得引入其他資訊。 */
+  /** Info: (20260806 - Julian) 餵給 LLM 的事實摘要；只含上方已算出的數字，不得引入其他資訊。 */
   facts: string;
 };
 
-/** Prisma Decimal → number（沿用專案既有的邊界轉換慣例）。 */
+/** Info: (20260806 - Julian) Prisma Decimal → number（沿用專案既有的邊界轉換慣例）。 */
 const toNum = (v: unknown): number | null => {
   if (v == null) return null;
   const n = Number(v);
@@ -126,7 +126,7 @@ export function assembleReport(input: AssembleInput): AssembleResult {
   const periodWord = PERIOD_LABEL[type];
 
   /*
-    決策 G：只採計已提送／已核備的日報。
+    Info: (20260806 - Julian) 決策 G：只採計已提送／已核備的日報。
 
     先前施工天數與逐日明細取全部日報，數量卻只計已提送者
     —— 同一份法定文件裡兩套母體，審核時對不起來且沒有任何說明。
@@ -137,7 +137,7 @@ export function assembleReport(input: AssembleInput): AssembleResult {
   const excludedDraftDays = input.dailyReports.length - counted.length;
 
   /*
-    ── 進度比對的母體：只取具預定起訖日的工項 ──────────────────
+    Info: (20260806 - Julian) ── 進度比對的母體：只取具預定起訖日的工項 ──────────────────
 
     預定與完成必須算在同一批工項上。未設定預定起訖者沒有預定值可比，
     先前完成側納入、預定側排除，落差便純粹來自母體不同：
@@ -155,7 +155,7 @@ export function assembleReport(input: AssembleInput): AssembleResult {
   const cumulativePlanned = plannedProgressAt(basis, end);
 
   /*
-    本期預定增量＝期末預定 − 期初前一刻預定。
+    Info: (20260806 - Julian) 本期預定增量＝期末預定 − 期初前一刻預定。
     取期初「前一刻」而非期初當日，否則期初當日的增量會被算進上一期。
   */
   const beforeStart = new Date(start.getTime() - 1);
@@ -166,7 +166,7 @@ export function assembleReport(input: AssembleInput): AssembleResult {
       : null;
 
   /*
-    本期完成增量：各工項期間內的日報數量占契約數量之比例，同樣加權。
+    Info: (20260806 - Julian) 本期完成增量：各工項期間內的日報數量占契約數量之比例，同樣加權。
     未計量工項（無契約數量）於本期貢獻 0 —— 其進度僅能人工填報，
     無法得知期間內的增量，此為決策 F 下已知且已於 3.3 註明的限制。
   */
@@ -183,7 +183,7 @@ export function assembleReport(input: AssembleInput): AssembleResult {
     }),
   );
 
-  // ── S-Curve：同採工程分項基準，與上方數字一致 ──
+  // Info: (20260806 - Julian) ── S-Curve：同採工程分項基準，與上方數字一致 ──
   const curve: ProgressCurvePoint[] = trimCurveWindow(
     buildWorkItemSCurve(input.workItemDetails),
     monthLabel(end),
@@ -195,7 +195,7 @@ export function assembleReport(input: AssembleInput): AssembleResult {
   }));
 
   /*
-    本期無任何日報數量紀錄時，各工項的本期欄位應為「無資料」而非 0。
+    Info: (20260806 - Julian) 本期無任何日報數量紀錄時，各工項的本期欄位應為「無資料」而非 0。
     兩者意義不同：0 代表「本期確實沒做」，「—」代表「沒有數量紀錄可據」。
     若一律填 0，尚未導入日報填報的專案會被誤讀為本期毫無進展。
     反之，只要本期有任何紀錄，未出現於加總中的工項即為確實未施作 → 0。
@@ -217,13 +217,13 @@ export function assembleReport(input: AssembleInput): AssembleResult {
       code: w.wbsCode ?? w.code ?? null,
       name: w.name,
       contractAmount: multiply(qty, price),
-      // 已計量工項以數量推導；未計量者沿用人工填報進度（決策 F）
+      // Info: (20260806 - Julian) 已計量工項以數量推導；未計量者沿用人工填報進度（決策 F）
       cumulativePercent: effectiveProgress(
         {
           contractQty: qty,
           unitPrice: price,
           completedQty: cumulativeDone,
-          // 估驗狀態不在本表呈現，故不取這兩個量
+          // Info: (20260806 - Julian) 估驗狀態不在本表呈現，故不取這兩個量
           inspectedQty: null,
           valuatedQty: null,
         },
@@ -245,14 +245,14 @@ export function assembleReport(input: AssembleInput): AssembleResult {
       reportDate: r.reportDate,
       weather: r.weather,
       summary: r.summary,
-      // 決策 H：停工原因是判定的權威來源，未傳入則會退回舊的敘述推測分支
+      // Info: (20260806 - Julian) 決策 H：停工原因是判定的權威來源，未傳入則會退回舊的敘述推測分支
       stopReason: r.stopReason,
       excludedFromDuration: r.excludedFromDuration,
     })),
   );
 
   /*
-    缺任一側就沒有落差可言。先前以 0 代入等於宣稱「與預定相符」，
+    Info: (20260806 - Julian) 缺任一側就沒有落差可言。先前以 0 代入等於宣稱「與預定相符」，
     而那正是缺值時最容易被當真的一句話。
   */
   const gap =
@@ -305,7 +305,7 @@ export function assembleReport(input: AssembleInput): AssembleResult {
       progress: {
         currentPlanned,
         currentActual,
-        // 無任何具預定起訖日的工項時無從計算；以 0 呈現會誤導，故沿用 null 語意
+        // Info: (20260806 - Julian) 無任何具預定起訖日的工項時無從計算；以 0 呈現會誤導，故沿用 null 語意
         cumulativePlanned,
         cumulativeActual,
       },

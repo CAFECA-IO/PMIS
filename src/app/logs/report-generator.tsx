@@ -12,7 +12,7 @@ import { Markdown } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
 
 /**
- * 彙整報表（週／月／季／年）的產生與檢視。
+ * Info: (20260806 - Julian) 彙整報表（週／月／季／年）的產生與檢視。
  *
  * **產製是明示動作，不會自動發生。**
  * 產一份報表要呼叫 LLM 並寫一列留存，兩者都是有代價的副作用；
@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button";
  *  - 按「產生／重新生成」→ 產製一份並同時留存（見 report.service.generateReportView）。
  */
 
-// Info: 日報改由人工填報（監造報表），不再由 AI 生成；AI 僅彙整週/月/季/年報。
+// Info: (20260723 - Luphia) 日報改由人工填報（監造報表），不再由 AI 生成；AI 僅彙整週/月/季/年報。
 const TYPES = [
   { value: "WEEKLY", label: "週報" },
   { value: "MONTHLY", label: "月報" },
@@ -35,7 +35,7 @@ const TYPES = [
 type ReportType = (typeof TYPES)[number]["value"];
 
 /**
- * /api/report 的 payload 形狀（見 route.ts）。
+ * Info: (20260806 - Julian) /api/report 的 payload 形狀（見 route.ts）。
  *
  * 外層是全站統一的 `IApiResponse` 信封（`success`／`code`／`message`／
  * `payload`），故報表欄位都在 `payload` 之下 —— 不是回應的頂層。
@@ -46,11 +46,11 @@ type ReportPayload = {
   confirmedId?: string | null;
 };
 
-/** 畫面上這一份的來源：剛產出的，或是先前留存的。 */
+/** Info: (20260806 - Julian) 畫面上這一份的來源：剛產出的，或是先前留存的。 */
 type Shown = {
   markdown: string;
   /**
-   * 這一份是否已留存。
+   * Info: (20260806 - Julian) 這一份是否已留存。
    *
    * 本期已有定稿時，「重新生成」產出的是**未留存**的即時預覽 ——
    * 定稿是凍結內容，不覆寫；但使用者仍需能看到現況與定稿有何不同。
@@ -59,13 +59,13 @@ type Shown = {
   persisted: boolean;
   savedId: string | null;
   confirmedId: string | null;
-  /** 先前留存者的產出時間；剛產出者為 null（就是現在）。 */
+  /** Info: (20260806 - Julian) 先前留存者的產出時間；剛產出者為 null（就是現在）。 */
   generatedAt: Date | string | null;
   generatedBy: string | null;
 };
 
 /*
-  與伺服器端 parseRefDate 相同的範圍。用戶端檢查只為了即時停用按鈕與
+  Info: (20260806 - Julian) 與伺服器端 parseRefDate 相同的範圍。用戶端檢查只為了即時停用按鈕與
   少送幾次請求；真正的守門在伺服器端 —— 用戶端擋不住的請求一定會出現。
 */
 const MIN_YEAR = 2000;
@@ -101,10 +101,10 @@ export function ReportGenerator({
   const [periodLabel, setPeriodLabel] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /** 遞增以重載留存清單。 */
+  /** Info: (20260806 - Julian) 遞增以重載留存清單。 */
   const [archiveToken, setArchiveToken] = useState(0);
   /**
-   * 遞增以重新唯讀載入畫面上這一份。
+   * Info: (20260806 - Julian) 遞增以重新唯讀載入畫面上這一份。
    *
    * 與 archiveToken 分開：產製後不可重載 —— 本期已有定稿時產出的預覽
    * 並未留存，重載會把它換成定稿而讓剛產出的內容消失。
@@ -112,7 +112,7 @@ export function ReportGenerator({
    */
   const [loadToken, setLoadToken] = useState(0);
   /*
-    產製請求的序號。
+    Info: (20260806 - Julian) 產製請求的序號。
 
     產製耗時且長短不一：點週報（20 秒）再點月報（3 秒），月報會先回來，
     週報後到而覆寫畫面與 savedId —— 結果是月報分頁亮著、內容卻是週報，
@@ -130,20 +130,20 @@ export function ReportGenerator({
   const dateOk = isValidRefDate(refDate);
   const key = `${projectId}|${type}|${refDate}|${loadToken}`;
   /*
-    載入狀態由「已載入的鍵是否等於當前鍵」推導，而非另存一個 loading state：
+    Info: (20260806 - Julian) 載入狀態由「已載入的鍵是否等於當前鍵」推導，而非另存一個 loading state：
     如此 effect 內不需同步 setState，切換期間時也自然回到載入中。
   */
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const loading = dateOk && loadedKey !== key;
 
   /*
-    切換期間時唯讀載入既有留存。
+    Info: (20260806 - Julian) 切換期間時唯讀載入既有留存。
 
     延遲 400ms 才送出：日期欄在年份輸入過程中會逐鍵觸發 change，
     不防抖會為每個中間值各送一次請求。這裡只是讀取，但沒有理由多打。
   */
   useEffect(() => {
-    // 日期無效時不送請求；錯誤訊息與內容隱藏皆由 render 端推導，不寫進 state
+    // Info: (20260806 - Julian) 日期無效時不送請求；錯誤訊息與內容隱藏皆由 render 端推導，不寫進 state
     if (!dateOk) return;
     let stale = false;
     const timer = setTimeout(() => {
@@ -169,7 +169,7 @@ export function ReportGenerator({
         })
         .catch(() => {
           /*
-            沒有 catch 時，任何例外（session 過期導向、DB 錯誤、網路）都會讓
+            Info: (20260806 - Julian) 沒有 catch 時，任何例外（session 過期導向、DB 錯誤、網路）都會讓
             `loadedKey` 永遠停在舊值：面板卡在「載入已留存的報表…」、
             「產生報表」按鈕因 busy 而永久停用，而且畫面不說任何原因。
           */
@@ -185,7 +185,7 @@ export function ReportGenerator({
     };
   }, [projectId, type, refDate, key, dateOk]);
 
-  /** 產製一份並同時留存（唯一會呼叫 LLM 與寫入的路徑）。 */
+  /** Info: (20260806 - Julian) 產製一份並同時留存（唯一會呼叫 LLM 與寫入的路徑）。 */
   const generate = useCallback(async () => {
     generateAbort.current?.abort();
     const controller = new AbortController();
@@ -225,7 +225,7 @@ export function ReportGenerator({
       setLoadedKey(key);
       setArchiveToken((n) => n + 1);
     } catch (e) {
-      // 被自己取消的請求不是錯誤，也不該蓋掉新請求的狀態
+      // Info: (20260806 - Julian) 被自己取消的請求不是錯誤，也不該蓋掉新請求的狀態
       if (controller.signal.aborted || isStale()) return;
       setError(e instanceof Error ? e.message : "報告生成失敗");
     } finally {
@@ -234,7 +234,7 @@ export function ReportGenerator({
   }, [projectId, type, refDate, key]);
 
   /*
-    日期無效時的錯誤與內容隱藏一律用推導，不在 effect 內同步 setState ——
+    Info: (20260806 - Julian) 日期無效時的錯誤與內容隱藏一律用推導，不在 effect 內同步 setState ——
     那會造成連鎖渲染，且要記得在日期改回有效時把 state 清乾淨（很容易漏）。
   */
   const shownError = dateOk ? error : "基準日不正確，請確認年份。";
@@ -290,7 +290,7 @@ export function ReportGenerator({
         )}
       </div>
 
-      {/* 這一版從哪來、能不能作為送審依據，必須在報表旁邊講清楚 */}
+      {/* Info: (20260806 - Julian) 這一版從哪來、能不能作為送審依據，必須在報表旁邊講清楚 */}
       {!busy && !shownError && visible && (
         <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
           {visible.confirmedId && !visible.persisted ? (
@@ -345,7 +345,7 @@ export function ReportGenerator({
           <Markdown content={visible.markdown} />
         ) : (
           /*
-            空狀態明說「不會自動產生」：使用者若以為系統壞了而反覆重整，
+            Info: (20260806 - Julian) 空狀態明說「不會自動產生」：使用者若以為系統壞了而反覆重整，
             那正是我們要避免的重複產製。
           */
           <div className="flex flex-col items-center gap-2 py-16 text-sm text-muted-foreground">
@@ -365,7 +365,7 @@ export function ReportGenerator({
       <div className="space-y-2">
         <h3 className="text-sm font-medium">留存的報表</h3>
         {/*
-          currentId 只在「上方顯示的就是那一列的內容」時給定。
+          Info: (20260806 - Julian) currentId 只在「上方顯示的就是那一列的內容」時給定。
           本期已有定稿而使用者按了重新生成時，上方是未留存的即時預覽，
           此時把定稿標成「上方顯示的這一版」就是錯的；改以 periodConfirmedId
           標出定稿在哪一列，讓橫幅的「見下方留存清單」有東西可指。
@@ -381,7 +381,7 @@ export function ReportGenerator({
           }
           periodConfirmedId={visible?.confirmedId ?? null}
           onChanged={() => {
-            // 留存狀態已變（定稿／刪除），畫面上這一份的標示必須跟著更新
+            // Info: (20260806 - Julian) 留存狀態已變（定稿／刪除），畫面上這一份的標示必須跟著更新
             setArchiveToken((n) => n + 1);
             setLoadToken((n) => n + 1);
           }}

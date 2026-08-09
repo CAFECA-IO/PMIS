@@ -11,7 +11,7 @@ import type { ReportStatus } from "@/generated/prisma/enums";
 import type { QtyFormRow } from "@/service/supervisionReport.service";
 
 /**
- * 日報數量表（E1）。
+ * Info: (20260806 - Julian) 日報數量表（E1）。
  *
  * 設計取捨（見 docs/監造日報填報擴充規劃.md〈數量錄入的填寫設計〉）：
  *  - **預帶清單**：開啟即列出全部工程分項，只需填「本日完成」。逐格從頭
@@ -31,7 +31,7 @@ import type { QtyFormRow } from "@/service/supervisionReport.service";
  */
 
 type ExtraRow = {
-  /** 前端用的暫時識別，不送出。 */
+  /** Info: (20260806 - Julian) 前端用的暫時識別，不送出。 */
   key: string;
   itemName: string;
   unit: string;
@@ -39,7 +39,7 @@ type ExtraRow = {
   note: string;
 };
 
-/** 送往伺服器的一列；伺服器會重新驗證並以台帳覆寫名稱與單位。 */
+/** Info: (20260806 - Julian) 送往伺服器的一列；伺服器會重新驗證並以台帳覆寫名稱與單位。 */
 type QtyPayloadRow = {
   workItemId: string | null;
   itemName?: string;
@@ -51,7 +51,7 @@ type QtyPayloadRow = {
 const fmt = (v: number | null): string =>
   v === null ? "—" : v.toLocaleString("zh-TW", { maximumFractionDigits: 3 });
 
-/** 解析輸入格；空白為未填（null），非數字或負數為無效（undefined）。 */
+/** Info: (20260806 - Julian) 解析輸入格；空白為未填（null），非數字或負數為無效（undefined）。 */
 function parseQty(raw: string): number | null | undefined {
   const s = raw.replace(/,/g, "").trim();
   if (s === "") return null;
@@ -66,26 +66,26 @@ export function ReportQtyTable({
   status,
 }: {
   projectId: string;
-  /** 報表日期；變更時重新載入該日已填數量。 */
+  /** Info: (20260806 - Julian) 報表日期；變更時重新載入該日已填數量。 */
   reportDate: string;
-  /** 目前選擇的報表狀態；草稿的數量不會計入累計（決策 G）。 */
+  /** Info: (20260806 - Julian) 目前選擇的報表狀態；草稿的數量不會計入累計（決策 G）。 */
   status: string;
 }) {
   const [rows, setRows] = useState<QtyFormRow[]>([]);
   const [values, setValues] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [extras, setExtras] = useState<ExtraRow[]>([]);
-  /** 契約外項目的 React key 序號；只增不減，故不會在刪除後重複。 */
+  /** Info: (20260806 - Julian) 契約外項目的 React key 序號；只增不減，故不會在刪除後重複。 */
   const extraSeq = useRef(0);
   const [showAll, setShowAll] = useState(false);
-  /** 已成功載入的那一組（專案＋日期）。 */
+  /** Info: (20260806 - Julian) 已成功載入的那一組（專案＋日期）。 */
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
-  /** 載入失敗的那一組；與 loadedKey 分開才能區分「還在載」與「載不到」。 */
+  /** Info: (20260806 - Julian) 載入失敗的那一組；與 loadedKey 分開才能區分「還在載」與「載不到」。 */
   const [failedKey, setFailedKey] = useState<string | null>(null);
 
   const key = `${projectId}|${reportDate}`;
   /*
-    狀態由「哪一個鍵已完成」推導，而非另存 loading 旗標：
+    Info: (20260806 - Julian) 狀態由「哪一個鍵已完成」推導，而非另存 loading 旗標：
     effect 內不需同步 setState（會造成連鎖渲染），
     切換日期時也自然回到載入中，不必記得重設。
   */
@@ -99,7 +99,7 @@ export function ReportQtyTable({
       .then((data) => {
         if (stale) return;
         /*
-          data 為 null 代表取數失敗或無權限，**不可**視為載入完成 ——
+          Info: (20260806 - Julian) data 為 null 代表取數失敗或無權限，**不可**視為載入完成 ——
           rows 為空會讓 payload 變成 []，而伺服器端把「有 items 欄位但為空」
           解讀為使用者清空數量表，等於靜默刪光既有明細。
         */
@@ -134,7 +134,7 @@ export function ReportQtyTable({
         setLoadedKey(key);
       })
       .catch(() => {
-        // 網路瞬斷等例外同樣不能當作載入完成，理由同上
+        // Info: (20260806 - Julian) 網路瞬斷等例外同樣不能當作載入完成，理由同上
         if (!stale) setFailedKey(key);
       });
     return () => {
@@ -142,7 +142,7 @@ export function ReportQtyTable({
     };
   }, [projectId, reportDate, key]);
 
-  /** 送出用的 JSON：略過未填與無效值。 */
+  /** Info: (20260806 - Julian) 送出用的 JSON：略過未填與無效值。 */
   const payload = useMemo<QtyPayloadRow[]>(() => {
     const out: QtyPayloadRow[] = [];
     for (const r of rows) {
@@ -171,7 +171,7 @@ export function ReportQtyTable({
 
   const filledCount = payload.length;
 
-  // 預設只顯示已填的列；未填者收合於「顯示全部」之後
+  // Info: (20260806 - Julian) 預設只顯示已填的列；未填者收合於「顯示全部」之後
   const visibleRows = showAll
     ? rows
     : rows.filter(
@@ -183,7 +183,7 @@ export function ReportQtyTable({
   return (
     <div className="space-y-2 text-xs sm:col-span-2">
       {/*
-        僅在載入完成後才送出 items（伺服器端仍會重新驗證）。
+        Info: (20260806 - Julian) 僅在載入完成後才送出 items（伺服器端仍會重新驗證）。
 
         未載入時 payload 必為空陣列，而伺服器端的約定是
         「有 items 欄位＝這張表單管數量表」，空陣列代表使用者清空 →
@@ -213,7 +213,7 @@ export function ReportQtyTable({
       </div>
 
       {/*
-        在填報現場就講清楚草稿不計入，而非等使用者去台帳發現數字沒動。
+        Info: (20260806 - Julian) 在填報現場就講清楚草稿不計入，而非等使用者去台帳發現數字沒動。
         判定沿用 countsTowardQty，不在此另寫一份狀態清單。
       */}
       {filledCount > 0 && !countsTowardQty(status as ReportStatus) && (
@@ -262,7 +262,7 @@ export function ReportQtyTable({
                   qty === null || qty === undefined
                     ? r.cumulativeQty
                     : (r.cumulativeQty ?? 0) + qty;
-                // 超出契約數量：提示而非阻擋（契約變更／數量增減時本來就會超出）
+                // Info: (20260806 - Julian) 超出契約數量：提示而非阻擋（契約變更／數量增減時本來就會超出）
                 const over =
                   after !== null &&
                   r.contractQty !== null &&
@@ -292,7 +292,7 @@ export function ReportQtyTable({
                             }))
                           }
                         />
-                        {/* 單位唯讀：取自台帳，避免同工項跨日報單位不一致 */}
+                        {/* Info: (20260806 - Julian) 單位唯讀：取自台帳，避免同工項跨日報單位不一致 */}
                         <span className="text-muted-foreground">
                           {r.unit ?? ""}
                         </span>
@@ -312,7 +312,7 @@ export function ReportQtyTable({
                         }
                       />
                       {/*
-                        備註掛在數量列上，沒有數量就沒有列可掛。
+                        Info: (20260806 - Julian) 備註掛在數量列上，沒有數量就沒有列可掛。
                         靜默丟棄使用者打的字比不讓他打更糟，故明說。
                       */}
                       {qty === null && (notes[r.workItemId] ?? "").trim() !== "" && (
@@ -348,7 +348,7 @@ export function ReportQtyTable({
       )}
 
       {/*
-        契約外臨時項目：不進台帳，僅存於本日報。
+        Info: (20260806 - Julian) 契約外臨時項目：不進台帳，僅存於本日報。
         載入未完成時一併隱藏 —— 此時 items 不會送出，讓人填了卻存不進去
         比暫時看不到這個區塊更糟。
       */}
@@ -430,7 +430,7 @@ export function ReportQtyTable({
               ...list,
               {
                 /*
-                  以單調遞增的序號當 key，不用 list.length。
+                  Info: (20260806 - Julian) 以單調遞增的序號當 key，不用 list.length。
                   後者在生命週期內不唯一：新增兩列得到 new-0／new-1，
                   刪掉第一列後 length 回到 1，再新增又是 new-1 ——
                   React 會在兩個同 key 的兄弟節點間重用 DOM，

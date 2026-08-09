@@ -62,15 +62,15 @@ const VALID_RISKS = Object.keys(obligationRiskMeta) as ObligationRisk[];
 const VALID_TRIGGERS = Object.keys(obligationTriggerMeta) as ObligationTrigger[];
 const VALID_OB_STATUSES = Object.keys(obligationStatusMeta) as ObligationStatus[];
 
-/** 表單字串收斂為 enum，非法值退回預設。 */
+/** Info: (20260806 - Julian) 表單字串收斂為 enum，非法值退回預設。 */
 const pickEnum = <T extends string>(valid: T[], v: unknown, fallback: T): T =>
   valid.includes(v as T) ? (v as T) : fallback;
 const VALID_DOC_CATEGORIES = Object.keys(
   projectDocumentCategoryMeta,
 ) as ProjectDocumentCategory[];
 
-// ── helpers ────────────────────────────────────────────────
-/** undefined = not provided (skip); "" = clear (null); value = set */
+// Info: (20260806 - Julian) ── helpers ────────────────────────────────────────────────
+/** Info: (20260806 - Julian) undefined = not provided (skip); "" = clear (null); value = set */
 function optionalText(v: string | undefined): string | null | undefined {
   if (v === undefined) return undefined;
   const t = v.trim();
@@ -90,9 +90,9 @@ function requiredText(v: string | undefined): string | undefined {
   return t ? t : undefined;
 }
 
-// ── queries ────────────────────────────────────────────────
+// Info: (20260806 - Julian) ── queries ────────────────────────────────────────────────
 /**
- * 單一專案的進度 S-Curve（預定/實際/預測累計 %），支援兩種計算基準：
+ * Info: (20260806 - Julian) 單一專案的進度 S-Curve（預定/實際/預測累計 %），支援兩種計算基準：
  *  - "OBLIGATION"（預設）：以「履約事項」權重與期限/實際完成日計算（事件式）。
  *  - "WORKITEM"：以「工程分項」預定工期與 progress 計算（期間式）。
  * 於對應分頁修改資料（履約事項權重/日期、或工程分項起訖日/進度）皆會即時改變此曲線。
@@ -108,13 +108,13 @@ export type WorkItemDetail = RollupItem & {
   name: string;
   status: string;
   obligationId: string | null;
-  /** 供推導有效進度與本期完成增量（決策 F／I）；Decimal 於邊界轉 number。 */
+  /** Info: (20260806 - Julian) 供推導有效進度與本期完成增量（決策 F／I）；Decimal 於邊界轉 number。 */
   contractQty: unknown;
   completedQty: unknown;
 };
 
 /**
- * 讀取專案工程分項明細（含所屬履約事項 id）。
+ * Info: (20260806 - Julian) 讀取專案工程分項明細（含所屬履約事項 id）。
  *
  * `progress` 回傳的是**有效進度**（依日報數量推導，未計量工項沿用人工值）——
  * 決策 F：推導值不回寫欄位，故凡是要用進度的地方都必須在取數時換算，
@@ -123,7 +123,7 @@ export type WorkItemDetail = RollupItem & {
 export async function getWorkItemDetails(
   projectId: string,
   /**
-   * 有效累計量的時間上限；省略為「至今」。
+   * Info: (20260806 - Julian) 有效累計量的時間上限；省略為「至今」。
    *
    * 產製某期間的報表時**必須給定**（期末），否則期間之後的日報數量會被
    * 算進那份報表的累計欄位。畫面即時顯示（台帳、儀表板）則省略即可。
@@ -155,7 +155,7 @@ export function computeProjectSCurve(
       })),
     );
   }
-  // 履約事項基準：實際完成日由其下工程分項上捲（見 obligation-rollup），手動 actualDate 優先。
+  // Info: (20260806 - Julian) 履約事項基準：實際完成日由其下工程分項上捲（見 obligation-rollup），手動 actualDate 優先。
   return buildSCurve(
     obligations.map((m) => {
       const items = workItems.filter((w) => w.obligationId === m.id);
@@ -168,7 +168,7 @@ export function computeProjectSCurve(
   );
 }
 
-/** 每個履約事項由工程分項上捲的達成度與分項數（供履約事項分頁顯示）。 */
+/** Info: (20260806 - Julian) 每個履約事項由工程分項上捲的達成度與分項數（供履約事項分頁顯示）。 */
 export function computeObligationRollups(
   obligations: ObligationLite[],
   workItems: WorkItemDetail[],
@@ -193,14 +193,14 @@ type OverviewProject = {
   paymentNodes: { status: string; amount: unknown }[];
 };
 
-/** 彙整單一專案總覽所需的關鍵指標（警示、進度、財務、工期）。 */
+/** Info: (20260806 - Julian) 彙整單一專案總覽所需的關鍵指標（警示、進度、財務、工期）。 */
 export function computeProjectOverview(project: OverviewProject) {
   const now = Date.now();
   const day = 86_400_000;
   const num = (v: unknown): number | null =>
     v == null ? null : Number(v as number);
 
-  // 進度採全系統單一定義：履約事項權重加權，達成由工程分項上捲判定。
+  // Info: (20260806 - Julian) 進度採全系統單一定義：履約事項權重加權，達成由工程分項上捲判定。
   const progress = rolledUpProgress(project.obligations, project.workItems, now);
 
   const openDefects = project.defects.filter(
@@ -253,7 +253,7 @@ export function computeProjectOverview(project: OverviewProject) {
 
 export type Viewer = { id: string; role: AccountRole };
 
-/** 側邊欄「目前專案」切換清單所需的欄位。 */
+/** Info: (20260806 - Julian) 側邊欄「目前專案」切換清單所需的欄位。 */
 export type ProjectOption = {
   id: string;
   code: string;
@@ -266,14 +266,14 @@ export type ProjectOption = {
   endDate: string | null;
 };
 
-/** 輕量專案選項，供側邊欄「目前專案」切換用，遵循同樣的存取範圍。 */
+/** Info: (20260806 - Julian) 輕量專案選項，供側邊欄「目前專案」切換用，遵循同樣的存取範圍。 */
 export async function listProjectOptions(
   viewer: Viewer,
 ): Promise<ProjectOption[]> {
   const rows = canSeeAllProjects(viewer.role)
     ? await projectRepo.listOptions()
     : await projectRepo.listOptionsForAccount(viewer.id);
-  // Info: Date 轉為 ISO 日期字串，避免跨 server/client 邊界的序列化差異
+  // Info: (20260728 - Luphia) Date 轉為 ISO 日期字串，避免跨 server/client 邊界的序列化差異
   const day = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
   return rows.map((p) => ({
     ...p,
@@ -282,19 +282,19 @@ export async function listProjectOptions(
   }));
 }
 
-/** Projects visible to the viewer — ADMIN/MANAGER see all, others see assigned only. */
+/** Info: (20260806 - Julian) Projects visible to the viewer — ADMIN/MANAGER see all, others see assigned only. */
 export async function listProjects(viewer: Viewer) {
   const projects = canSeeAllProjects(viewer.role)
     ? await projectRepo.listWithCounts()
     : await projectRepo.listWithCountsForAccount(viewer.id);
 
-  // 批次讀取各專案工項明細，逐案以「上捲」計算進度（全系統統一定義）
+  // Info: (20260806 - Julian) 批次讀取各專案工項明細，逐案以「上捲」計算進度（全系統統一定義）
   const projectIds = projects.map((p) => p.id);
   const [rawRows, qtyTotals] = await Promise.all([
     workItemRepo.listDetailByProjectIds(projectIds),
     loadDailyQtyTotalsForProjects(projectIds),
   ]);
-  // 進度以日報數量為準（決策 F）
+  // Info: (20260806 - Julian) 進度以日報數量為準（決策 F）
   const wiRows = withEffectiveProgressAll(rawRows, qtyTotals);
   const byProject = new Map<string, ProgressWorkItem[]>();
   for (const r of wiRows) {
@@ -309,7 +309,7 @@ export async function listProjects(viewer: Viewer) {
   }));
 }
 
-/** Returns the project only if the viewer may access it, otherwise null. */
+/** Info: (20260806 - Julian) Returns the project only if the viewer may access it, otherwise null. */
 export async function getProject(id: string, viewer: Viewer) {
   const project = await projectRepo.findByIdWithRelations(id);
   if (!project) return null;
@@ -320,7 +320,7 @@ export async function getProject(id: string, viewer: Viewer) {
     return null;
   }
   /*
-    工程分項的 progress 換為有效進度（決策 F）。
+    Info: (20260806 - Julian) 工程分項的 progress 換為有效進度（決策 F）。
     在此統一處理是因為 computeProjectOverview 是同步純函式，
     而它的三個呼叫端（專案頁、螢幕焦點、費思對話情境）都經由本函式取得專案；
     在此換算即三處同時受益，不必各自記得。
@@ -329,7 +329,7 @@ export async function getProject(id: string, viewer: Viewer) {
   return { ...project, workItems: withEffectiveProgressAll(project.workItems, totals) };
 }
 
-// ── staffing / members (配置人力) ──────────────────────────
+// Info: (20260806 - Julian) ── staffing / members (配置人力) ──────────────────────────
 const VALID_MEMBER_ROLES: ProjectMemberRole[] = [
   "MANAGER",
   "SUPERVISOR",
@@ -337,7 +337,7 @@ const VALID_MEMBER_ROLES: ProjectMemberRole[] = [
   "MEMBER",
 ];
 
-/** Active accounts that can be assigned to a project. */
+/** Info: (20260806 - Julian) Active accounts that can be assigned to a project. */
 export function listAssignableAccounts() {
   return accountRepo.listActive();
 }
@@ -363,13 +363,13 @@ export async function removeProjectMember(id: string) {
   await projectMemberRepo.remove(id);
 }
 
-// ── project create / update / delete ───────────────────────
+// Info: (20260806 - Julian) ── project create / update / delete ───────────────────────
 export type CreateProjectInput = {
   code?: string;
   name?: string;
-  /** 工程摘要。 */
+  /** Info: (20260806 - Julian) 工程摘要。 */
   description?: string;
-  /** 關鍵要求重點：影響施工方式的契約／規範條件，供施工設計與數位孿生動畫使用。 */
+  /** Info: (20260806 - Julian) 關鍵要求重點：影響施工方式的契約／規範條件，供施工設計與數位孿生動畫使用。 */
   keyRequirements?: string;
   location?: string;
   contractNo?: string;
@@ -379,7 +379,7 @@ export type CreateProjectInput = {
   budget?: string;
   startDate?: string;
   endDate?: string;
-  /** 契約簽訂日與開工命令日：履約事項的相對期限以這兩天為基準。 */
+  /** Info: (20260806 - Julian) 契約簽訂日與開工命令日：履約事項的相對期限以這兩天為基準。 */
   signedDate?: string;
   noticeDate?: string;
   status?: string;
@@ -431,9 +431,9 @@ export async function createProject(
   return { ok: true, id: project.id };
 }
 
-// ── 專案建置：一次建立專案 + 履約事項 + 工程分項 ─────────────
+// Info: (20260806 - Julian) ── 專案建置：一次建立專案 + 履約事項 + 工程分項 ─────────────
 export type WizardObligationInput = {
-  /** 源自哪一項履約標的（名稱）。 */
+  /** Info: (20260806 - Julian) 源自哪一項履約標的（名稱）。 */
   scopeRef?: string;
   code?: string;
   title?: string;
@@ -449,18 +449,18 @@ export type WizardObligationInput = {
 };
 
 export type WizardWorkItemInput = {
-  /** 所屬工程項目（分群）。 */
+  /** Info: (20260806 - Julian) 所屬工程項目（分群）。 */
   workPackage?: string;
-  /** 源自哪一項履約標的（名稱）。 */
+  /** Info: (20260806 - Julian) 源自哪一項履約標的（名稱）。 */
   scopeRef?: string;
   code?: string;
   name?: string;
   category?: string;
-  /** 所屬履約事項「名稱」，建立後再解析為 id。 */
+  /** Info: (20260806 - Julian) 所屬履約事項「名稱」，建立後再解析為 id。 */
   obligation?: string;
   plannedStart?: string;
   plannedEnd?: string;
-  /** 估驗台帳欄位：WBS 代碼、計量單位、契約數量與單價。 */
+  /** Info: (20260806 - Julian) 估驗台帳欄位：WBS 代碼、計量單位、契約數量與單價。 */
   wbsCode?: string;
   unit?: string;
   contractQty?: number;
@@ -474,12 +474,12 @@ const asDate = (v?: string) => {
 };
 
 /**
- * 建立專案，並依序寫入履約事項與工程分項。
+ * Info: (20260806 - Julian) 建立專案，並依序寫入履約事項與工程分項。
  * 工程分項以履約事項「名稱」對應剛建立的 id（名稱重複時取第一筆）。
  * 未提供管制編號時，依專案代號自動編號（如 ABC-001）以滿足唯一性。
  * 專案建立失敗即中止；子項目個別失敗不影響已建立的專案。
  */
-/** 建置時傳入的契約履約標的。 */
+/** Info: (20260806 - Julian) 建置時傳入的契約履約標的。 */
 export type WizardScopeItemInput = {
   code?: string;
   title: string;
@@ -487,7 +487,7 @@ export type WizardScopeItemInput = {
 };
 
 /**
- * 查出可能重複的既有專案。
+ * Info: (20260806 - Julian) 查出可能重複的既有專案。
  *
  * 比對在此處（伺服器端）進行而非交給前端：前端只拿得到自己畫面上的資料，
  * 而重複的另一半在資料庫裡。
@@ -516,17 +516,17 @@ export async function createProjectWithStructure(
   input: CreateProjectInput,
   obligations: WizardObligationInput[] = [],
   workItems: WizardWorkItemInput[] = [],
-  /** 契約履約標的（階段一）。履約事項與工程分項由此推導，存下才能溯源。 */
+  /** Info: (20260806 - Julian) 契約履約標的（階段一）。履約事項與工程分項由此推導，存下才能溯源。 */
   scopeItems: WizardScopeItemInput[] = [],
   /**
-   * 使用者已在確認視窗同意「即使重複也要建立」。
+   * Info: (20260806 - Julian) 使用者已在確認視窗同意「即使重複也要建立」。
    *
    * 預設 false 並在此處重查一次 —— 前端的檢查是為了讓使用者早點知道，
    * 不能當作把關：呼叫端可以不做檢查就送出，兩次檢查之間也可能有人
    * 剛建了同名專案。
    */
   allowDuplicate = false,
-  /** 本次解析使用的檔名，供「同一份契約已被別的專案用過」的判斷。 */
+  /** Info: (20260806 - Julian) 本次解析使用的檔名，供「同一份契約已被別的專案用過」的判斷。 */
   fileNames: string[] = [],
 ): Promise<CreateProjectResult> {
   const duplicates = await checkDuplicates({
@@ -539,7 +539,7 @@ export async function createProjectWithStructure(
     fileNames,
   });
   /*
-    編號撞號一律擋（資料庫的 unique 約束，同意也建不出來）；
+    Info: (20260806 - Julian) 編號撞號一律擋（資料庫的 unique 約束，同意也建不出來）；
     其餘只在使用者尚未確認時擋。
   */
   if (duplicates.length > 0 && (!allowDuplicate || hasBlocking(duplicates))) {
@@ -556,7 +556,7 @@ export async function createProjectWithStructure(
   if (!result.ok) return result;
   const projectId = result.id;
 
-  // 先建立履約標的，取得「名稱 → id」對照供下游關聯
+  // Info: (20260806 - Julian) 先建立履約標的，取得「名稱 → id」對照供下游關聯
   const scopeIdByTitle = await scopeRepo.createMany(projectId, scopeItems);
 
   const prefix = input.code?.trim() || "OB";
@@ -612,7 +612,7 @@ export async function createProjectWithStructure(
       workPackage: w.workPackage?.trim() || null,
       scopeItemId: w.scopeRef ? (scopeIdByTitle.get(w.scopeRef.trim()) ?? null) : null,
       /*
-        數量與單價：契約有列才寫入。
+        Info: (20260806 - Julian) 數量與單價：契約有列才寫入。
         完成量、查驗量、估驗量一律留空 —— 建案當下還沒有任何施作，
         預設為 0 會讓台帳看起來像「已對過帳、數量為零」。
       */
@@ -628,7 +628,7 @@ export async function createProjectWithStructure(
 }
 
 /**
- * 由分項名稱推得 WBS 類別。
+ * Info: (20260806 - Julian) 由分項名稱推得 WBS 類別。
  *
  * 名稱對得上知識庫的參考分項時用它的類別，否則留空由使用者於台帳指定。
  * 不亂猜是刻意的：錯誤的類別會讓「土建完成幾成」這種彙總失真，
@@ -661,7 +661,7 @@ export async function updateProject(id: string, input: UpdateProjectInput) {
   await projectRepo.update(id, data);
 }
 
-// Deletions are soft (set deletedAt); records stay recoverable for 90 days.
+// Info: (20260806 - Julian) Deletions are soft (set deletedAt); records stay recoverable for 90 days.
 export async function deleteProject(id: string) {
   await projectRepo.softDelete(id);
 }
@@ -670,7 +670,7 @@ export async function restoreProject(id: string) {
   await projectRepo.restore(id);
 }
 
-// ── 履約事項 ────────────────────────────────────────────────
+// Info: (20260806 - Julian) ── 履約事項 ────────────────────────────────────────────────
 export type ObligationInput = {
   projectId: string;
   code?: string;
@@ -689,7 +689,7 @@ export type ObligationInput = {
   offsetDays?: string;
   docNo?: string;
   note?: string;
-  /** 觸發設定（皆為表單字串）。 */
+  /** Info: (20260806 - Julian) 觸發設定（皆為表單字串）。 */
   relativeAnchor?: string;
   predecessorId?: string;
   conditionKind?: string;
@@ -728,7 +728,7 @@ export async function addObligation(input: ObligationInput) {
     docNo: input.docNo?.trim() || undefined,
     note: input.note?.trim() || undefined,
     /*
-      觸發設定：只保留與所選觸發方式相關的欄位。
+      Info: (20260806 - Julian) 觸發設定：只保留與所選觸發方式相關的欄位。
       與細節頁的編輯共用同一條規則（見 obligation-edit 的說明）——
       留著不相關的舊設定，日後換回該方式時會沿用一個早已無意義的值。
     */
@@ -755,7 +755,7 @@ export async function addObligation(input: ObligationInput) {
 }
 
 /*
-  履約事項的「完成」刻意不放在這裡。
+  Info: (20260806 - Julian) 履約事項的「完成」刻意不放在這裡。
   完成必須先確認歸屬的工程分項都已完成，那道關卡在
   obligation.service.completeObligation。留一個未把關的同名函式在此，
   下一個人多半會就近取用，限制便形同虛設。
@@ -769,7 +769,7 @@ export async function restoreObligation(id: string) {
   await obligationRepo.restore(id);
 }
 
-// ── contract changes ───────────────────────────────────────
+// Info: (20260806 - Julian) ── contract changes ───────────────────────────────────────
 export type ContractChangeInput = {
   projectId: string;
   sequence?: string;
@@ -812,7 +812,7 @@ export async function restoreContractChange(id: string) {
   await contractChangeRepo.restore(id);
 }
 
-// ── documents ──────────────────────────────────────────────
+// Info: (20260806 - Julian) ── documents ──────────────────────────────────────────────
 export type DocumentInput = {
   projectId: string;
   category?: string;

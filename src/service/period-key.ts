@@ -1,5 +1,5 @@
 /**
- * 彙整報表的**期間身分鍵**（純函式，無相依，便於單元測試與腳本共用）。
+ * Info: (20260806 - Julian) 彙整報表的**期間身分鍵**（純函式，無相依，便於單元測試與腳本共用）。
  *
  * 鍵是留存的身分（見 schema 對 `GeneratedReport.periodKey` 的說明）：
  * 以文字表達「哪一個期間」，取代原先以 `periodStart` 相等比對的做法
@@ -18,7 +18,7 @@
  * 於是使用者選 2026 年而系統覆寫 2025 年的草稿。
  */
 
-/** 與 `report.service.ReportType` 相同的字面集合；此處不 import 以維持零相依。 */
+/** Info: (20260806 - Julian) 與 `report.service.ReportType` 相同的字面集合；此處不 import 以維持零相依。 */
 export type PeriodKeyType =
   | "DAILY"
   | "WEEKLY"
@@ -28,18 +28,18 @@ export type PeriodKeyType =
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** 本地日曆日的 `YYYY-MM-DD`。 */
+/** Info: (20260806 - Julian) 本地日曆日的 `YYYY-MM-DD`。 */
 export const ymdKey = (d: Date) =>
   `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
-/** 週的起日（週一）；與 `periodRange` 的 WEEKLY 分支同一算法。 */
+/** Info: (20260806 - Julian) 週的起日（週一）；與 `periodRange` 的 WEEKLY 分支同一算法。 */
 export function weekStart(ref: Date): Date {
-  const dow = (ref.getDay() + 6) % 7; // 0 = 星期一
+  const dow = (ref.getDay() + 6) % 7; // Info: (20260806 - Julian) 0 = 星期一
   return new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() - dow);
 }
 
 /**
- * 期間身分鍵。
+ * Info: (20260806 - Julian) 期間身分鍵。
  *
  * `ref` 為該期間內的任一日（通常是使用者選的基準日）；
  * 同一期間內的任何一天都必須得到同一個鍵。
@@ -63,7 +63,7 @@ export function periodKeyFor(type: PeriodKeyType, ref: Date): string {
 }
 
 /**
- * 由期間鍵反推顯示標籤，供回填腳本自我檢查用。
+ * Info: (20260806 - Julian) 由期間鍵反推顯示標籤，供回填腳本自我檢查用。
  *
  * 腳本要把既有列的 `periodStart` 推回鍵，而 `periodStart` 是絕對時點：
  * 若腳本執行的時區與當初寫入時不同，推出來的鍵會落在相鄰期間，
@@ -85,13 +85,13 @@ export function labelForKey(key: string): string | null {
     }
     case "ANNUAL":
       return `${rest} 年`;
-    // DAILY／WEEKLY 的標籤帶格式化日期，交由呼叫端另行判斷
+    // Info: (20260806 - Julian) DAILY／WEEKLY 的標籤帶格式化日期，交由呼叫端另行判斷
     default:
       return null;
   }
 }
 /**
- * 基準日的合理範圍。
+ * Info: (20260806 - Julian) 基準日的合理範圍。
  *
  * `<input type="date">` 在年份欄位逐鍵輸入時會**每按一鍵就送出一次**
  * 完整日期：輸入 2026 依序產生 0002／0020／0202／2026 年。
@@ -101,11 +101,11 @@ export function labelForKey(key: string): string | null {
 const MIN_YEAR = 2000;
 const MAX_YEAR = 2100;
 
-/** 表單送來的純日期（`<input type="date">` 的格式）。 */
+/** Info: (20260806 - Julian) 表單送來的純日期（`<input type="date">` 的格式）。 */
 const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /**
- * 解析基準日；無效或超出合理範圍時回 `null`（呼叫端應拒絕該請求）。
+ * Info: (20260806 - Julian) 解析基準日；無效或超出合理範圍時回 `null`（呼叫端應拒絕該請求）。
  *
  * 未給定則以今日為準 —— 那是使用者沒有指定期間時唯一合理的預設。
  *
@@ -130,7 +130,7 @@ export function parseRefDate(refIso: string | undefined): Date | null {
   const y = d.getFullYear();
   if (y < MIN_YEAR || y > MAX_YEAR) return null;
   /*
-    `new Date(2026, 12, 40)` 不會是 NaN，而是靜默進位到隔年 ——
+    Info: (20260806 - Julian) `new Date(2026, 12, 40)` 不會是 NaN，而是靜默進位到隔年 ——
     純日期字串的年月日必須原樣還原，否則 `2026-13-01` 會變成 2027 年 1 月。
   */
   if (

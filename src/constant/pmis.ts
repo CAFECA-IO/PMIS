@@ -49,14 +49,14 @@ export const projectMemberRoleOptions = Object.entries(
   projectMemberRoleMeta,
 ).map(([value, meta]) => ({ value, label: meta.label }));
 
-// ── PMIS-10 碳盤查 ──────────────────────────────────────────
+// Info: (20260806 - Julian) ── PMIS-10 碳盤查 ──────────────────────────────────────────
 export const carbonScopeMeta: Record<CarbonScope, Meta> = {
   SCOPE_1: { label: "範疇一 直接排放", variant: "outline" },
   SCOPE_2: { label: "範疇二 外購電力", variant: "warning" },
   SCOPE_3: { label: "範疇三 上下游", variant: "secondary" },
 };
 
-/** 分範疇圖表用色（對應 CSS 色票）。 */
+/** Info: (20260806 - Julian) 分範疇圖表用色（對應 CSS 色票）。 */
 export const carbonScopeColor: Record<CarbonScope, string> = {
   SCOPE_1: "var(--destructive)",
   SCOPE_2: "#f59e0b",
@@ -83,7 +83,7 @@ export const carbonIntensityBasisOptions = Object.entries(
   carbonIntensityBasisMeta,
 ).map(([value, meta]) => ({ value, label: meta.label }));
 
-// ── PMIS-08 財務管理 ────────────────────────────────────────
+// Info: (20260806 - Julian) ── PMIS-08 財務管理 ────────────────────────────────────────
 export const financialDirectionMeta: Record<FinancialDirection, Meta> = {
   INCOME: { label: "收入", variant: "success" },
   EXPENSE: { label: "支出", variant: "outline" },
@@ -245,7 +245,7 @@ export const reportStatusMeta: Record<ReportStatus, Meta> = {
 };
 
 /**
- * 停工原因的顯示標籤（決策 H）。
+ * Info: (20260806 - Julian) 停工原因的顯示標籤（決策 H）。
  *
  * 值為空（null）代表當日有施工，故不在此列舉之內。
  * 月報的工作日統計一律依此欄位，不再以天氣或敘述推測（決策 D）。
@@ -263,12 +263,12 @@ export const workStopReasonOptions = Object.entries(workStopReasonMeta).map(
 );
 
 /**
- * 彙整報表（週／月／季／年）留存的狀態標籤（決策 J-a）。
+ * Info: (20260806 - Julian) 彙整報表（週／月／季／年）留存的狀態標籤（決策 J-a）。
  *
  * 與日報的 `reportStatusMeta` 是不同的狀態機，不可共用：
  * 日報有 DRAFT／SUBMITTED／APPROVED 三態，彙整報表只有草稿與定稿。
  */
-/** 彙整報表的週期別標籤（清單需標示，否則同期間的週報與月報分不出來）。 */
+/** Info: (20260806 - Julian) 彙整報表的週期別標籤（清單需標示，否則同期間的週報與月報分不出來）。 */
 export const periodReportTypeMeta: Record<PeriodReportType, Meta> = {
   DAILY: { label: "日報", variant: "muted" },
   WEEKLY: { label: "週報", variant: "secondary" },
@@ -283,7 +283,7 @@ export const periodReportStatusMeta: Record<PeriodReportStatus, Meta> = {
 };
 
 /**
- * 該留存是否已凍結（送審依據，不可修改或刪除）。
+ * Info: (20260806 - Julian) 該留存是否已凍結（送審依據，不可修改或刪除）。
  *
  * 「CONFIRMED 即凍結」是業務規則，出現在服務層的確認與刪除守門、
  * 以及畫面的按鈕可見性三處。收在此處以免三份各自內聯字面值 ——
@@ -294,7 +294,7 @@ export function isPeriodReportFrozen(status: PeriodReportStatus): boolean {
 }
 
 /**
- * 日報數量計入累計完成量的狀態（決策 G，2026-08-05）。
+ * Info: (20260806 - Julian) 日報數量計入累計完成量的狀態（決策 G，2026-08-05）。
  *
  * **草稿不計入。** 依決策 A，日報數量表的加總是月報累計完成量與估驗金額的
  * 權威來源；若草稿即計入，未經簽核的數字會直接流進正式報表與金額。
@@ -311,13 +311,13 @@ export const QTY_COUNTED_REPORT_STATUSES: readonly ReportStatus[] = [
   "APPROVED",
 ];
 
-/** 該狀態的日報數量是否計入累計完成量。 */
+/** Info: (20260806 - Julian) 該狀態的日報數量是否計入累計完成量。 */
 export function countsTowardQty(status: ReportStatus): boolean {
   return QTY_COUNTED_REPORT_STATUSES.includes(status);
 }
 
 /**
- * 日報數量「尚未計入」累計的狀態（決策 G 的可見性配套）。
+ * Info: (20260806 - Julian) 日報數量「尚未計入」累計的狀態（決策 G 的可見性配套）。
  *
  * 由計入清單反推而非另列一份：計入規則若變更（例如改為僅已核備才計入），
  * 本清單自動跟著改，不會出現兩份清單各說各話。

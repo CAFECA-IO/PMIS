@@ -22,7 +22,7 @@ import {
 import type { AccountRole } from "@/generated/prisma/enums";
 
 /**
- * 詳細工項數量與估驗台帳。
+ * Info: (20260806 - Julian) 詳細工項數量與估驗台帳。
  *
  * 台帳把「契約怎麼計價」與「實際做到哪裡」放在同一張表上：
  * 契約數量 × 單價是應得的，累計完成是做了的，查驗合格是驗過的，
@@ -39,7 +39,7 @@ async function canAccess(projectId: string, viewer: Viewer): Promise<boolean> {
   return Boolean(await memberRepo.exists(projectId, viewer.id));
 }
 
-/** Prisma 的 Decimal 不是 number；直接運算會得到字串相接的結果。 */
+/** Info: (20260806 - Julian) Prisma 的 Decimal 不是 number；直接運算會得到字串相接的結果。 */
 function num(value: unknown): number | null {
   if (value === null || value === undefined) return null;
   const n = Number(value);
@@ -47,16 +47,16 @@ function num(value: unknown): number | null {
 }
 
 /**
- * 台帳一列，外加「尚未計入的草稿數量」（決策 G 的可見性配套）。
+ * Info: (20260806 - Julian) 台帳一列，外加「尚未計入的草稿數量」（決策 G 的可見性配套）。
  *
  * pendingQty 純為畫面提示，不參與任何累計、金額或狀態推導 ——
  * 它代表「已填但還不算數」的量，混入運算會讓草稿影響正式數字。
  */
 export type LedgerRowWithPending = LedgerRow & {
-  /** 尚未計入累計的數量（來自草稿日報）；無則 null。 */
+  /** Info: (20260806 - Julian) 尚未計入累計的數量（來自草稿日報）；無則 null。 */
   pendingQty: number | null;
   /**
-   * 期初累計完成量，即 `WorkItem.completedQty` 的**原始欄位值**（決策 A）。
+   * Info: (20260806 - Julian) 期初累計完成量，即 `WorkItem.completedQty` 的**原始欄位值**（決策 A）。
    *
    * 本列的 `completedQty` 已被 `withEffectiveQtyAll` 換成有效累計
    * （期初＋日報加總），是推導值。編輯表單一律回寫本欄而非 `completedQty`
@@ -65,7 +65,7 @@ export type LedgerRowWithPending = LedgerRow & {
    */
   openingQty: number | null;
   /**
-   * 已計入累計的日報數量總和；無任何已計入紀錄時為 null。
+   * Info: (20260806 - Julian) 已計入累計的日報數量總和；無任何已計入紀錄時為 null。
    *
    * 與「`completedQty` 減 `openingQty`」不等價：期初可能為 null，
    * 而 null 減出來的差在畫面上與「沒有日報」分不出來 ——
@@ -81,15 +81,15 @@ export type ProjectLedger = {
   projectCode: string;
   rows: LedgerRowWithPending[];
   totals: LedgerTotals;
-  /** 依 WBS 類別彙整。 */
+  /** Info: (20260806 - Julian) 依 WBS 類別彙整。 */
   groups: WbsGroup[];
-  /** 數量互相矛盾的列。 */
+  /** Info: (20260806 - Julian) 數量互相矛盾的列。 */
   anomalies: LedgerRowWithPending[];
-  /** 尚未填入契約數量的列數（台帳完整度）。 */
+  /** Info: (20260806 - Julian) 尚未填入契約數量的列數（台帳完整度）。 */
   unpriced: number;
 };
 
-/** 取整本台帳；無權存取或找不到專案時回 null。 */
+/** Info: (20260806 - Julian) 取整本台帳；無權存取或找不到專案時回 null。 */
 export async function getProjectLedger(
   projectId: string,
   viewer: Viewer,
@@ -109,23 +109,23 @@ export async function getProjectLedger(
     name: w.name,
     unit: w.unit,
     wbsCode: w.wbsCode,
-    // 未指定 WBS 類別時退回既有的 category 欄位，讓舊資料也能彙整
+    // Info: (20260806 - Julian) 未指定 WBS 類別時退回既有的 category 欄位，讓舊資料也能彙整
     wbsCategory: w.wbsCategory ?? null,
     contractQty: num(w.contractQty),
     unitPrice: num(w.unitPrice),
-    // completedQty 欄位自決策 A 起為「期初」；當前累計為期初＋日報加總
+    // Info: (20260806 - Julian) completedQty 欄位自決策 A 起為「期初」；當前累計為期初＋日報加總
     completedQty: num(w.completedQty),
     inspectedQty: num(w.inspectedQty),
     valuatedQty: num(w.valuatedQty),
   }));
 
   /*
-    以有效累計量取代期初值後才交給推導函式。
+    Info: (20260806 - Julian) 以有效累計量取代期初值後才交給推導函式。
 
     ledgerRow 及其下的金額、完成率、估驗狀態、異常判定全部以參數接收數量，
     因此這一行就讓整本台帳改以日報為準，推導邏輯本身零改動（決策 A）。
   */
-  // 期初原值另存一份：換算後 completedQty 即為推導值，編輯表單需要的是期初
+  // Info: (20260806 - Julian) 期初原值另存一份：換算後 completedQty 即為推導值，編輯表單需要的是期初
   const openingById = new Map(inputs.map((i) => [i.id, i.completedQty]));
 
   const rows: LedgerRowWithPending[] = ledgerRows(
@@ -161,7 +161,7 @@ export type LedgerQtyInput = {
 
 export type MutationResult = { ok: true } | { ok: false; error: string };
 
-/** 數量字串轉數值；空白視為清空（null），不合法則拒絕。 */
+/** Info: (20260806 - Julian) 數量字串轉數值；空白視為清空（null），不合法則拒絕。 */
 function qty(
   value: string | undefined,
   label: string,
@@ -181,7 +181,7 @@ const text = (v: string | undefined) => {
 };
 
 /**
- * 更新一列台帳的數量與單價。
+ * Info: (20260806 - Julian) 更新一列台帳的數量與單價。
  *
  * 此處輸入的 `completedQty` 自決策 A 起是**期初累計量**（開始以日報填報
  * 之前的基準），不是當前累計 —— 當前累計為期初＋日報加總，不回寫欄位。
@@ -204,7 +204,7 @@ export async function updateLedgerQty(
   }
 
   /*
-    ── 單位變更守門（決策 L）────────────────────────────────
+    Info: (20260806 - Julian) ── 單位變更守門（決策 L）────────────────────────────────
     日報數量列的 unit 是建立當下自 WorkItem.unit 取的快照。
     若該工項已有日報列之後才改單位，新舊列量綱不同卻照樣加總，
     而台帳上每一列看起來都很正常 —— 這正是知識庫審閱清單警告過的失效樣態
@@ -227,7 +227,7 @@ export async function updateLedgerQty(
   const parsed = {
     contractQty: qty(input.contractQty, "契約數量"),
     unitPrice: qty(input.unitPrice, "單價"),
-    // 標籤刻意寫「期初」：此欄自決策 A 起不是當前累計，錯誤訊息也應這樣講
+    // Info: (20260806 - Julian) 標籤刻意寫「期初」：此欄自決策 A 起不是當前累計，錯誤訊息也應這樣講
     completedQty: qty(input.completedQty, "期初完成量"),
     inspectedQty: qty(input.inspectedQty, "查驗合格量"),
     valuatedQty: qty(input.valuatedQty, "累計估驗量"),
@@ -245,7 +245,7 @@ export async function updateLedgerQty(
   };
 
   /*
-    數量之間的矛盾不在此擋下 —— 台帳的用途之一就是「把矛盾顯示出來」。
+    Info: (20260806 - Julian) 數量之間的矛盾不在此擋下 —— 台帳的用途之一就是「把矛盾顯示出來」。
     現場常先量到完成量、隔幾天才補查驗紀錄，過程中本來就會不一致；
     此時拒絕輸入只會逼使用者亂填以通過檢核。差異異常頁負責讓它被看見。
   */

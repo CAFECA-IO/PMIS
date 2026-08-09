@@ -2,7 +2,7 @@ import "dotenv/config";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "../src/generated/prisma/client";
 /*
-  期間鍵的算法與應用程式**共用同一份**。
+  Info: (20260806 - Julian) 期間鍵的算法與應用程式**共用同一份**。
 
   這裡先前是手抄的第二份實作，靠註解約定「必須與 periodRange 完全一致」——
   兩份今天一致，但沒有任何東西在其中一份改動時攔下來，
@@ -16,7 +16,7 @@ import {
 } from "../src/service/period-key";
 
 /**
- * 回填 `GeneratedReport.periodKey` 與 `confirmedPeriodKey`（2026-08-08）。
+ * Info: (20260806 - Julian) 回填 `GeneratedReport.periodKey` 與 `confirmedPeriodKey`（2026-08-08）。
  *
  * 背景：期間身分原本用 `periodStart` 相等比對，而該值由伺服器時區推導，
  * 部署時區一改就對不上，「同期只有一份定稿」的守門會靜默失效。
@@ -64,7 +64,7 @@ const prisma = new PrismaClient({ adapter });
 const APPLY = process.argv.includes("--apply");
 
 /**
- * 由 `type` 與 `periodStart` 推回期間鍵。
+ * Info: (20260806 - Julian) 由 `type` 與 `periodStart` 推回期間鍵。
  *
  * 算法取自 `period-key.periodKeyFor`，不在此另寫一份。
  * `periodStart` 當初即以本地建構子寫入，故此處同樣以本地取值還原
@@ -104,7 +104,7 @@ async function main() {
   }));
 
   /*
-    ── 時區前提的自我檢查（必要，不是保險）─────────────────────
+    Info: (20260806 - Julian) ── 時區前提的自我檢查（必要，不是保險）─────────────────────
 
     `periodStart` 在資料庫裡是**絕對時點**，本腳本卻用本地取值把它讀回
     日曆日。這個還原只在「腳本執行的時區＝當初寫入的時區」時才正確。
@@ -152,7 +152,7 @@ async function main() {
   }
 
   /*
-    先檢查同期是否已有多份定稿。
+    Info: (20260806 - Julian) 先檢查同期是否已有多份定稿。
 
     舊的「先查再寫」擋不住並行確認，資料庫裡有可能已經存在兩份同期定稿；
     此時 `@@unique([projectId, confirmedPeriodKey])` 會在回填時擋下。
@@ -210,7 +210,7 @@ async function main() {
   }
 
   /*
-    同專案同期間的重複草稿：不阻擋回填（草稿沒有唯一約束，也不會有資料損失），
+    Info: (20260806 - Julian) 同專案同期間的重複草稿：不阻擋回填（草稿沒有唯一約束，也不會有資料損失），
     但必須講出來 —— 回填後 `findDraftForPeriod` 只會取其中最新的一筆，
     其餘幾筆會留在清單裡卻永遠不再被覆寫，看起來像同一個月有好幾份草稿。
     這些通常是「開啟頁面即自動產製」時代留下的殘骸。
@@ -247,7 +247,7 @@ async function main() {
     return;
   }
 
-  // 一次交易：要嘛全部回填，要嘛維持原狀，不留半套狀態
+  // Info: (20260806 - Julian) 一次交易：要嘛全部回填，要嘛維持原狀，不留半套狀態
   await prisma.$transaction(
     todo.map((r) =>
       prisma.generatedReport.update({
@@ -255,7 +255,7 @@ async function main() {
         data: {
           periodKey: r.nextKey,
           /*
-            草稿一律把 confirmedPeriodKey 清為 null。
+            Info: (20260806 - Julian) 草稿一律把 confirmedPeriodKey 清為 null。
             該欄是「定稿唯一」約束的載體，草稿上殘留舊值會占用
             (projectId, confirmedPeriodKey) 這個位置，
             使該期間真正要定稿時撞上唯一約束卻找不到對應的定稿列。

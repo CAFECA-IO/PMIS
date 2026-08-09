@@ -1,5 +1,5 @@
 /**
- * 工程分項 → 履約事項 上捲：由工程分項進度推算履約事項達成度。
+ * Info: (20260806 - Julian) 工程分項 → 履約事項 上捲：由工程分項進度推算履約事項達成度。
  *
  * - derivedProgress：其下工程分項以「預定工期天數」加權的平均進度（無預定日則等權）。
  * - effectiveActual：履約事項的「實際完成日」計算原則——
@@ -26,7 +26,7 @@ function durationWeight(w: RollupItem): number {
   return 1;
 }
 
-/** 工項加權平均進度（0–100，四捨五入到小數 1 位）。 */
+/** Info: (20260806 - Julian) 工項加權平均進度（0–100，四捨五入到小數 1 位）。 */
 export function derivedProgress(items: RollupItem[]): number {
   if (items.length === 0) return 0;
   let wsum = 0;
@@ -44,7 +44,7 @@ function maxDate(dates: (Date | null)[]): Date | null {
   return ts.length ? new Date(Math.max(...ts)) : null;
 }
 
-/** 履約事項的有效實際完成日（見檔頭原則）。 */
+/** Info: (20260806 - Julian) 履約事項的有效實際完成日（見檔頭原則）。 */
 export function effectiveObligationActual(
   manualActual: Date | null,
   items: RollupItem[],
@@ -60,20 +60,20 @@ export function effectiveObligationActual(
   return null;
 }
 
-// ── 全系統統一的「專案進度」定義（上捲：工程分項→履約事項→加權%）──────
+// Info: (20260806 - Julian) ── 全系統統一的「專案進度」定義（上捲：工程分項→履約事項→加權%）──────
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export type ProgressObligation = {
   id?: string | null;
   weight: number;
-  /** 期限 */
+  /** Info: (20260806 - Julian) 期限 */
   dueDate: Date | null;
   actualDate: Date | null;
 };
 export type ProgressWorkItem = RollupItem & { obligationId: string | null };
 
 /**
- * 專案進度（截至 now）＝以履約事項權重加權的達成度，達成與否由工程分項上捲後的
+ * Info: (20260806 - Julian) 專案進度（截至 now）＝以履約事項權重加權的達成度，達成與否由工程分項上捲後的
  * 有效實際完成日判定（見 effectiveObligationActual）。回傳 overall / planned / gap。
  * 適用範圍（2026-08-07 決策 I 後縮小）：專案列表、專案總覽、履約事項分頁、
  * 費思摘要、儀表板。**監造月報不再使用本函式**——月報的預定與完成進度

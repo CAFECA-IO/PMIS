@@ -37,7 +37,7 @@ import type {
 } from "@/generated/prisma/enums";
 
 /**
- * 監造報表（工程日誌 PMIS-11 之「日報」）服務。
+ * Info: (20260806 - Julian) 監造報表（工程日誌 PMIS-11 之「日報」）服務。
  * 日報由監造人員人工填報，不再由 AI 生成；週/月/季/年報由 AI 彙整（見 report.service）。
  */
 export type Actor = { id: string; role: AccountRole; name?: string };
@@ -55,7 +55,7 @@ function parseStatus(v: string | undefined): ReportStatus {
     : "DRAFT";
 }
 
-/** 把日報列轉成可比對的欄位表（決策 J-b）。 */
+/** Info: (20260806 - Julian) 把日報列轉成可比對的欄位表（決策 J-b）。 */
 function comparable(r: {
   weather: string | null;
   summary: string | null;
@@ -94,13 +94,13 @@ const toSnapshot = (rows: {
   }));
 
 /*
-  停工原因的合法值取自 `workStopReasonMeta`（同 VALID_STATUSES 的作法），
+  Info: (20260806 - Julian) 停工原因的合法值取自 `workStopReasonMeta`（同 VALID_STATUSES 的作法），
   不在此另抄一份 —— enum 增減時內聯清單必然漏改，而漏改的後果是
   使用者選了新原因卻被靜默當成「當日有施工」。
 */
 const VALID_STOP_REASONS = Object.keys(workStopReasonMeta) as WorkStopReason[];
 
-/** 停工原因；空字串或未知值一律視為「當日有施工」（null）。 */
+/** Info: (20260806 - Julian) 停工原因；空字串或未知值一律視為「當日有施工」（null）。 */
 function parseStopReason(v: string | undefined): WorkStopReason | null {
   const s = v?.trim();
   if (!s) return null;
@@ -126,19 +126,19 @@ export type ReportInput = {
   equipment?: string;
   keyNotes?: string;
   status?: string;
-  /** 停工原因（決策 H）；空值代表當日有施工。 */
+  /** Info: (20260806 - Julian) 停工原因（決策 H）；空值代表當日有施工。 */
   stopReason?: string;
-  /** 是否免計工期（E5）；表單以 checkbox 送出。 */
+  /** Info: (20260806 - Julian) 是否免計工期（E5）；表單以 checkbox 送出。 */
   excludedFromDuration?: string;
-  /** 免計工期的契約依據。 */
+  /** Info: (20260806 - Julian) 免計工期的契約依據。 */
   exclusionBasis?: string;
-  /** 數量表（E1）：由表單以 JSON 字串送出，見 parseQtyEntries。 */
+  /** Info: (20260806 - Julian) 數量表（E1）：由表單以 JSON 字串送出，見 parseQtyEntries。 */
   items?: string;
 };
 
-// ── 數量表（E1）─────────────────────────────────────────────
+// Info: (20260806 - Julian) ── 數量表（E1）─────────────────────────────────────────────
 
-/** 表單一列的數量輸入（前端送來的原始形狀，尚未驗證）。 */
+/** Info: (20260806 - Julian) 表單一列的數量輸入（前端送來的原始形狀，尚未驗證）。 */
 type RawQtyEntry = {
   workItemId?: unknown;
   itemName?: unknown;
@@ -147,23 +147,23 @@ type RawQtyEntry = {
   note?: unknown;
 };
 
-/** 預帶清單的一列：工項識別與判讀所需的參考數字。 */
+/** Info: (20260806 - Julian) 預帶清單的一列：工項識別與判讀所需的參考數字。 */
 export type QtyFormRow = {
   workItemId: string;
   name: string;
   unit: string | null;
   contractQty: number | null;
   /**
-   * 目前有效累計量（期初＋已計入的日報加總），供填寫時判斷合理性。
+   * Info: (20260806 - Julian) 目前有效累計量（期初＋已計入的日報加總），供填寫時判斷合理性。
    *
    * **不含正在編輯的這一份日報**——否則表單上的
    * 「填報後累計 = 本欄 + 本日填報」會把同一筆量算兩次。
    */
   cumulativeQty: number | null;
-  /** 本日已填的數量；新報表為 null。 */
+  /** Info: (20260806 - Julian) 本日已填的數量；新報表為 null。 */
   dailyQty: number | null;
   /**
-   * 本日已填的備註；新報表為 null。
+   * Info: (20260806 - Julian) 本日已填的備註；新報表為 null。
    *
    * 必須帶回表單：備註常是免計工期或數量異常的唯一書面理由，
    * 若表單讀不到它，使用者只是開啟日報存個檔就會把它清成 null，
@@ -172,7 +172,7 @@ export type QtyFormRow = {
   note: string | null;
 };
 
-/** 契約外臨時項目（不在台帳上）的既有填寫內容。 */
+/** Info: (20260806 - Julian) 契約外臨時項目（不在台帳上）的既有填寫內容。 */
 export type QtyExtraRow = {
   itemName: string;
   unit: string | null;
@@ -189,7 +189,7 @@ const toNum = (v: unknown): number | null =>
   v == null ? null : Number(v as number);
 
 /**
- * 數量表的預帶清單。
+ * Info: (20260806 - Julian) 數量表的預帶清單。
  *
  * 開啟表單即列出該專案所有工程分項（含單位、契約數量、目前累計），
  * 監造只需在「本日完成」填數字 —— 逐格從頭輸入在實務上會導致
@@ -209,9 +209,9 @@ export async function loadQtyForm(
     loadDailyQtyTotals(projectId),
   ]);
 
-  // 該日既有報表的已填數量（若有）
+  // Info: (20260806 - Julian) 該日既有報表的已填數量（若有）
   let existing: Awaited<ReturnType<typeof reportRepo.listItems>> = [];
-  /** 正在編輯的這一份是否已計入累計（決策 G）。 */
+  /** Info: (20260806 - Julian) 正在編輯的這一份是否已計入累計（決策 G）。 */
   let ownAlreadyCounted = false;
   if (dateISO) {
     const date = new Date(dateISO);
@@ -224,7 +224,7 @@ export async function loadQtyForm(
     }
   }
   /*
-    同一工項的多列**相加**，不是取最後一筆。
+    Info: (20260806 - Julian) 同一工項的多列**相加**，不是取最後一筆。
 
     正常情況下不會有重複（`parseQtyEntries` 會先合併），但歷史資料可能有
     —— `SupervisionReportItem` 沒有 `@@unique([reportId, workItemId])`。
@@ -245,7 +245,7 @@ export async function loadQtyForm(
   }
 
   /*
-    編輯一份已提送／已核備的日報時，它的數量已經在 cumulativeTotals 裡。
+    Info: (20260806 - Julian) 編輯一份已提送／已核備的日報時，它的數量已經在 cumulativeTotals 裡。
     「目前累計」要呈現的是「這一份以外」的累計，否則表單的
     「填報後累計 = 目前累計 + 本日填報」會重複計入同一筆量，
     連帶讓「超出契約數量」的提示誤報。草稿則本來就沒被計入，不需扣。
@@ -268,7 +268,7 @@ export async function loadQtyForm(
       dailyQty: filled.get(w.id)?.qty ?? null,
       note: filled.get(w.id)?.note ?? null,
     })),
-    // 契約外臨時項目沿用既有填寫內容（無台帳可預帶）
+    // Info: (20260806 - Julian) 契約外臨時項目沿用既有填寫內容（無台帳可預帶）
     extras: existing
       .filter((i) => !i.workItemId)
       .map((i) => ({
@@ -281,7 +281,7 @@ export async function loadQtyForm(
 }
 
 /**
- * 解析並驗證表單送來的數量表。
+ * Info: (20260806 - Julian) 解析並驗證表單送來的數量表。
  *
  * 關鍵防護：
  *  - 台帳工項的 `itemName`／`unit` **一律以伺服器端的 WorkItem 為準**，
@@ -331,9 +331,9 @@ export async function parseQtyEntries(
 
     if (workItemId) {
       const w = byId.get(workItemId);
-      if (!w) continue; // 非本專案工項
+      if (!w) continue; // Info: (20260806 - Julian) 非本專案工項
       /*
-        同一工項在同一份日報只留一列，重複者相加。
+        Info: (20260806 - Julian) 同一工項在同一份日報只留一列，重複者相加。
 
         表單不會產生重複，但送來的是前端組的 JSON。留著兩列不會讓台帳
         算錯（加總本來就會把兩列相加），卻會讓稽核以 workItemId 建索引時
@@ -348,7 +348,7 @@ export async function parseQtyEntries(
       }
       out.push({
         workItemId,
-        // 名稱與單位取自台帳（快照），不採信前端
+        // Info: (20260806 - Julian) 名稱與單位取自台帳（快照），不採信前端
         itemName: w.name,
         unit: w.unit,
         dailyQty: qty,
@@ -358,7 +358,7 @@ export async function parseQtyEntries(
       continue;
     }
 
-    // 契約外臨時項目：名稱必填，單位由填報者自述
+    // Info: (20260806 - Julian) 契約外臨時項目：名稱必填，單位由填報者自述
     const itemName =
       typeof entry.itemName === "string" ? entry.itemName.trim() : "";
     if (!itemName) continue;
@@ -380,7 +380,7 @@ export async function parseQtyEntries(
 export type FileReportResult = { ok: true } | { ok: false; error: string };
 
 /**
- * 新建每日監造報表。
+ * Info: (20260806 - Julian) 新建每日監造報表。
  *
  * **同一日期已有日報時一律拒絕，不再以更新處理。**
  *
@@ -427,7 +427,7 @@ export async function fileReport(
     equipment: input.equipment?.trim() || null,
     keyNotes: input.keyNotes?.trim() || null,
     stopReason: parseStopReason(input.stopReason),
-    // checkbox 未勾選時 formData 不帶該鍵，故以「有值即為真」判定
+    // Info: (20260806 - Julian) checkbox 未勾選時 formData 不帶該鍵，故以「有值即為真」判定
     excludedFromDuration: Boolean(input.excludedFromDuration),
     exclusionBasis: input.exclusionBasis?.trim() || null,
     status: parseStatus(input.status),
@@ -437,7 +437,7 @@ export async function fileReport(
   const afterItems = input.items !== undefined ? toSnapshot(items) : null;
 
   /*
-    建立、數量表與軌跡在同一個交易內完成。
+    Info: (20260806 - Julian) 建立、數量表與軌跡在同一個交易內完成。
     分開寫的話，日報寫成功而軌跡沒寫成，那次變動在系統中等於沒發生過。
     未帶 items 欄位（undefined）代表該表單沒有數量表區塊，不建任何明細。
   */
@@ -464,7 +464,7 @@ export async function fileReport(
 }
 
 /**
- * 某日是否已有日報（供新建表單即時提示）。
+ * Info: (20260806 - Julian) 某日是否已有日報（供新建表單即時提示）。
  *
  * 伺服器端已會拒絕撞日期的新建，但等到使用者打完一整份才被退回太晚了；
  * 選好日期當下就該說。查詢成本與 `loadQtyForm` 已做的查詢相同。
@@ -485,7 +485,7 @@ export async function checkReportDate(
 }
 
 /**
- * 寫入變更軌跡（決策 J-b）。
+ * Info: (20260806 - Julian) 寫入變更軌跡（決策 J-b）。
  *
  * 只在確實有異動時寫入：每次儲存都記一筆會讓軌跡淹沒在雜訊裡，
  * 對帳時反而找不到真正的變更。
@@ -502,7 +502,7 @@ export async function updateReport(
   const beforeItems =
     input.items !== undefined ? toSnapshot(await reportRepo.listItems(id)) : [];
   const nextStatus = parseStatus(input.status);
-  // 欄位值只算一次，避免更新與軌跡各自 trim 出不同結果
+  // Info: (20260806 - Julian) 欄位值只算一次，避免更新與軌跡各自 trim 出不同結果
   const data = {
     weather: input.weather?.trim() || null,
     summary: input.summary?.trim() || null,
@@ -510,19 +510,19 @@ export async function updateReport(
     equipment: input.equipment?.trim() || null,
     keyNotes: input.keyNotes?.trim() || null,
     stopReason: parseStopReason(input.stopReason),
-    // checkbox 未勾選時 formData 不帶該鍵，故以「有值即為真」判定
+    // Info: (20260806 - Julian) checkbox 未勾選時 formData 不帶該鍵，故以「有值即為真」判定
     excludedFromDuration: Boolean(input.excludedFromDuration),
     exclusionBasis: input.exclusionBasis?.trim() || null,
     status: nextStatus,
   };
 
-  // 同 fileReport：未帶 items 者不動既有數量表
+  // Info: (20260806 - Julian) 同 fileReport：未帶 items 者不動既有數量表
   const nextItems =
     input.items !== undefined
       ? await parseQtyEntries(existing.projectId, input.items)
       : null;
 
-  // 更新、數量表與軌跡同一交易：軌跡寫不進去等於那次變動沒發生過
+  // Info: (20260806 - Julian) 更新、數量表與軌跡同一交易：軌跡寫不進去等於那次變動沒發生過
   await reportRepo.updateWithAudit(
     id,
     data,
@@ -549,7 +549,7 @@ export async function deleteReport(id: string, actor: Actor) {
   if (!existing || !(await canAccess(existing.projectId, actor))) return false;
 
   /*
-    刪除前先保存完整內容：日報數量是月報金額的來源（決策 A），
+    Info: (20260806 - Julian) 刪除前先保存完整內容：日報數量是月報金額的來源（決策 A），
     整份刪除會改變彙整結果，這正是最需要留下軌跡的事件。
     軌跡表刻意不設外鍵，故此紀錄在日報刪除後仍存在；
     也因此日期與欄位內容都必須寫進軌跡本身，不能指望回查已不存在的那一列。
@@ -562,7 +562,7 @@ export async function deleteReport(id: string, actor: Actor) {
     items,
   });
 
-  // 刪除與軌跡同一交易：刪除是唯一「內容自此消失」的動作，最不能漏記
+  // Info: (20260806 - Julian) 刪除與軌跡同一交易：刪除是唯一「內容自此消失」的動作，最不能漏記
   await reportRepo.removeWithAudit(id, {
     reportId: id,
     projectId: existing.projectId,
@@ -578,7 +578,7 @@ export async function deleteReport(id: string, actor: Actor) {
 }
 
 /**
- * 專案軌跡一次顯示幾筆。
+ * Info: (20260806 - Julian) 專案軌跡一次顯示幾筆。
  *
  * 「一次看幾筆」是呈現決策，故放在服務層而非 repository 的預設參數 ——
  * 保留／截斷政策藏在取數層，改的時候不會有人想到要去那裡找。
@@ -586,7 +586,7 @@ export async function deleteReport(id: string, actor: Actor) {
 export const PROJECT_AUDIT_PAGE_SIZE = 200;
 
 /**
- * 某專案的日報變更軌跡（含已刪除的日報）。
+ * Info: (20260806 - Julian) 某專案的日報變更軌跡（含已刪除的日報）。
  *
  * 沒有這個入口，已刪除日報的軌跡等於不存在：`listReportAudit` 需要
  * `reportId`，而日報一旦刪除，使用者已無從得知那個 id。
@@ -614,10 +614,10 @@ export async function listProjectAudit(
   return { ...page, denied: false as const };
 }
 
-/** 某份日報的變更軌跡（決策 J-b）。 */
+/** Info: (20260806 - Julian) 某份日報的變更軌跡（決策 J-b）。 */
 export async function listReportAudit(reportId: string, actor: Actor) {
   const existing = await reportRepo.findById(reportId);
-  // 日報可能已被刪除；此時改以軌跡自身的 projectId 判權限
+  // Info: (20260806 - Julian) 日報可能已被刪除；此時改以軌跡自身的 projectId 判權限
   if (existing) {
     if (!(await canAccess(existing.projectId, actor))) return [];
     return auditRepo.listByReport(reportId);
@@ -634,7 +634,7 @@ const ymd = (d: Date) =>
   ).padStart(2, "0")}`;
 
 /**
- * 依專案與日期，彙整當日查驗與缺失，產生監造報表草稿（施工概況、重要事項），
+ * Info: (20260806 - Julian) 依專案與日期，彙整當日查驗與缺失，產生監造報表草稿（施工概況、重要事項），
  * 供日報填報時「一鍵帶入」（串接 PMIS-07）。
  */
 export async function suggestReport(
@@ -684,17 +684,17 @@ export async function suggestReport(
   return { summary, keyNotes };
 }
 
-// ── 當日進度（決策 C）─────────────────────────────────────
+// Info: (20260806 - Julian) ── 當日進度（決策 C）─────────────────────────────────────
 
 export type DailyProgress = {
-  /** 當日預定累計進度（%）；無具預定起訖日的工項時為 null。 */
+  /** Info: (20260806 - Julian) 當日預定累計進度（%）；無具預定起訖日的工項時為 null。 */
   planned: number | null;
-  /** 截至當日的實際累計進度（%）。 */
+  /** Info: (20260806 - Julian) 截至當日的實際累計進度（%）。 */
   actual: number;
 };
 
 /**
- * 某一日的預定與實際累計進度（決策 C）。
+ * Info: (20260806 - Julian) 某一日的預定與實際累計進度（決策 C）。
  *
  * **兩者皆即時推導，不存欄位。**
  * 預定取自工項預定起訖日的線性展開（`plannedProgressAt`），與月報同基準（決策 I）；
@@ -717,7 +717,7 @@ export async function getDailyProgress(
   const date = new Date(dateISO);
   if (Number.isNaN(date.getTime())) return null;
   /*
-    當日結束時點，確保含當日的日報。
+    Info: (20260806 - Julian) 當日結束時點，確保含當日的日報。
 
     以 **UTC** 組成而非 `setHours`：`reportDate` 由 `new Date("YYYY-MM-DD")`
     產生，JS 對純日期字串一律以 UTC 午夜解析。用本地時間組界線，

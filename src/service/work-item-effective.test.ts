@@ -13,7 +13,7 @@ import {
 } from "./work-item-effective";
 import { ledgerRow, type LedgerQty } from "@/service/work-item-ledger";
 
-/** 一列已計量工項：契約 1000、單價 500、期初完成 200。 */
+/** Info: (20260806 - Julian) 一列已計量工項：契約 1000、單價 500、期初完成 200。 */
 const MEASURED: LedgerQty = {
   contractQty: 1000,
   unitPrice: 500,
@@ -22,7 +22,7 @@ const MEASURED: LedgerQty = {
   valuatedQty: 100,
 };
 
-/** 一列未計量工項：無契約數量，僅靠人工填報進度。 */
+/** Info: (20260806 - Julian) 一列未計量工項：無契約數量，僅靠人工填報進度。 */
 const UNMEASURED: LedgerQty = {
   contractQty: null,
   unitPrice: null,
@@ -31,7 +31,7 @@ const UNMEASURED: LedgerQty = {
   valuatedQty: null,
 };
 
-// ── dailyQtyTotals ──────────────────────────────────────────
+// Info: (20260806 - Julian) ── dailyQtyTotals ──────────────────────────────────────────
 
 test("dailyQtyTotals 整理分組加總", () => {
   const m = dailyQtyTotals([
@@ -75,12 +75,12 @@ test("dailyQtyTotals 對空輸入回空 Map", () => {
   assert.equal(dailyQtyTotals([]).size, 0);
 });
 
-// ── excludeOwnDailyQty ──────────────────────────────────────
+// Info: (20260806 - Julian) ── excludeOwnDailyQty ──────────────────────────────────────
 
 test("excludeOwnDailyQty 扣掉正在編輯那份日報自己的量", () => {
-  // 期初 0、8/1 已提送日報填了 30 → 全期間加總含這 30。
-  // 重新開啟編輯時「目前累計」必須是 0，否則畫面上的
-  // 「填報後累計 = 目前累計 + 本日 30」會顯示 60，而實際存檔後仍是 30。
+  // Info: (20260806 - Julian) 期初 0、8/1 已提送日報填了 30 → 全期間加總含這 30。
+  // Info: (20260806 - Julian) 重新開啟編輯時「目前累計」必須是 0，否則畫面上的
+  // Info: (20260806 - Julian) 「填報後累計 = 目前累計 + 本日 30」會顯示 60，而實際存檔後仍是 30。
   const m = excludeOwnDailyQty(
     new Map([
       ["a", 30],
@@ -98,7 +98,7 @@ test("excludeOwnDailyQty 只扣部分時保留其餘累計", () => {
 });
 
 test("excludeOwnDailyQty 不建立加總中不存在的工項", () => {
-  // 草稿日報的量本來就不在加總裡（決策 G），不該因為扣減而憑空冒出一列
+  // Info: (20260806 - Julian) 草稿日報的量本來就不在加總裡（決策 G），不該因為扣減而憑空冒出一列
   const m = excludeOwnDailyQty(new Map([["a", 10]]), new Map([["z", 5]]));
   assert.equal(m.has("z"), false);
   assert.equal(m.get("a"), 10);
@@ -117,7 +117,7 @@ test("excludeOwnDailyQty 忽略非有限數且不改動傳入的 Map", () => {
   assert.notEqual(out, totals);
 });
 
-// ── effectiveCompletedQty ───────────────────────────────────
+// Info: (20260806 - Julian) ── effectiveCompletedQty ───────────────────────────────────
 
 test("effectiveCompletedQty 期初與日報相加", () => {
   assert.equal(effectiveCompletedQty(200, 55), 255);
@@ -129,8 +129,8 @@ test("effectiveCompletedQty 僅有其中一邊時以該邊為值", () => {
 });
 
 test("effectiveCompletedQty 兩者皆無時回 null 而非 0", () => {
-  // 這個區別很重要：null 會讓 progressFromQty 落回人工填報進度，
-  // 0 則會算出 0% 並蓋掉人工值
+  // Info: (20260806 - Julian) 這個區別很重要：null 會讓 progressFromQty 落回人工填報進度，
+  // Info: (20260806 - Julian) 0 則會算出 0% 並蓋掉人工值
   assert.equal(effectiveCompletedQty(null, null), null);
 });
 
@@ -149,16 +149,16 @@ test("effectiveCompletedQty 支援小數（單位如 m3、式）", () => {
   assert.equal(effectiveCompletedQty(0.45, 0.1), 0.55);
 });
 
-// ── effectiveProgress ───────────────────────────────────────
+// Info: (20260806 - Julian) ── effectiveProgress ───────────────────────────────────────
 
 test("effectiveProgress 已計量工項以數量推導，忽略人工值", () => {
-  // 有效累計 300 / 契約 1000 = 30%，人工值 99 應被忽略
+  // Info: (20260806 - Julian) 有效累計 300 / 契約 1000 = 30%，人工值 99 應被忽略
   const qty = { ...MEASURED, completedQty: 300 };
   assert.equal(effectiveProgress(qty, 99), 30);
 });
 
 test("effectiveProgress 未計量工項沿用人工填報值", () => {
-  // 決策 F 的核心：無契約數量時無從推導，人工值是唯一來源
+  // Info: (20260806 - Julian) 決策 F 的核心：無契約數量時無從推導，人工值是唯一來源
   assert.equal(effectiveProgress(UNMEASURED, 45), 45);
 });
 
@@ -183,7 +183,7 @@ test("effectiveProgress 超做（累計 > 契約）時上限為 100", () => {
   assert.equal(effectiveProgress(qty, 0), 100);
 });
 
-// ── withEffectiveQty ────────────────────────────────────────
+// Info: (20260806 - Julian) ── withEffectiveQty ────────────────────────────────────────
 
 test("withEffectiveQty 換掉 completedQty 且不動其他欄位", () => {
   const out = withEffectiveQty(MEASURED, 55);
@@ -216,10 +216,10 @@ test("withEffectiveQtyAll 依 id 對應各自的日報加總", () => {
   assert.equal(out[2].completedQty, 7, "無期初 → 僅日報");
 });
 
-// ── 與既有推導層的整合 ──────────────────────────────────────
+// Info: (20260806 - Julian) ── 與既有推導層的整合 ──────────────────────────────────────
 
 test("既有 ledgerRow 推導餵入有效累計量後自動改以日報為準", () => {
-  // 決策 A 的關鍵性質：推導邏輯零改動，只換輸入值
+  // Info: (20260806 - Julian) 決策 A 的關鍵性質：推導邏輯零改動，只換輸入值
   const base = {
     id: "w1",
     code: "1-1",
@@ -237,12 +237,12 @@ test("既有 ledgerRow 推導餵入有效累計量後自動改以日報為準", 
   const after = ledgerRow(withEffectiveQty(base, 300));
   assert.equal(after.completedAmount, 250_000, "有效 500 × 500");
   assert.equal(after.completionRate, 50);
-  // 契約金額不受影響
+  // Info: (20260806 - Julian) 契約金額不受影響
   assert.equal(after.contractAmount, before.contractAmount);
 });
 
 test("日報加總使查驗量大於累計量的異常消失（補登情形）", () => {
-  // 期初 100 < 查驗 150 → 異常；日報補上 80 後累計 180 > 150 → 正常
+  // Info: (20260806 - Julian) 期初 100 < 查驗 150 → 異常；日報補上 80 後累計 180 > 150 → 正常
   const base = {
     id: "w2",
     code: null,
@@ -267,9 +267,9 @@ test("日報加總使查驗量大於累計量的異常消失（補登情形）",
   );
 });
 
-// ── withEffectiveProgress（決策 F）──────────────────────────
+// Info: (20260806 - Julian) ── withEffectiveProgress（決策 F）──────────────────────────
 
-/** 一列上捲用的工項；數量欄位刻意以 Decimal 風格的字串模擬資料庫回傳值。 */
+/** Info: (20260806 - Julian) 一列上捲用的工項；數量欄位刻意以 Decimal 風格的字串模擬資料庫回傳值。 */
 const ROLLUP_ROW = {
   id: "w1",
   obligationId: "o1",
@@ -279,7 +279,7 @@ const ROLLUP_ROW = {
 };
 
 test("withEffectiveProgress 以日報加總後的比例取代人工進度", () => {
-  // 期初 200 + 日報 300 = 500；500/1000 = 50%
+  // Info: (20260806 - Julian) 期初 200 + 日報 300 = 500；500/1000 = 50%
   const out = withEffectiveProgress(ROLLUP_ROW, 300);
   assert.equal(out.progress, 50, "人工填的 20 應被推導值取代");
 });
@@ -298,7 +298,7 @@ test("withEffectiveProgress 不就地修改傳入物件", () => {
 });
 
 test("withEffectiveProgress 對未計量工項沿用人工填報進度", () => {
-  // 決策 F 的核心：無契約數量者無從推導，人工值是唯一來源
+  // Info: (20260806 - Julian) 決策 F 的核心：無契約數量者無從推導，人工值是唯一來源
   const out = withEffectiveProgress(
     { id: "w2", progress: 45, contractQty: null, completedQty: null },
     null,

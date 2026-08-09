@@ -42,7 +42,7 @@ const endOfDay = (d: Date) =>
   new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
 
 /**
- * 基準日的合理範圍。
+ * Info: (20260806 - Julian) 基準日的合理範圍。
  *
  * `<input type="date">` 在年份欄位逐鍵輸入時會**每按一鍵就送出一次**
  * 完整日期：輸入 2026 依序產生 0002／0020／0202／2026 年。
@@ -52,11 +52,11 @@ const endOfDay = (d: Date) =>
 const MIN_YEAR = 2000;
 const MAX_YEAR = 2100;
 
-/** 表單送來的純日期（`<input type="date">` 的格式）。 */
+/** Info: (20260806 - Julian) 表單送來的純日期（`<input type="date">` 的格式）。 */
 const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /**
- * 解析基準日；無效或超出合理範圍時回 `null`（呼叫端應拒絕該請求）。
+ * Info: (20260806 - Julian) 解析基準日；無效或超出合理範圍時回 `null`（呼叫端應拒絕該請求）。
  *
  * 未給定則以今日為準 —— 那是使用者沒有指定期間時唯一合理的預設。
  *
@@ -81,7 +81,7 @@ export function parseRefDate(refIso: string | undefined): Date | null {
   const y = d.getFullYear();
   if (y < MIN_YEAR || y > MAX_YEAR) return null;
   /*
-    `new Date(2026, 12, 40)` 不會是 NaN，而是靜默進位到隔年 ——
+    Info: (20260806 - Julian) `new Date(2026, 12, 40)` 不會是 NaN，而是靜默進位到隔年 ——
     純日期字串的年月日必須原樣還原，否則 `2026-13-01` 會變成 2027 年 1 月。
   */
   if (
@@ -96,7 +96,7 @@ export function parseRefDate(refIso: string | undefined): Date | null {
 }
 
 /*
-  ── 日曆日與時間點的界線 ───────────────────────────────────
+  Info: (20260806 - Julian) ── 日曆日與時間點的界線 ───────────────────────────────────
 
   `SupervisionReport.reportDate` 存的是**日曆日**：它由
   `new Date("YYYY-MM-DD")` 產生，而 JS 對純日期字串一律以 **UTC 午夜**解析。
@@ -116,7 +116,7 @@ const utcDayEnd = (d: Date) =>
   );
 
 /**
- * 期間的起訖、顯示標籤與**身分鍵**。
+ * Info: (20260806 - Julian) 期間的起訖、顯示標籤與**身分鍵**。
  *
  * `key` 一律取自 `period-key.periodKeyFor`，不在此另寫一份 ——
  * 回填腳本需要同一套算法，兩份實作靠註解約定一致遲早會分岔，
@@ -211,7 +211,7 @@ export async function generateReport(
   projectId: string,
   type: ReportType,
   /**
-   * 基準日；由呼叫端以 `parseRefDate` 解析後傳入。
+   * Info: (20260806 - Julian) 基準日；由呼叫端以 `parseRefDate` 解析後傳入。
    *
    * 刻意不在此再讀一次時鐘：先前 `generateReportView` 與本函式各自
    * `new Date()`，在跨月的午夜前後產製，`periodLabel` 與 `periodKey`
@@ -229,18 +229,18 @@ export async function generateReport(
   const periodWord = PERIOD_LABEL[type];
 
   /*
-    取數：期間內的全部日報（含草稿）、進度基準用的工項明細、兩組數量加總。
+    Info: (20260806 - Julian) 取數：期間內的全部日報（含草稿）、進度基準用的工項明細、兩組數量加總。
 
     決策 G 的過濾**不在此處做**，交給 `assembleReport` ——
     由呼叫端過濾就會出現「有人記得、有人忘記」的兩套母體，
     那正是先前施工天數含草稿而數量不含的成因。
   */
-  // 與 reportDate 同基準（見 utcDayStart 的說明）；直接用本地邊界會漏掉當月第一天
+  // Info: (20260806 - Julian) 與 reportDate 同基準（見 utcDayStart 的說明）；直接用本地邊界會漏掉當月第一天
   const qStart = utcDayStart(start);
   const qEnd = utcDayEnd(end);
 
   /*
-    累計一律以**期末**為上限，不是「現在」。
+    Info: (20260806 - Julian) 累計一律以**期末**為上限，不是「現在」。
 
     先前此處取全期間加總（`loadDailyQtyTotals`／無上限的 `getWorkItemDetails`），
     於 8/7 補產 2 月月報時會把 3–7 月的量算進 2 月的累計，
@@ -268,7 +268,7 @@ export async function generateReport(
     ]);
 
   /*
-    每個數字是什麼，全部由純函式決定（`report-assemble`）。
+    Info: (20260806 - Julian) 每個數字是什麼，全部由純函式決定（`report-assemble`）。
     本函式只剩取數、呼叫 LLM、蓋產出時間三件事 ——
     歷次出問題的都是組裝而非算式，組裝可測才守得住。
   */
@@ -295,7 +295,7 @@ export async function generateReport(
     periodQtyTotals,
   });
 
-  // ── 期間評述：僅餵摘要層既算數字，LLM 不得引入其他資訊 ──
+  // Info: (20260806 - Julian) ── 期間評述：僅餵摘要層既算數字，LLM 不得引入其他資訊 ──
   const review = await faith.generatePeriodReview(
     facts,
     periodWord,
@@ -328,21 +328,21 @@ export async function generateReport(
   };
 }
 
-// ── 報表留存（決策 J-a）───────────────────────────────────
+// Info: (20260806 - Julian) ── 報表留存（決策 J-a）───────────────────────────────────
 
 export type ReportView = {
   report: GeneratedReport;
   /**
-   * 畫面上這一份的留存 id。
+   * Info: (20260806 - Julian) 畫面上這一份的留存 id。
    * null 代表未留存 —— 無編輯權限，或本期已有定稿（見 confirmedId）。
    */
   savedId: string | null;
-  /** 本期已有定稿時的該份 id；此時畫面上的即時預覽不是送審依據。 */
+  /** Info: (20260806 - Julian) 本期已有定稿時的該份 id；此時畫面上的即時預覽不是送審依據。 */
   confirmedId: string | null;
 };
 
 /**
- * 產出報表並**同步留存**畫面上這一份（決策 J-a）。
+ * Info: (20260806 - Julian) 產出報表並**同步留存**畫面上這一份（決策 J-a）。
  *
  * 為何產出即留存，而非另設一顆「留存」按鈕：
  * 報表的每個數字都是即時推導（決策 A／F／I），連期間評述都由 LLM 現寫，
@@ -362,13 +362,13 @@ export async function generateReportView(
   type: ReportType,
   refIso: string | undefined,
   actor: Actor,
-  /** 無編輯權限者只讀不寫：純瀏覽不應在留存清單留下紀錄。 */
+  /** Info: (20260806 - Julian) 無編輯權限者只讀不寫：純瀏覽不應在留存清單留下紀錄。 */
   persist: boolean,
 ): Promise<ReportView | null> {
   const ref = parseRefDate(refIso);
   if (!ref) return null;
 
-  // ref 只解析一次，往下傳同一個時點
+  // Info: (20260806 - Julian) ref 只解析一次，往下傳同一個時點
   const report = await generateReport(projectId, type, ref, actor);
   if (!report) return null;
 
@@ -400,7 +400,7 @@ export async function generateReportView(
 }
 
 /**
- * 某期間**已留存**的報表（唯讀）。
+ * Info: (20260806 - Julian) 某期間**已留存**的報表（唯讀）。
  *
  * 存在的理由是把「看報表」與「產報表」拆開。產製一份報表要呼叫 LLM
  * 並寫一列留存，兩者都是有代價的副作用，不該由開啟頁面或改一個日期觸發
@@ -443,7 +443,7 @@ export async function getPeriodReport(
 }
 
 /**
- * 某專案的留存清單；無權限時回 `null` 而非空陣列。
+ * Info: (20260806 - Julian) 某專案的留存清單；無權限時回 `null` 而非空陣列。
  *
  * 兩者在畫面上意義不同：空陣列會顯示「尚無留存的報表」，
  * 而實際情形是「你看不到」—— 使用者會以為報表從未產生過。
@@ -461,14 +461,14 @@ export async function getSavedReport(id: string, actor: Actor) {
 
 export type ConfirmResult = { ok: true } | { ok: false; error: string };
 
-/** 錯誤訊息用的時間格式；要讓使用者對得上畫面上的「產生於」。 */
+/** Info: (20260806 - Julian) 錯誤訊息用的時間格式；要讓使用者對得上畫面上的「產生於」。 */
 const formatStamp = (d: Date): string => {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 };
 
 /**
- * 人工確認定稿。
+ * Info: (20260806 - Julian) 人工確認定稿。
  *
  * 確認後內容即為當時送審依據的快照，不可再修改或刪除；
  * 需要更新請重新產生一份。同一期間僅允許一份定稿 ——
@@ -484,7 +484,7 @@ const formatStamp = (d: Date): string => {
 export async function confirmSavedReport(
   id: string,
   actor: Actor,
-  /** 畫面上那一份的 `generatedAt`（毫秒）。 */
+  /** Info: (20260806 - Julian) 畫面上那一份的 `generatedAt`（毫秒）。 */
   expectedGeneratedAt: number,
 ): Promise<ConfirmResult> {
   const row = await savedReportRepo.findById(id);
@@ -495,7 +495,7 @@ export async function confirmSavedReport(
   if (isPeriodReportFrozen(row.status)) return { ok: true };
 
   /*
-    期間鍵為空的列只可能來自「schema 已加 periodKey，但回填腳本還沒跑」
+    Info: (20260806 - Julian) 期間鍵為空的列只可能來自「schema 已加 periodKey，但回填腳本還沒跑」
     的過渡狀態（見 prisma/backfill-period-key.ts 的三步驟）。
     此時放行會寫入 confirmedPeriodKey = ""，而唯一約束是
     (projectId, confirmedPeriodKey) —— 空字串會讓它退化成
@@ -518,7 +518,7 @@ export async function confirmSavedReport(
   }
 
   /*
-    先查一次只為了給出好讀的訊息；**真正的守門是資料庫的唯一約束**
+    Info: (20260806 - Julian) 先查一次只為了給出好讀的訊息；**真正的守門是資料庫的唯一約束**
     （`@@unique([projectId, confirmedPeriodKey])`）。
     只靠這裡的檢查是 check-then-write：兩個並行的確認都會通過檢查，
     然後各寫一份定稿，屆時無從判斷哪一份才是送審依據。
@@ -540,7 +540,7 @@ export async function confirmSavedReport(
       confirmedBy: actor.name || null,
     });
   } catch (e) {
-    // 競態下由資料庫擋下；轉成與上方相同的訊息，使用者不需要知道差別
+    // Info: (20260806 - Julian) 競態下由資料庫擋下；轉成與上方相同的訊息，使用者不需要知道差別
     if (savedReportRepo.isUniqueViolation(e)) {
       return {
         ok: false,
@@ -552,7 +552,7 @@ export async function confirmSavedReport(
   return { ok: true };
 }
 
-/** 刪除草稿留存；已確認者不可刪除。 */
+/** Info: (20260806 - Julian) 刪除草稿留存；已確認者不可刪除。 */
 export async function deleteSavedReport(
   id: string,
   actor: Actor,

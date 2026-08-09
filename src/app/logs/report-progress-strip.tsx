@@ -6,7 +6,7 @@ import { loadDailyProgressAction } from "@/app/logs/actions";
 import type { DailyProgress } from "@/service/supervisionReport.service";
 
 /**
- * 當日預定 vs 實際累計進度（決策 C）。
+ * Info: (20260806 - Julian) 當日預定 vs 實際累計進度（決策 C）。
  *
  * 預定取自工項預定起訖日的線性展開，與月報同基準（決策 I）；
  * 實際為「期初 + Σ 截至該日的日報數量」推得（決策 A）。
@@ -32,7 +32,7 @@ export function ReportProgressStrip({
   const loading = loadedKey !== key;
 
   useEffect(() => {
-    // 未選日期時不取數；元件本身於此情形不渲染，故無須清狀態
+    // Info: (20260806 - Julian) 未選日期時不取數；元件本身於此情形不渲染，故無須清狀態
     if (!reportDate) return;
     let stale = false;
     loadDailyProgressAction(projectId, reportDate).then((d) => {
@@ -70,7 +70,7 @@ export function ReportProgressStrip({
           </span>
           {gap != null && (
             <span className={gap < 0 ? "text-warning" : "text-muted-foreground"}>
-              {/* 一律用「個百分點」，不用達成率等自創指標（與月報範本一致） */}
+              {/* Info: (20260806 - Julian) 一律用「個百分點」，不用達成率等自創指標（與月報範本一致） */}
               {gap >= 0 ? "超前" : "落後"} {Math.abs(gap)} 個百分點
             </span>
           )}

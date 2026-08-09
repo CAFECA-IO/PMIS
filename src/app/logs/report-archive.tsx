@@ -24,17 +24,17 @@ import type {
 } from "@/generated/prisma/enums";
 
 /*
-  顯示到分鐘。清單依產出時間排序，而同一天內反覆重新生成是常態；
+  Info: (20260806 - Julian) 顯示到分鐘。清單依產出時間排序，而同一天內反覆重新生成是常態；
   只顯示日期會讓相鄰兩列看起來同時產生，排序失去可驗證性。
 */
-/** 版本識別用的時間戳（毫秒）。 */
+/** Info: (20260806 - Julian) 版本識別用的時間戳（毫秒）。 */
 const stampOf = (v: Date | string) => new Date(v).getTime();
 
-/** 展開中的內容，連同讀取當下的版本。 */
+/** Info: (20260806 - Julian) 展開中的內容，連同讀取當下的版本。 */
 type Opened = {
   id: string;
   markdown: string;
-  /** 讀取當下該列的 generatedAt（毫秒）；用以偵測內容已被覆寫。 */
+  /** Info: (20260806 - Julian) 讀取當下該列的 generatedAt（毫秒）；用以偵測內容已被覆寫。 */
   generatedAt: number;
 };
 
@@ -46,7 +46,7 @@ const stamp = (v: Date | string) => {
 };
 
 /**
- * 已留存的彙整報表（決策 J-a）。
+ * Info: (20260806 - Julian) 已留存的彙整報表（決策 J-a）。
  *
  * 報表的每個數字都是即時推導，同一期間在不同時間產生會得到不同結果；
  * 留存下來的那一份才是「送審出去的版本」。已確認者內容凍結、不可刪除。
@@ -58,11 +58,11 @@ const stamp = (v: Date | string) => {
 type Row = {
   id: string;
   title: string;
-  /** 週期別；同一期間可能同時有週報與月報，不標就分不出來。 */
+  /** Info: (20260806 - Julian) 週期別；同一期間可能同時有週報與月報，不標就分不出來。 */
   type: PeriodReportType;
   periodLabel: string;
   status: PeriodReportStatus;
-  /** 本份內容的產出時間；草稿覆寫時會更新，故不用 createdAt。 */
+  /** Info: (20260806 - Julian) 本份內容的產出時間；草稿覆寫時會更新，故不用 createdAt。 */
   generatedAt: Date | string;
   generatedBy: string | null;
   confirmedAt: Date | string | null;
@@ -72,12 +72,12 @@ type Row = {
 export function ReportArchive({
   projectId,
   canEdit,
-  /** 由產生器在每次產出後遞增，用以觸發重新載入。 */
+  /** Info: (20260806 - Julian) 由產生器在每次產出後遞增，用以觸發重新載入。 */
   reloadToken = 0,
-  /** 產生器畫面上那一版的留存 id，用以標示「就是這一份」。 */
+  /** Info: (20260806 - Julian) 產生器畫面上那一版的留存 id，用以標示「就是這一份」。 */
   currentId = null,
   periodConfirmedId = null,
-  /** 確認／刪除後通知產生器重新取數（其留存狀態已改變）。 */
+  /** Info: (20260806 - Julian) 確認／刪除後通知產生器重新取數（其留存狀態已改變）。 */
   onChanged,
 }: {
   projectId: string;
@@ -85,7 +85,7 @@ export function ReportArchive({
   reloadToken?: number;
   currentId?: string | null;
   /**
-   * 目前期間的定稿 id。
+   * Info: (20260806 - Julian) 目前期間的定稿 id。
    *
    * 上方橫幅會說「本期已有定稿報表（見下方留存清單）」——
    * 沒有這個標示，那句話就指向一個在清單裡認不出來的東西。
@@ -98,7 +98,7 @@ export function ReportArchive({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   /**
-   * 展開中的那一份的全文；一次只開一份，避免長文互相干擾。
+   * Info: (20260806 - Julian) 展開中的那一份的全文；一次只開一份，避免長文互相干擾。
    *
    * 連同讀取當下的 `generatedAt` 一起記住：草稿是同一列原地覆寫，
    * 別處按下重新生成後，這個面板的內容就與該列的「產生於」對不上了。
@@ -106,11 +106,11 @@ export function ReportArchive({
    * —— 使用者讀舊的、對著新的按確認定稿。
    */
   const [opened, setOpened] = useState<Opened | null>(null);
-  /** 因內容已被重新產生而被收起的那一份；提示使用者重新開啟。 */
+  /** Info: (20260806 - Julian) 因內容已被重新產生而被收起的那一份；提示使用者重新開啟。 */
   const [staleId, setStaleId] = useState<string | null>(null);
 
   /*
-    以 ref 讀取當前展開狀態：load 不能把 opened 放進相依陣列
+    Info: (20260806 - Julian) 以 ref 讀取當前展開狀態：load 不能把 opened 放進相依陣列
     （否則展開／收合都會重新載入清單），但又必須拿到最新值來比對版本。
   */
   const openedRef = useRef<Opened | null>(null);
@@ -122,7 +122,7 @@ export function ReportArchive({
 
   const load = useCallback(() => {
     /*
-      失敗不得靜默：先前沒有 .catch，查詢失敗會變成 unhandled rejection，
+      Info: (20260806 - Julian) 失敗不得靜默：先前沒有 .catch，查詢失敗會變成 unhandled rejection，
       loadedKey 永不更新，畫面停在舊資料且沒有任何提示。
       無權限（伺服器回 null）也要與「查無留存」分開講 ——
       顯示「尚無留存的報表」會讓使用者以為報表從未產生過。
@@ -140,7 +140,7 @@ export function ReportArchive({
         setRows(fresh);
 
       /*
-        清單每次重載都要重新驗證展開中的內容是否仍是同一版。
+        Info: (20260806 - Julian) 清單每次重載都要重新驗證展開中的內容是否仍是同一版。
         不驗證的話，畫面上會同時出現新版的「產生於」與舊版的內文。
       */
       const open = openedRef.current;
@@ -149,7 +149,7 @@ export function ReportArchive({
         if (!row) {
           setOpened(null);
         } else if (stampOf(row.generatedAt) !== open.generatedAt) {
-          // 不靜默換掉眼前的內容：收起並要求重新開啟，讓重讀是個明確動作
+          // Info: (20260806 - Julian) 不靜默換掉眼前的內容：收起並要求重新開啟，讓重讀是個明確動作
           setOpened(null);
           setStaleId(open.id);
         }
@@ -180,7 +180,7 @@ export function ReportArchive({
       return;
     }
     if (staleId === id) setStaleId(null);
-    // 記下讀取當下的版本，供後續比對與定稿守門
+    // Info: (20260806 - Julian) 記下讀取當下的版本，供後續比對與定稿守門
     setOpened({
       id,
       markdown: row.markdown,
@@ -192,7 +192,7 @@ export function ReportArchive({
     setBusy(r.id);
     setError(null);
     /*
-      送出「使用者眼前這一份」的版本。展開讀過的以面板為準，
+      Info: (20260806 - Julian) 送出「使用者眼前這一份」的版本。展開讀過的以面板為準，
       否則以列上顯示的產出時間為準 —— 兩者都是畫面上看得到的值。
       伺服器比對不符即拒絕（見 confirmSavedReport）。
     */
@@ -202,7 +202,7 @@ export function ReportArchive({
     setBusy(null);
     if (!res.ok) {
       setError(res.error);
-      load(); // 讓畫面追上實際版本，使用者才知道自己看的是舊的
+      load(); // Info: (20260806 - Julian) 讓畫面追上實際版本，使用者才知道自己看的是舊的
     } else {
       load();
       onChanged?.();
@@ -218,7 +218,7 @@ export function ReportArchive({
     else {
       if (opened?.id === id) setOpened(null);
       /*
-        通知產生器重新「唯讀載入」（不是重新產製）。
+        Info: (20260806 - Julian) 通知產生器重新「唯讀載入」（不是重新產製）。
         刪掉的若正是上方顯示的那一份，畫面必須跟著回到「本期尚無留存報表」，
         否則會繼續顯示一份已不存在的報表，還標著「已留存為本期草稿」。
       */
@@ -228,7 +228,7 @@ export function ReportArchive({
   }
 
   /*
-    錯誤優先於其他狀態呈現。
+    Info: (20260806 - Julian) 錯誤優先於其他狀態呈現。
 
     先前 `error` 只寫在最後的 return 裡，而無權限與載入失敗兩條路徑都會讓
     `rows` 停在空陣列 —— 於是兩者都被下面那句「尚無留存的報表」蓋掉，
@@ -282,7 +282,7 @@ export function ReportArchive({
                 <Badge variant={meta.variant}>{meta.label}</Badge>
                 <Badge variant={typeMeta.variant}>{typeMeta.label}</Badge>
                 <span className="font-medium">{r.periodLabel}</span>
-                {/* 讓「上面那一版」與清單裡的哪一列對應得起來 */}
+                {/* Info: (20260806 - Julian) 讓「上面那一版」與清單裡的哪一列對應得起來 */}
                 {r.id === currentId ? (
                   <Badge variant="outline">上方顯示的這一版</Badge>
                 ) : r.id === periodConfirmedId ? (
@@ -316,7 +316,7 @@ export function ReportArchive({
                       確認定稿
                     </Button>
                     {/*
-                      每一份草稿都可刪除，包含上方正在顯示的那一份。
+                      Info: (20260806 - Julian) 每一份草稿都可刪除，包含上方正在顯示的那一份。
 
                       先前隱藏當期那一列，理由是「刪了下次產製又會存回來」——
                       那在報表會自動產製時成立，而自動產製已經移除；
@@ -337,7 +337,7 @@ export function ReportArchive({
                 )}
                 {confirmed && (
                   <span className="ml-auto text-muted-foreground">
-                    {/* 已確認者為送審依據之留存，內容凍結 */}
+                    {/* Info: (20260806 - Julian) 已確認者為送審依據之留存，內容凍結 */}
                     內容已凍結，不可修改或刪除
                   </span>
                 )}

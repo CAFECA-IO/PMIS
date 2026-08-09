@@ -12,10 +12,10 @@ import {
   sniffHeif,
 } from "./image-normalize";
 
-/** 真實 libheif 產出的 64×64 HEIC（691 bytes），用於實際走完解碼路徑。 */
+/** Info: (20260806 - Julian) 真實 libheif 產出的 64×64 HEIC（691 bytes），用於實際走完解碼路徑。 */
 const FIXTURE = path.join(import.meta.dirname, "__fixtures__", "sample.heic");
 
-/** 組出一個 ftyp box：size + "ftyp" + major + minor + compatible brands。 */
+/** Info: (20260806 - Julian) 組出一個 ftyp box：size + "ftyp" + major + minor + compatible brands。 */
 function ftyp(major: string, compatible: string[] = []): Uint8Array {
   const size = 16 + compatible.length * 4;
   const buf = new Uint8Array(size);
@@ -33,19 +33,19 @@ function ftyp(major: string, compatible: string[] = []): Uint8Array {
   return buf;
 }
 
-// ── sniffHeif ───────────────────────────────────────────────
+// Info: (20260806 - Julian) ── sniffHeif ───────────────────────────────────────────────
 
 test("sniffHeif 認出主品牌為 heic", () => {
   assert.equal(sniffHeif(ftyp("heic")), true);
 });
 
 test("sniffHeif 認出相容品牌中的 heic（主品牌為泛用值）", () => {
-  // 實務常見：major=mif1，heic 只出現在相容清單
+  // Info: (20260806 - Julian) 實務常見：major=mif1，heic 只出現在相容清單
   assert.equal(sniffHeif(ftyp("mif1", ["mif1", "heic"])), true);
 });
 
 test("sniffHeif 不誤判 AVIF（同為 ISO-BMFF 但編碼為 AV1）", () => {
-  // mif1 是 HEIF 通用結構品牌，AVIF 也會帶；不可據此判定為 HEIC
+  // Info: (20260806 - Julian) mif1 是 HEIF 通用結構品牌，AVIF 也會帶；不可據此判定為 HEIC
   assert.equal(sniffHeif(ftyp("avif", ["avif", "mif1"])), false);
   assert.equal(sniffHeif(ftyp("mif1", ["mif1", "avif"])), false);
 });
@@ -64,13 +64,13 @@ test("sniffHeif 對過短與畸形輸入回 false，不拋錯", () => {
   assert.equal(sniffHeif(new Uint8Array(0)), false);
   assert.equal(sniffHeif(new Uint8Array([0, 1, 2])), false);
   assert.equal(sniffHeif(new Uint8Array(11)), false);
-  // box size 宣告超過實際長度時，不可信任相容品牌掃描
+  // Info: (20260806 - Julian) box size 宣告超過實際長度時，不可信任相容品牌掃描
   const bad = ftyp("isom", ["heic"]);
   bad[3] = 0xff;
   assert.equal(sniffHeif(bad), false);
 });
 
-// ── 輔助判定 ────────────────────────────────────────────────
+// Info: (20260806 - Julian) ── 輔助判定 ────────────────────────────────────────────────
 
 test("isHeifMime 認出 heic／heif 及 sequence 變體", () => {
   assert.equal(isHeifMime("image/heic"), true);
@@ -95,7 +95,7 @@ test("jpegFileName 換掉副檔名而非附加", () => {
   assert.equal(jpegFileName("  "), "photo.jpg");
 });
 
-// ── normalizeImage ──────────────────────────────────────────
+// Info: (20260806 - Julian) ── normalizeImage ──────────────────────────────────────────
 
 test("normalizeImage 非 HEIC 原樣通過且不標記轉檔", async () => {
   const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
@@ -113,13 +113,13 @@ test("normalizeImage 對誤標為 heic 的非 HEIC 內容原樣交還（不進�
   const r = await normalizeImage(png, "image/heic", "mislabeled.heic");
   assert.equal(r.ok, true);
   if (!r.ok) return;
-  // 交還原始 MIME 與位元組，由既有白名單決定收或拒
+  // Info: (20260806 - Julian) 交還原始 MIME 與位元組，由既有白名單決定收或拒
   assert.equal(r.converted, false);
   assert.deepEqual(r.bytes, png);
 });
 
 test("normalizeImage 拒收超過上限的輸入", async () => {
-  // 前 12 bytes 為合法 heic ftyp，其後填充至超過上限
+  // Info: (20260806 - Julian) 前 12 bytes 為合法 heic ftyp，其後填充至超過上限
   const head = ftyp("heic");
   const big = new Uint8Array(MAX_CONVERT_BYTES + 1);
   big.set(head, 0);
@@ -149,10 +149,10 @@ test("normalizeImage 把真實 HEIC 轉為可解析的 JPEG", async () => {
   assert.equal(r.converted, true);
   assert.equal(r.mimeType, "image/jpeg");
   assert.equal(r.fileName, "IMG_0001.jpg");
-  // JPEG SOI 標記
+  // Info: (20260806 - Julian) JPEG SOI 標記
   assert.equal(r.bytes[0], 0xff);
   assert.equal(r.bytes[1], 0xd8);
-  // EOI 標記，確認輸出完整而非截斷
+  // Info: (20260806 - Julian) EOI 標記，確認輸出完整而非截斷
   assert.equal(r.bytes[r.bytes.byteLength - 2], 0xff);
   assert.equal(r.bytes[r.bytes.byteLength - 1], 0xd9);
   assert.ok(r.bytes.byteLength > 500, "轉出的 JPEG 不應是空殼");

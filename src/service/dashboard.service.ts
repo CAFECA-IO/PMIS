@@ -14,7 +14,7 @@ import { withEffectiveProgressAll } from "@/service/work-item-effective";
 import { effectiveObligationActual, type RollupItem } from "./obligation-rollup";
 
 /**
- * Overall KPIs computed from contract obligations (整體進度/差距/試運轉就緒度) and
+ * Info: (20260806 - Julian) Overall KPIs computed from contract obligations (整體進度/差距/試運轉就緒度) and
  * inspections (檢驗合格率).
  */
 export async function getMetrics(sinceDays: number | null = null) {
@@ -117,7 +117,7 @@ export type Health = {
   actions: HealthAction[];
 };
 
-/** 依進度差距與通知/缺失/送審狀況,給出白話狀態與建議行動。 */
+/** Info: (20260806 - Julian) 依進度差距與通知/缺失/送審狀況,給出白話狀態與建議行動。 */
 export function assessHealth(input: {
   overallProgress: number;
   plannedProgress: number;
@@ -187,7 +187,7 @@ export function assessHealth(input: {
 export type { SCurvePoint } from "./scurve";
 
 /**
- * Monthly cumulative planned / actual / forecast progress (%), computed from
+ * Info: (20260806 - Julian) Monthly cumulative planned / actual / forecast progress (%), computed from
  * weighted contract obligations across all projects — the dashboard S-Curve.
  */
 export async function getSCurve() {
@@ -196,9 +196,9 @@ export async function getSCurve() {
     workItemRepo.listAllDetailForMetrics(),
     loadDailyQtyTotalsForProjects(null),
   ]);
-  // 進度以日報數量為準（決策 F）；null 代表涵蓋全部未刪除專案
+  // Info: (20260806 - Julian) 進度以日報數量為準（決策 F）；null 代表涵蓋全部未刪除專案
   const wiRows = withEffectiveProgressAll(rawWiRows, qtyTotals);
-  // 全體工程分項依 obligationId 分組，供上捲判定履約事項有效實際完成日
+  // Info: (20260806 - Julian) 全體工程分項依 obligationId 分組，供上捲判定履約事項有效實際完成日
   const byOb = new Map<string, RollupItem[]>();
   for (const r of wiRows) {
     if (!r.obligationId) continue;
@@ -206,7 +206,7 @@ export async function getSCurve() {
     arr.push(r);
     byOb.set(r.obligationId, arr);
   }
-  // 以上捲後的有效實際完成日建立 S-Curve（與各專案定義一致）
+  // Info: (20260806 - Julian) 以上捲後的有效實際完成日建立 S-Curve（與各專案定義一致）
   return buildSCurve(
     obligations.map((m) => ({
       weight: m.weight,
@@ -217,7 +217,7 @@ export async function getSCurve() {
 }
 
 /**
- * Aggregates the figures shown on the dashboard. Business logic (what counts as
+ * Info: (20260806 - Julian) Aggregates the figures shown on the dashboard. Business logic (what counts as
  * "pending", how many items to preview) lives here, not in the page.
  */
 export async function getDashboard() {

@@ -302,7 +302,7 @@ model WorkItem {
   plannedEnd   DateTime?
   actualStart  DateTime?
   actualEnd    DateTime?
-  /// 人工填報進度（0-100）。
+  /// Info: (20260806 - Julian) 人工填報進度（0-100）。
   ///
   /// 決策 F（2026-08-05）：本欄是**未計量工項**（無 contractQty／unit，
   /// 例如自表單新增而尚未登錄數量者）的唯一進度來源，亦為已計量工項的後備值。
@@ -321,7 +321,7 @@ model WorkItem {
   unit         String? // 計量單位，如 m3、m、組、式
   contractQty  Decimal? // 契約數量
   unitPrice    Decimal? // 單價
-  /// 期初累計完成量。
+  /// Info: (20260806 - Julian) 期初累計完成量。
   ///
   /// 語意已於 2026-08-05（決策 A）改變：此欄不再是「當前累計完成量」，
   /// 而是「開始以日報填報之前的累計基準」。當前有效累計量為
@@ -346,7 +346,7 @@ model WorkItem {
   inspections  Inspection[]
   defects      Defect[]
   carbonEntries CarbonEntry[]
-  /// 日報數量表中引用本分項的列（累計完成量的來源）。
+  /// Info: (20260806 - Julian) 日報數量表中引用本分項的列（累計完成量的來源）。
   reportItems  SupervisionReportItem[]
 
   @@index([projectId])
@@ -882,18 +882,18 @@ model SupervisionReport {
   equipment  String?
   keyNotes   String? // 重要事項
   filedBy    String?
-  /// 是否免計工期（E5）。
+  /// Info: (20260806 - Julian) 是否免計工期（E5）。
   ///
   /// 具法律效果的宣告，非描述 —— 做成布林才能算出「本期免計工期共 N 天」，
   /// 該數字在結算與工期展延爭議中有金額意義。
   /// 與 stopReason 分離：停工原因說明「為何沒做」，本欄說明「這天算不算工期」，
   /// 兩者不必然一致（例假日在日曆天契約下仍計工期；雨停未必都免計）。
   excludedFromDuration Boolean @default(false)
-  /// 免計工期的契約依據，如「工程契約書第 7 條」。
+  /// Info: (20260806 - Julian) 免計工期的契約依據，如「工程契約書第 7 條」。
   /// 認定由監造確認，系統不推測。
   exclusionBasis       String?
 
-  /// 當日未施工的原因；null 代表當日有施工（決策 H）。
+  /// Info: (20260806 - Julian) 當日未施工的原因；null 代表當日有施工（決策 H）。
   ///
   /// 這是工作日統計的**權威來源**：月報的施工天數／雨天停工／例假日
   /// 一律依此欄位統計，不再以天氣或敘述文字推測（決策 D）。
@@ -902,14 +902,14 @@ model SupervisionReport {
   createdAt  DateTime     @default(now())
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  /// 數量表：本日各施工項目的完成數量。
+  /// Info: (20260806 - Julian) 數量表：本日各施工項目的完成數量。
   items   SupervisionReportItem[]
 
   @@unique([projectId, reportDate])
   @@index([projectId])
 }
 
-/// 監造日報的數量表一列（E1）。
+/// Info: (20260806 - Julian) 監造日報的數量表一列（E1）。
 ///
 /// 只存「本日完成量」，不存累計 —— 累計 = 期初 + Σ 本日。
 /// 兩者都存必然對不起來，而對帳時無從判斷哪個是真的
@@ -921,29 +921,29 @@ model SupervisionReportItem {
   id       String @id @default(cuid())
   reportId String
 
-  /// 對應的工程分項。
+  /// Info: (20260806 - Julian) 對應的工程分項。
   ///
   /// 允許為 null 以容納契約外的臨時項目（如未登錄於台帳的「化冀池打除」）。
   /// null 的列僅存在於該日報中，**不計入任何工項的累計量**
   /// —— 否則日報會成為繞過契約管控、憑空建立工項的旁路。
   workItemId String?
 
-  /// 施工項目名稱快照。
+  /// Info: (20260806 - Julian) 施工項目名稱快照。
   ///
   /// 刻意複製而非僅靠關聯：工程分項日後更名或刪除後，
   /// 歷史日報仍須還原當時的內容（法定文件不可回溯改寫）。
   itemName String
-  /// 計量單位快照；應取自 WorkItem.unit，不由使用者自填，
+  /// Info: (20260806 - Julian) 計量單位快照；應取自 WorkItem.unit，不由使用者自填，
   /// 否則同一工項在不同日報用不同單位而無法加總。
   unit     String?
-  /// 本日完成數量。
+  /// Info: (20260806 - Julian) 本日完成數量。
   dailyQty Decimal
   note     String?
-  /// 表單與報表中的排列順序。
+  /// Info: (20260806 - Julian) 表單與報表中的排列順序。
   sortOrder Int @default(0)
 
   report   SupervisionReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  /// SetNull 而非 Cascade：工項被刪除時，該日的施工紀錄仍是法定文件的一部分，
+  /// Info: (20260806 - Julian) SetNull 而非 Cascade：工項被刪除時，該日的施工紀錄仍是法定文件的一部分，
   /// 應保留並以 itemName 快照呈現，不可連帶消失。
   workItem WorkItem?         @relation(fields: [workItemId], references: [id], onDelete: SetNull)
 
@@ -1086,7 +1086,7 @@ enum ReportStatus {
   APPROVED
 }
 
-/// 當日未施工的原因（決策 H）。
+/// Info: (20260806 - Julian) 當日未施工的原因（決策 H）。
 /// 天氣欄位僅供紀錄、不參與此判定（決策 D）。
 /// 監造日報的變更軌跡（決策 J-b）。
 ///
@@ -1104,18 +1104,18 @@ enum ReportStatus {
 /// （接既有 ApprovalDocument）再議鎖定。
 model SupervisionReportAuditLog {
   id        String @id @default(cuid())
-  /// 無外鍵；日報刪除後本紀錄仍須存在。
+  /// Info: (20260806 - Julian) 無外鍵；日報刪除後本紀錄仍須存在。
   reportId  String
   projectId String
-  /// 針對數量表的哪一列（可空 = 針對整份日報）。
+  /// Info: (20260806 - Julian) 針對數量表的哪一列（可空 = 針對整份日報）。
   itemId    String?
 
-  /// CREATE / UPDATE / STATUS / ITEMS / DELETE
+  /// Info: (20260806 - Julian) CREATE / UPDATE / STATUS / ITEMS / DELETE
   action    String
   actorId   String?
   actorName String?
 
-  /// 該日報的報表日期。
+  /// Info: (20260806 - Julian) 該日報的報表日期。
   ///
   /// 刻意冗餘保存而非查 `SupervisionReport`：本表無外鍵，日報刪除後
   /// 只剩 `reportId` 這個已無對應的字串，看軌跡的人無從得知刪掉的是哪一天
@@ -1126,10 +1126,10 @@ model SupervisionReportAuditLog {
   fromStatus ReportStatus?
   toStatus   ReportStatus?
 
-  /// 供人閱讀的摘要，如「天氣：晴 → 雨」。過長的值已截斷，且可能含換行。
+  /// Info: (20260806 - Julian) 供人閱讀的摘要，如「天氣：晴 → 雨」。過長的值已截斷，且可能含換行。
   detail String?
 
-  /// 變更前（或建立時）的完整內容 JSON，未截斷，使內容可回溯重建。
+  /// Info: (20260806 - Julian) 變更前（或建立時）的完整內容 JSON，未截斷，使內容可回溯重建。
   ///
   /// 與 `detail` 分欄而非塞在同一欄，是因為摘要含有使用者原文，
   /// 而原文可能有換行：先前以「第一個換行之後即為 JSON」切分，
@@ -1144,7 +1144,7 @@ model SupervisionReportAuditLog {
   @@index([projectId, createdAt])
 }
 
-/// 彙整報表的週期別（與 service 的 ReportType 一致）。
+/// Info: (20260806 - Julian) 彙整報表的週期別（與 service 的 ReportType 一致）。
 enum PeriodReportType {
   DAILY
   WEEKLY
@@ -1153,28 +1153,28 @@ enum PeriodReportType {
   ANNUAL
 }
 
-/// 彙整報表的定稿狀態（治理：人在迴路）。
+/// Info: (20260806 - Julian) 彙整報表的定稿狀態（治理：人在迴路）。
 enum PeriodReportStatus {
-  /// AI 生成草稿，尚未經人工確認，不得作為正式文件歸檔。
+  /// Info: (20260806 - Julian) AI 生成草稿，尚未經人工確認，不得作為正式文件歸檔。
   DRAFT
-  /// 監造人員已確認；內容自此不可修改，作為當時送審依據的留存。
+  /// Info: (20260806 - Julian) 監造人員已確認；內容自此不可修改，作為當時送審依據的留存。
   CONFIRMED
 }
 
 enum WorkStopReason {
-  /// 雨天/颱風停工
+  /// Info: (20260806 - Julian) 雨天/颱風停工
   WEATHER
-  /// 地震
+  /// Info: (20260806 - Julian) 地震
   EARTHQUAKE
-  /// 例假日
+  /// Info: (20260806 - Julian) 例假日
   HOLIDAY
-  /// 未排工（非假日但當日無預定工作）
+  /// Info: (20260806 - Julian) 未排工（非假日但當日無預定工作）
   NO_SCHEDULE
-  /// 其他原因（宜於敘述欄補充）
+  /// Info: (20260806 - Julian) 其他原因（宜於敘述欄補充）
   OTHER
 }
 
-/// 已產出的彙整報表（週／月／季／年）的留存。
+/// Info: (20260806 - Julian) 已產出的彙整報表（週／月／季／年）的留存。
 ///
 /// 為何要存：報表的每個數字都是即時推導（決策 A／F／I），
 /// 同一期間在不同時間產生會得到不同結果。若不留存，
@@ -1188,7 +1188,7 @@ model GeneratedReport {
   id          String             @id @default(cuid())
   projectId   String
   type        PeriodReportType
-  /// 期間身分（如 `MONTHLY:2026-08`）。
+  /// Info: (20260806 - Julian) 期間身分（如 `MONTHLY:2026-08`）。
   ///
   /// 「同期只允許一份定稿」「同期草稿覆寫」都以本欄為鍵，而**不用**
   /// `periodStart` 相等比對：後者由伺服器時區推導，部署時區一改
@@ -1198,23 +1198,23 @@ model GeneratedReport {
   /// 文字鍵不會因時區漂移。
   periodKey   String
 
-  /// 期間起訖；供顯示與範圍查詢，不作為身分。
+  /// Info: (20260806 - Julian) 期間起訖；供顯示與範圍查詢，不作為身分。
   periodStart DateTime
   periodEnd   DateTime
-  /// 顯示用期間標籤，如「2026 年 5 月」。
+  /// Info: (20260806 - Julian) 顯示用期間標籤，如「2026 年 5 月」。
   periodLabel String
   title       String
 
-  /// 報表全文（markdown）。這是留存的主體。
+  /// Info: (20260806 - Julian) 報表全文（markdown）。這是留存的主體。
   markdown    String
   status      PeriodReportStatus @default(DRAFT)
 
-  /// 本次生成引用的數據來源，供稽核回溯（以換行分隔）。
+  /// Info: (20260806 - Julian) 本次生成引用的數據來源，供稽核回溯（以換行分隔）。
   sources     String?
-  /// 本體是否由 LLM 主導（false = 決定論回退組裝）。
+  /// Info: (20260806 - Julian) 本體是否由 LLM 主導（false = 決定論回退組裝）。
   aiAuthored  Boolean            @default(false)
 
-  /// 本份內容的產出時間。
+  /// Info: (20260806 - Julian) 本份內容的產出時間。
   ///
   /// 與 `createdAt` 分開的理由：草稿以「同專案／同週期／同期間」覆寫，
   /// 覆寫後 `createdAt`（這一列何時建立）仍是舊值，
@@ -1222,7 +1222,7 @@ model GeneratedReport {
   /// 時間標錯比不標更糟。定稿動作不改本欄（定稿沒有重新產出內容）。
   generatedAt   DateTime @default(now())
 
-  /// 定稿時填入 `periodKey`，草稿恆為 null。
+  /// Info: (20260806 - Julian) 定稿時填入 `periodKey`，草稿恆為 null。
   ///
   /// 存在的唯一理由是讓「同期只允許一份定稿」由資料庫保證：
   /// 服務層原本是 check-then-write（先查有沒有定稿、再寫），

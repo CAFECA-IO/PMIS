@@ -6,7 +6,7 @@ import {
 import { dailyQtyTotals } from "@/service/work-item-effective";
 
 /**
- * 日報數量的取數層（決策 A／G）。
+ * Info: (20260806 - Julian) 日報數量的取數層（決策 A／G）。
  *
  * 存在的理由是把「哪些狀態的日報算數」收在一處：
  * repository 只負責取數（不持有業務規則、亦不引用 constant，
@@ -18,11 +18,11 @@ import { dailyQtyTotals } from "@/service/work-item-effective";
  * 規則變更時必然漏改。
  */
 
-/** 累計的下界；見 loadDailyQtyTotalsUpTo 的說明。 */
+/** Info: (20260806 - Julian) 累計的下界；見 loadDailyQtyTotalsUpTo 的說明。 */
 const EPOCH = new Date(0);
 
 /**
- * 專案各工項的日報累計數量（全期間）。
+ * Info: (20260806 - Julian) 專案各工項的日報累計數量（全期間）。
  *
  * 回傳 `workItemId → 總量`；查無紀錄的工項不會出現在 Map 中
  * （呼叫端以「無日報紀錄」處理，其有效累計量即等於期初值）。
@@ -38,7 +38,7 @@ export async function loadDailyQtyTotals(
 }
 
 /**
- * 專案各工項在指定期間內的日報數量增量。
+ * Info: (20260806 - Julian) 專案各工項在指定期間內的日報數量增量。
  *
  * 供月報「本期完成」欄位使用 —— 該欄先前因無期末快照而顯示 `—`，
  * 有了逐日數量後即為「期間內該工項 dailyQty 之和」，不需另建快照表。
@@ -57,7 +57,7 @@ export async function loadDailyQtyTotalsInPeriod(
 }
 
 /**
- * 專案各工項截至指定時點（含）的日報累計數量。
+ * Info: (20260806 - Julian) 專案各工項截至指定時點（含）的日報累計數量。
  *
  * 「累計」必須有時間上限。補產舊期間的月報時若取全期間加總，
  * 之後幾個月的量會被算進那份報表 —— 在 8/7 產 2 月月報會印出
@@ -74,7 +74,7 @@ export async function loadDailyQtyTotalsUpTo(
 }
 
 /**
- * 專案各工項在「尚未計入」狀態的日報中已填、但還不算進累計的數量（決策 G）。
+ * Info: (20260806 - Julian) 專案各工項在「尚未計入」狀態的日報中已填、但還不算進累計的數量（決策 G）。
  *
  * 用於畫面提示，不進入任何累計運算。缺了這個提示，監造填完草稿後看台帳
  * 沒動，會以為數字被系統吃掉而重複填報 —— 這是決策 G 的必要配套。
@@ -90,7 +90,7 @@ export async function loadPendingDailyQtyTotals(
 }
 
 /**
- * 跨專案的日報累計數量（決策 F 的下游需要）。
+ * Info: (20260806 - Julian) 跨專案的日報累計數量（決策 F 的下游需要）。
  *
  * `projectIds` 為 null 時涵蓋全部未刪除專案（儀表板用），
  * 給定陣列則限於該批專案（專案列表用）。

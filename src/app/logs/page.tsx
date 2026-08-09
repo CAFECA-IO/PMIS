@@ -105,7 +105,7 @@ export default async function LogsPage({
         description="日報由監造人員填報（監造報表）；週/月/季/年報由費思 AI 彙整（PMIS-11）"
       />
       <div className="space-y-6 p-8">
-        {/* 日報（監造報表，人工填報） */}
+        {/* Info: (20260806 - Julian) 日報（監造報表，人工填報） */}
         <Card>
           <CardHeader className="flex-row items-center justify-between space-y-0">
             <CardTitle className="text-base">日報（監造報表）</CardTitle>
@@ -132,7 +132,7 @@ export default async function LogsPage({
           </CardContent>
         </Card>
 
-        {/* AI 彙整報告（週/月/季/年） */}
+        {/* Info: (20260806 - Julian) AI 彙整報告（週/月/季/年） */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">

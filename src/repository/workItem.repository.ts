@@ -6,9 +6,9 @@ export function count() {
 }
 
 export type CreateWorkItemData = {
-  /** 所屬工程項目（規劃階段的分群）。 */
+  /** Info: (20260806 - Julian) 所屬工程項目（規劃階段的分群）。 */
   workPackage?: string | null;
-  /** 推導來源的契約履約標的。 */
+  /** Info: (20260806 - Julian) 推導來源的契約履約標的。 */
   scopeItemId?: string | null;
   projectId: string;
   code?: string | null;
@@ -21,11 +21,11 @@ export type CreateWorkItemData = {
   progress?: number;
   status?: WorkItemStatus;
   obligationId?: string | null;
-  /** 台帳上的 WBS 代碼，如 WBS-2.1。 */
+  /** Info: (20260806 - Julian) 台帳上的 WBS 代碼，如 WBS-2.1。 */
   wbsCode?: string | null;
-  /** WBS 類別 id。 */
+  /** Info: (20260806 - Julian) WBS 類別 id。 */
   wbsCategory?: string | null;
-  /** 計量單位。 */
+  /** Info: (20260806 - Julian) 計量單位。 */
   unit?: string | null;
   contractQty?: number | null;
   unitPrice?: number | null;
@@ -34,7 +34,7 @@ export type CreateWorkItemData = {
   valuatedQty?: number | null;
 };
 
-/** Partial update — only provided keys are written; null clears the field. */
+/** Info: (20260806 - Julian) Partial update — only provided keys are written; null clears the field. */
 export type UpdateWorkItemData = {
   code?: string | null;
   name?: string;
@@ -46,11 +46,11 @@ export type UpdateWorkItemData = {
   progress?: number;
   status?: WorkItemStatus;
   obligationId?: string | null;
-  /** 台帳上的 WBS 代碼，如 WBS-2.1。 */
+  /** Info: (20260806 - Julian) 台帳上的 WBS 代碼，如 WBS-2.1。 */
   wbsCode?: string | null;
-  /** WBS 類別 id。 */
+  /** Info: (20260806 - Julian) WBS 類別 id。 */
   wbsCategory?: string | null;
-  /** 計量單位。 */
+  /** Info: (20260806 - Julian) 計量單位。 */
   unit?: string | null;
   contractQty?: number | null;
   unitPrice?: number | null;
@@ -63,7 +63,7 @@ export function findById(id: string) {
   return prisma.workItem.findUnique({ where: { id } });
 }
 
-/** 供下拉選單：專案的工項清單（id / name / status）。 */
+/** Info: (20260806 - Julian) 供下拉選單：專案的工項清單（id / name / status）。 */
 export function listByProject(projectId: string) {
   return prisma.workItem.findMany({
     where: { projectId },
@@ -72,13 +72,13 @@ export function listByProject(projectId: string) {
   });
 }
 
-/** 工程分項明細（含所屬履約事項），供畫面與上捲計算共用。 */
+/** Info: (20260806 - Julian) 工程分項明細（含所屬履約事項），供畫面與上捲計算共用。 */
 const detailSelect = {
   id: true,
   name: true,
   status: true,
   progress: true,
-  // 供推導有效進度（決策 F）：進度以日報數量為準，本欄僅為未計量工項的後備值
+  // Info: (20260806 - Julian) 供推導有效進度（決策 F）：進度以日報數量為準，本欄僅為未計量工項的後備值
   contractQty: true,
   completedQty: true,
   plannedStart: true,
@@ -88,7 +88,7 @@ const detailSelect = {
   obligationId: true,
 } as const;
 
-/** 台帳所需欄位：分項識別＋六個數量欄位。 */
+/** Info: (20260806 - Julian) 台帳所需欄位：分項識別＋六個數量欄位。 */
 const ledgerSelect = {
   id: true,
   code: true,
@@ -108,7 +108,7 @@ const ledgerSelect = {
   valuatedQty: true,
 } as const;
 
-/** 估驗台帳：專案全部工項的數量與金額。 */
+/** Info: (20260806 - Julian) 估驗台帳：專案全部工項的數量與金額。 */
 export function listLedgerByProject(projectId: string) {
   return prisma.workItem.findMany({
     where: { projectId },
@@ -122,11 +122,11 @@ export type LedgerWorkItemRow = Awaited<
 >[number];
 
 const metricSelect = {
-  // id 為對應日報數量加總所必需（決策 F 的有效進度換算以 workItemId 為鍵）
+  // Info: (20260806 - Julian) id 為對應日報數量加總所必需（決策 F 的有效進度換算以 workItemId 為鍵）
   id: true,
   projectId: true,
   progress: true,
-  // 同 detailSelect：供推導有效進度（決策 F）
+  // Info: (20260806 - Julian) 同 detailSelect：供推導有效進度（決策 F）
   contractQty: true,
   completedQty: true,
   plannedStart: true,
@@ -145,7 +145,7 @@ export function listDetailByProject(projectId: string) {
 }
 
 /**
- * 某履約事項底下的工程分項。
+ * Info: (20260806 - Julian) 某履約事項底下的工程分項。
  *
  * 先前全站都是「載入整個專案的工程分項再於記憶體過濾 obligationId」，
  * 履約事項細節頁只需要自己底下的幾項，沒有理由把整案撈出來。
@@ -165,7 +165,7 @@ export function listByObligation(obligationId: string) {
 }
 
 /**
- * 多個履約事項底下的工程分項狀態（供清單判斷可否完成）。
+ * Info: (20260806 - Julian) 多個履約事項底下的工程分項狀態（供清單判斷可否完成）。
  * 只取判斷完成條件所需的欄位。
  */
 export function listStatesByObligations(obligationIds: string[]) {
@@ -186,7 +186,7 @@ export function listStatesByObligations(obligationIds: string[]) {
   });
 }
 
-/** 多個履約事項底下分項的預定起訖（供甘特圖聚合工作區間）。 */
+/** Info: (20260806 - Julian) 多個履約事項底下分項的預定起訖（供甘特圖聚合工作區間）。 */
 export function listPlanByObligations(obligationIds: string[]) {
   if (obligationIds.length === 0) {
     return Promise.resolve(
@@ -203,7 +203,7 @@ export function listPlanByObligations(obligationIds: string[]) {
   });
 }
 
-/** 批次讀取多專案工程分項明細（供專案列表逐案上捲進度）。 */
+/** Info: (20260806 - Julian) 批次讀取多專案工程分項明細（供專案列表逐案上捲進度）。 */
 export function listDetailByProjectIds(projectIds: string[]) {
   if (projectIds.length === 0) {
     return Promise.resolve([] as Awaited<ReturnType<typeof listAllDetailForMetrics>>);
@@ -214,7 +214,7 @@ export function listDetailByProjectIds(projectIds: string[]) {
   });
 }
 
-/** 全體（未刪除專案）工程分項明細，供儀表板 S-Curve 上捲。 */
+/** Info: (20260806 - Julian) 全體（未刪除專案）工程分項明細，供儀表板 S-Curve 上捲。 */
 export function listAllDetailForMetrics() {
   return prisma.workItem.findMany({
     where: { project: { deletedAt: null } },
@@ -229,7 +229,7 @@ export type WorkItemMetricRow = Awaited<
   ReturnType<typeof listAllDetailForMetrics>
 >[number];
 
-/** 掛載／解除工程分項所屬的履約事項。 */
+/** Info: (20260806 - Julian) 掛載／解除工程分項所屬的履約事項。 */
 export async function setObligation(id: string, obligationId: string | null) {
   await prisma.workItem.update({ where: { id }, data: { obligationId } });
 }

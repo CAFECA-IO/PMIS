@@ -6,7 +6,7 @@ import path from "node:path";
 import os from "node:os";
 
 /**
- * STORAGE_DIR 於模組載入時讀取，故必須在 import 之前設定。
+ * Info: (20260806 - Julian) STORAGE_DIR 於模組載入時讀取，故必須在 import 之前設定。
  * 因此本檔以動態 import 取得 storage（不可用靜態 import：會被提升到最前）。
  * 亦刻意不用 top-level await —— 專案未設 "type": "module"，
  * tsx 會轉為 CJS，top-level await 在該格式下無法編譯。
@@ -21,7 +21,7 @@ const loadStorage = () => import("./storage.service");
 test("saveFile 把 HEIC 轉為 JPEG 存檔，並改寫 MIME 與副檔名", async () => {
   const storage = await loadStorage();
   const bytes = await readFile(FIXTURE);
-  // MIME 刻意留空，重現手機／瀏覽器回報不一致的情形
+  // Info: (20260806 - Julian) MIME 刻意留空，重現手機／瀏覽器回報不一致的情形
   const file = new File([bytes], "IMG_0042.HEIC", { type: "" });
 
   const saved = await storage.saveFile(file);
@@ -30,7 +30,7 @@ test("saveFile 把 HEIC 轉為 JPEG 存檔，並改寫 MIME 與副檔名", async
   assert.equal(saved.fileName, "IMG_0042.jpg");
   assert.ok(saved.storedName.endsWith(".jpg"), "storedName 應為 .jpg");
 
-  // 實際落地的位元組必須是 JPEG，且 size 與檔案一致
+  // Info: (20260806 - Julian) 實際落地的位元組必須是 JPEG，且 size 與檔案一致
   const written = await readFile(path.join(STORE, saved.storedName));
   assert.equal(written[0], 0xff);
   assert.equal(written[1], 0xd8);
@@ -70,7 +70,7 @@ test("saveFile 拒收非白名單格式與空檔", async () => {
 test("saveFile 對聲稱 heic 但內容損毀者回 null，不拋錯", async () => {
   const storage = await loadStorage();
   const broken = new Uint8Array(64);
-  // 合法的 heic magic，但沒有 meta box
+  // Info: (20260806 - Julian) 合法的 heic magic，但沒有 meta box
   const write = (s: string, at: number) => {
     for (let i = 0; i < 4; i += 1) broken[at + i] = s.charCodeAt(i);
   };
@@ -86,10 +86,10 @@ test("isAllowed 以檔名補判 MIME 缺失或誤標的 HEIC", async () => {
   assert.equal(storage.isAllowed("", "IMG.HEIC"), true);
   assert.equal(storage.isAllowed("application/octet-stream", "a.heic"), true);
   assert.equal(storage.isAllowed("image/heic"), true);
-  // 既有格式行為不變
+  // Info: (20260806 - Julian) 既有格式行為不變
   assert.equal(storage.isAllowed("image/jpeg"), true);
   assert.equal(storage.isAllowed("application/pdf"), true);
-  // 不因帶了檔名就放行危險型別
+  // Info: (20260806 - Julian) 不因帶了檔名就放行危險型別
   assert.equal(storage.isAllowed("text/html", "evil.html"), false);
   assert.equal(storage.isAllowed(""), false);
 });
@@ -98,7 +98,7 @@ test("ALLOWED_ACCEPT 含 heic／heif，選檔器才選得到手機照片", async
   const storage = await loadStorage();
   assert.ok(storage.ALLOWED_ACCEPT.includes(".heic"));
   assert.ok(storage.ALLOWED_ACCEPT.includes(".heif"));
-  // 既有型別不可因此遺漏
+  // Info: (20260806 - Julian) 既有型別不可因此遺漏
   assert.ok(storage.ALLOWED_ACCEPT.includes(".pdf"));
   assert.ok(storage.ALLOWED_ACCEPT.includes(".png"));
   assert.ok(storage.ALLOWED_ACCEPT.includes(".jpg"));

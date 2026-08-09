@@ -13,7 +13,7 @@ import { API_ERRORS } from "@/lib/api-error";
 export const runtime = "nodejs";
 
 /*
-  本端點只產彙整報表（週／月／季／年）。
+  Info: (20260806 - Julian) 本端點只產彙整報表（週／月／季／年）。
 
   刻意不含 DAILY：日報是監造人工填報的 `SupervisionReport`，
   與這裡的 `GeneratedReport` 是兩種東西。放行 DAILY 會讓任何有編輯權限者
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
   if (!user) return jsonFail(API_ERRORS.AU_NOT_SIGNED_IN);
 
   /*
-    ── 模組權限必須在這裡擋，不能只靠專案成員判定 ──────────────
+    Info: (20260806 - Julian) ── 模組權限必須在這裡擋，不能只靠專案成員判定 ──────────────
 
     產製會呼叫 LLM（`faith.generatePeriodReview`），而那是有成本的動作。
     `generateReport` 內的 `canAccess` 只檢查「是不是這個專案的成員」；
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
       return jsonFail(API_ERRORS.VA_MISSING_PROJECT);
     }
     /*
-      週期不在白名單就拒絕，不要退回 MONTHLY —— 與下方基準日同一個道理：
+      Info: (20260806 - Julian) 週期不在白名單就拒絕，不要退回 MONTHLY —— 與下方基準日同一個道理：
       使用者以為在產季報、系統默默產了月報並以月報的期間鍵留存，
       比直接報錯更難察覺。
     */
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
     const type = body.type as ReportType;
 
     /*
-      基準日不合理就拒絕，不要退回「今天」——
+      Info: (20260806 - Julian) 基準日不合理就拒絕，不要退回「今天」——
       使用者以為在產 2026 年 8 月，系統卻默默產了本月，那比報錯更糟。
     */
     if (reportService.parseRefDate(body.refDate) === null) {
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
     }
 
     /*
-      產出即留存（決策 J-a）：回傳的 markdown 與寫進 GeneratedReport 的
+      Info: (20260806 - Julian) 產出即留存（決策 J-a）：回傳的 markdown 與寫進 GeneratedReport 的
       是同一個字串，故「畫面上這一版」與「留存的那一版」不可能不同。
       僅有編輯權限者會留存 —— 純瀏覽不應在留存清單留下紀錄。
 

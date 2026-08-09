@@ -24,11 +24,11 @@ import { getWeatherIcon } from "@/constant/weather";
 
 export type DayReport = {
   id: string;
-  dateISO: string; // YYYY-MM-DD（本地日期）
+  dateISO: string; // Info: (20260806 - Julian) YYYY-MM-DD（本地日期）
   weather: string;
-  /** 停工原因；空字串代表當日有施工（決策 H）。 */
+  /** Info: (20260806 - Julian) 停工原因；空字串代表當日有施工（決策 H）。 */
   stopReason: string;
-  /** 是否免計工期（E5）。 */
+  /** Info: (20260806 - Julian) 是否免計工期（E5）。 */
   excludedFromDuration: boolean;
   exclusionBasis: string;
   status: keyof typeof reportStatusMeta;
@@ -52,7 +52,7 @@ function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-/** 天氣標籤：圖示 + 文字（圖示未命中則僅文字）。 */
+/** Info: (20260806 - Julian) 天氣標籤：圖示 + 文字（圖示未命中則僅文字）。 */
 function WeatherTag({ weather }: { weather: string }) {
   if (!weather) return null;
   const icon = getWeatherIcon(weather);
@@ -114,7 +114,7 @@ export function ReportLogView({
 
   return (
     <div className="space-y-4">
-      {/* 導覽列：月份切換 + 檢視切換 */}
+      {/* Info: (20260806 - Julian) 導覽列：月份切換 + 檢視切換 */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1">
           <Button
@@ -176,7 +176,7 @@ export function ReportLogView({
         <ReportList reports={reports} projectId={projectId} canEdit={canEdit} />
       )}
 
-      {/* 月曆模式：選取日的明細（檢視／編輯／新建） */}
+      {/* Info: (20260806 - Julian) 月曆模式：選取日的明細（檢視／編輯／新建） */}
       {view === "calendar" && selected && (
         <DayDetail
           dateISO={selected}
@@ -187,7 +187,7 @@ export function ReportLogView({
       )}
 
       {/*
-        專案層軌跡：唯一能看到「已刪除日報」的地方。
+        Info: (20260806 - Julian) 專案層軌跡：唯一能看到「已刪除日報」的地方。
         逐份查看需要 reportId，而日報刪除後使用者已無從得知那個 id ——
         偏偏刪除是最需要被看見的事件，它會把某一天的量從所有月報的累計移除。
       */}
@@ -218,7 +218,7 @@ function CalendarGrid({
   selected: string | null;
   onSelect: (iso: string) => void;
 }) {
-  const firstDow = new Date(year, month - 1, 1).getDay(); // 0=日
+  const firstDow = new Date(year, month - 1, 1).getDay(); // Info: (20260806 - Julian) 0=日
   const daysInMonth = new Date(year, month, 0).getDate();
 
   const cells: (number | null)[] = [];

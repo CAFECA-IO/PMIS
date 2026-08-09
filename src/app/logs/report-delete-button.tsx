@@ -11,7 +11,7 @@ import { deleteReportAction } from "./actions";
 export function ReportDeleteButton({
   id,
   label,
-  /** 該日報的數量是否已計入累計（已提送／已核備）。 */
+  /** Info: (20260806 - Julian) 該日報的數量是否已計入累計（已提送／已核備）。 */
   countsTowardQty = false,
 }: {
   id: string;
@@ -31,7 +31,7 @@ export function ReportDeleteButton({
         if (
           await confirm({
             /*
-              已計入累計的日報被刪除，會改變台帳與所有含該日的月報金額，
+              Info: (20260806 - Julian) 已計入累計的日報被刪除，會改變台帳與所有含該日的月報金額，
               包含已定稿送審的那些。內容會留在變更軌跡中，但報表數字會變。
               這不是「怕誤按」，而是刪除的後果不在這個畫面上看得到。
             */

@@ -1,5 +1,5 @@
 /**
- * PMIS 進度 S-Curve 計算（純函式，無 I/O，可單元測試）。
+ * Info: (20260806 - Julian) PMIS 進度 S-Curve 計算（純函式，無 I/O，可單元測試）。
  *
  * 以「履約事項」為進度單位，依權重（weight）累計，產出每月的：
  *  - planned  預定累計 %：以履約事項「期限」到當月為止的權重占比。
@@ -26,7 +26,7 @@ export type SCurvePoint = {
 export type SCurveBasis = "OBLIGATION" | "WORKITEM";
 
 /**
- * 由 S-Curve 取「目前」的實際/預定累計與落差（供進度環圈、落差警示與 S-Curve 卡共用，
+ * Info: (20260806 - Julian) 由 S-Curve 取「目前」的實際/預定累計與落差（供進度環圈、落差警示與 S-Curve 卡共用，
  * 確保三者一致且隨基準切換）。取最後一個 actual 非 null 的點（即今日所在期）。
  */
 export function currentProgress(points: SCurvePoint[]): {
@@ -65,7 +65,7 @@ function monthlyBuckets(minTs: number, maxTs: number): Date[] {
 const endOfMonth = (b: Date) =>
   new Date(b.getFullYear(), b.getMonth() + 1, 0, 23, 59, 59).getTime();
 
-/** 依目前實際值線性外推至末月 100%，回填 forecast。 */
+/** Info: (20260806 - Julian) 依目前實際值線性外推至末月 100%，回填 forecast。 */
 function fillForecast(points: SCurvePoint[], currentIndex: number) {
   const currentActual = points[currentIndex]?.actual ?? 0;
   const lastIndex = points.length - 1;
@@ -94,7 +94,7 @@ export function buildSCurve(
   const min = new Date(Math.min(...times));
   const max = new Date(Math.max(...times));
 
-  // 由最早預定月到最晚預定月，逐月建立分桶
+  // Info: (20260806 - Julian) 由最早預定月到最晚預定月，逐月建立分桶
   const buckets: Date[] = [];
   const cursor = new Date(min.getFullYear(), min.getMonth(), 1);
   const end = new Date(max.getFullYear(), max.getMonth(), 1);
@@ -103,7 +103,7 @@ export function buildSCurve(
     cursor.setMonth(cursor.getMonth() + 1);
   }
 
-  // 目前（今日）所在或之前的最後一個分桶索引
+  // Info: (20260806 - Julian) 目前（今日）所在或之前的最後一個分桶索引
   let currentIndex = 0;
   buckets.forEach((b, i) => {
     if (b.getTime() <= nowTs) currentIndex = i;
@@ -145,7 +145,7 @@ export function buildSCurve(
 }
 
 /**
- * 以「工程分項（WorkItem）」為基準的 S-Curve。
+ * Info: (20260806 - Julian) 以「工程分項（WorkItem）」為基準的 S-Curve。
  *
  * 與履約事項（事件式、以完成日計）不同，工程分項為「期間式」：
  *  - 權重（weight）採**預定工期天數**（越長貢獻越大；無預定日則權重 1）。
@@ -165,7 +165,7 @@ export type WorkItemInput = {
 };
 
 /**
- * 工程分項的排程權重＝預定工期天數（無預定起訖則為 1）。
+ * Info: (20260806 - Julian) 工程分項的排程權重＝預定工期天數（無預定起訖則為 1）。
  *
  * 與 `buildWorkItemSCurve` 內部使用的權重同一定義，抽出以供
  * 月報的預定／完成進度共用 —— 否則同一份報表會出現兩種加權方式。
@@ -179,7 +179,7 @@ export function workItemWeight(w: {
 }
 
 /**
- * 是否具備可比對的排程（有預定起訖日）。
+ * Info: (20260806 - Julian) 是否具備可比對的排程（有預定起訖日）。
  *
  * **這是進度計算的母體定義，全檔共用。** 預定與完成必須算在同一批工項上：
  * 未設定預定起訖的工項沒有預定值可比，若只在其中一側納入，
@@ -196,7 +196,7 @@ export function isSchedulable(w: {
 }
 
 /**
- * 指定時點的**預定累計進度**（%），工程分項基準（決策 C／I）。
+ * Info: (20260806 - Julian) 指定時點的**預定累計進度**（%），工程分項基準（決策 C／I）。
  *
  * 各工項於其預定期間 [plannedStart, plannedEnd] 內線性展開，
  * 以預定工期天數加權後彙總。與 `buildWorkItemSCurve` 的 planned 同一算法，
@@ -226,7 +226,7 @@ export function plannedProgressAt(
 }
 
 /**
- * 以預定工期天數加權的**進度增量**（百分點）。
+ * Info: (20260806 - Julian) 以預定工期天數加權的**進度增量**（百分點）。
  *
  * 各工項的 `delta` 為該工項於期間內完成的比例（0–100），由呼叫端依
  * 期間內的日報數量算出；本函式只負責加權彙總，不涉及數量來源，
@@ -243,7 +243,7 @@ export function weightedProgressDelta(
   items: {
     plannedStart: Date | null;
     plannedEnd: Date | null;
-    /** 該工項本期完成比例（0–100） */
+    /** Info: (20260806 - Julian) 該工項本期完成比例（0–100） */
     delta: number;
   }[],
 ): number | null {

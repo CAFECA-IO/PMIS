@@ -1,7 +1,7 @@
 import { progressFromQty, type LedgerQty } from "@/service/work-item-ledger";
 
 /**
- * 工項的「有效」數量與進度（純函式，無 I/O，便於單元測試）。
+ * Info: (20260806 - Julian) 工項的「有效」數量與進度（純函式，無 I/O，便於單元測試）。
  *
  * 背景：決策 A（2026-08-05）確立監造日報為單一真實來源後，
  * `WorkItem.completedQty` 的語意由「當前累計完成量」改為「期初累計基準」，
@@ -23,20 +23,20 @@ import { progressFromQty, type LedgerQty } from "@/service/work-item-ledger";
  */
 
 /**
- * workItemId → 該工項的日報本日完成量總和。
+ * Info: (20260806 - Julian) workItemId → 該工項的日報本日完成量總和。
  *
  * 不含契約外臨時項目（`workItemId` 為 null 的日報列）。
  */
 export type DailyQtyTotals = ReadonlyMap<string, number>;
 
-/** 日報加總查詢的原始結果一列（`_sum` 可能為 null）。 */
+/** Info: (20260806 - Julian) 日報加總查詢的原始結果一列（`_sum` 可能為 null）。 */
 export type DailyQtyGroup = {
   workItemId: string | null;
   total: number | null;
 };
 
 /**
- * 把日報數量的分組加總整理成可查詢的 Map。
+ * Info: (20260806 - Julian) 把日報數量的分組加總整理成可查詢的 Map。
  *
  * 刻意丟棄兩種列：
  *  - `workItemId` 為 null：契約外臨時項目，不屬於任何台帳工項，
@@ -57,7 +57,7 @@ export function dailyQtyTotals(groups: DailyQtyGroup[]): Map<string, number> {
 }
 
 /**
- * 從加總中扣掉「正在編輯的那一份日報」自己已計入的量。
+ * Info: (20260806 - Julian) 從加總中扣掉「正在編輯的那一份日報」自己已計入的量。
  *
  * 編輯一份**已計入**（已提送／已核備）的日報時，它的數量本來就已經在
  * 加總裡；若直接把加總當成畫面上的「目前累計」，
@@ -85,7 +85,7 @@ export function excludeOwnDailyQty(
 }
 
 /**
- * 有效累計完成量 = 期初 + 日報加總。
+ * Info: (20260806 - Julian) 有效累計完成量 = 期初 + 日報加總。
  *
  * 兩者皆未填時回 `null`（代表「無資料」），而非 0 ——
  * 下游據此區分「尚未填報」與「填報為 0」：
@@ -102,14 +102,14 @@ export function effectiveCompletedQty(
   return (hasOpening ? opening : 0) + (hasDaily ? dailyTotal : 0);
 }
 
-/** 把 0-100 之外的值夾回範圍內，並取整。 */
+/** Info: (20260806 - Julian) 把 0-100 之外的值夾回範圍內，並取整。 */
 function clampPercent(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.min(100, Math.max(0, Math.round(value)));
 }
 
 /**
- * 有效進度（0-100 整數）。
+ * Info: (20260806 - Julian) 有效進度（0-100 整數）。
  *
  * 已計量工項（有契約數量）以數量比例為準；
  * 未計量工項沿用人工填報值（`storedProgress`）。
@@ -126,7 +126,7 @@ export function effectiveProgress(
 }
 
 /**
- * 以有效累計量取代原始 `completedQty`，回傳新物件。
+ * Info: (20260806 - Julian) 以有效累計量取代原始 `completedQty`，回傳新物件。
  *
  * 供台帳與報表的取數處使用：既有的推導純函式
  * （`ledgerRow`／`valuationStatus`／`anomaliesOf`／`progressFromQty`）
@@ -146,7 +146,7 @@ export function withEffectiveQty<T extends LedgerQty>(
 }
 
 /**
- * 一次處理多列：以 workItemId 查表取得日報加總並換算。
+ * Info: (20260806 - Julian) 一次處理多列：以 workItemId 查表取得日報加總並換算。
  *
  * 找不到對應加總者以 null 傳入（等同「日報尚無此工項的紀錄」），
  * 其有效累計量即等於期初值。
@@ -158,10 +158,10 @@ export function withEffectiveQtyAll<T extends LedgerQty & { id: string }>(
   return rows.map((row) => withEffectiveQty(row, totals.get(row.id) ?? null));
 }
 
-// ── 有效進度的套用（決策 F）────────────────────────────────
+// Info: (20260806 - Julian) ── 有效進度的套用（決策 F）────────────────────────────────
 
 /**
- * 套用有效進度所需的最小欄位。
+ * Info: (20260806 - Julian) 套用有效進度所需的最小欄位。
  *
  * 數量欄位以 `unknown` 接收並於內部轉 number：資料庫回傳的是 Prisma Decimal，
  * 沿用專案既有的「Decimal 於邊界轉 number」慣例，讓呼叫端不必各自轉換。
@@ -177,7 +177,7 @@ const asNum = (v: unknown): number | null =>
   v == null ? null : Number(v as number);
 
 /**
- * 以有效進度取代 `progress` 欄位值，回傳新物件。
+ * Info: (20260806 - Julian) 以有效進度取代 `progress` 欄位值，回傳新物件。
  *
  * 有效進度 = 由「期初＋日報加總」對契約數量的比例推導；
  * 未計量工項（無契約數量）沿用原欄位的人工填報值（決策 F）。
@@ -201,7 +201,7 @@ export function withEffectiveProgress<T extends EffectiveProgressRow>(
       {
         contractQty,
         completedQty,
-        // 估驗狀態與此無關，不取這三個量
+        // Info: (20260806 - Julian) 估驗狀態與此無關，不取這三個量
         unitPrice: null,
         inspectedQty: null,
         valuatedQty: null,
@@ -211,7 +211,7 @@ export function withEffectiveProgress<T extends EffectiveProgressRow>(
   };
 }
 
-/** 一次處理多列；查無日報加總者以 null 傳入（其有效累計即等於期初）。 */
+/** Info: (20260806 - Julian) 一次處理多列；查無日報加總者以 null 傳入（其有效累計即等於期初）。 */
 export function withEffectiveProgressAll<T extends EffectiveProgressRow>(
   rows: T[],
   totals: DailyQtyTotals,

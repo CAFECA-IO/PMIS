@@ -17,19 +17,19 @@ import {
 
 const NA = "—";
 
-/** 工項明細一列；金額與百分比由呼叫端算好（Decimal 於邊界轉 number）。 */
+/** Info: (20260806 - Julian) 工項明細一列；金額與百分比由呼叫端算好（Decimal 於邊界轉 number）。 */
 export interface WorkItemRow {
-  /** 項次（WBS 代碼；無則由組裝器以序號補） */
+  /** Info: (20260806 - Julian) 項次（WBS 代碼；無則由組裝器以序號補） */
   code: string | null;
   name: string;
-  /** 合約金額 = 契約數量 × 單價 */
+  /** Info: (20260806 - Julian) 合約金額 = 契約數量 × 單價 */
   contractAmount: number | null;
-  /** 累計完成百分比 */
+  /** Info: (20260806 - Julian) 累計完成百分比 */
   cumulativePercent: number | null;
-  /** 累計完成金額 */
+  /** Info: (20260806 - Julian) 累計完成金額 */
   cumulativeAmount: number | null;
   /**
-   * 本期完成百分比／金額 = 期間內該工項的日報 dailyQty 之和（決策 A）。
+   * Info: (20260806 - Julian) 本期完成百分比／金額 = 期間內該工項的日報 dailyQty 之和（決策 A）。
    *
    * null 代表「本期無數量紀錄可據」（例如尚未導入日報填報），
    * 與 0（本期確實未施作）意義不同，呈現上不可混為一談。
@@ -38,7 +38,7 @@ export interface WorkItemRow {
   currentAmount: number | null;
 }
 
-/** 逐日日誌一列（明細層，完整保留）。 */
+/** Info: (20260806 - Julian) 逐日日誌一列（明細層，完整保留）。 */
 export interface DailyLogRow {
   reportDate: Date;
   weather: string | null;
@@ -46,7 +46,7 @@ export interface DailyLogRow {
   keyNotes: string | null;
 }
 
-/** S-Curve 一點；預定為必填。 */
+/** Info: (20260806 - Julian) S-Curve 一點；預定為必填。 */
 export interface ProgressCurvePoint {
   label: string;
   planned: number;
@@ -56,7 +56,7 @@ export interface ProgressCurvePoint {
 
 export interface ReportTemplateInput {
   type: ReportType;
-  /** 期間標籤，如「2026 年 5 月」 */
+  /** Info: (20260806 - Julian) 期間標籤，如「2026 年 5 月」 */
   periodLabel: string;
   periodStart: Date;
   periodEnd: Date;
@@ -68,16 +68,16 @@ export interface ReportTemplateInput {
     client: string | null;
     contractor: string | null;
     supervisor: string | null;
-    /** 契約金額 */
+    /** Info: (20260806 - Julian) 契約金額 */
     budget: number | null;
     startDate: Date | null;
     endDate: Date | null;
   };
-  /** 工程概要：每項一句（如「人孔 20 座」），取自契約標的 title */
+  /** Info: (20260806 - Julian) 工程概要：每項一句（如「人孔 20 座」），取自契約標的 title */
   scopeItems: string[];
 
   /**
-   * 因仍為草稿而未計入本報表的日報天數（決策 G）。
+   * Info: (20260806 - Julian) 因仍為草稿而未計入本報表的日報天數（決策 G）。
    *
    * 需要呈現，否則使用者看到施工天數偏低會誤以為資料遺失，
    * 而實際原因是那些日報尚未提送。
@@ -85,7 +85,7 @@ export interface ReportTemplateInput {
   excludedDraftDays?: number;
 
   /**
-   * 未設定預定起訖日、因而未納入整體進度比對的工程分項數。
+   * Info: (20260806 - Julian) 未設定預定起訖日、因而未納入整體進度比對的工程分項數。
    *
    * 整體進度只能算在同時有預定與完成的工項上。若不揭露排除了幾項，
    * 讀報表的人無從判斷那個百分比涵蓋了多少工作 ——
@@ -95,11 +95,11 @@ export interface ReportTemplateInput {
 
   duration: DurationSummary;
   progress: {
-    /** 本期預定／完成增量（百分點）；無法計算時為 null */
+    /** Info: (20260806 - Julian) 本期預定／完成增量（百分點）；無法計算時為 null */
     currentPlanned: number | null;
     currentActual: number | null;
     /**
-     * 累計預定／完成（%）；無可比對的工項時為 null。
+     * Info: (20260806 - Julian) 累計預定／完成（%）；無可比對的工項時為 null。
      *
      * 刻意允許 null 而不以 0 代入：0 代表「確實毫無進度」，
      * 而缺值代表「無從計算」，兩者在送審文件上的意義完全不同。
@@ -114,11 +114,11 @@ export interface ReportTemplateInput {
   workDays: WorkDayStats;
   dailyLogs: DailyLogRow[];
 
-  /** LLM 產出的期間評述；null 時以決定論句子回退 */
+  /** Info: (20260806 - Julian) LLM 產出的期間評述；null 時以決定論句子回退 */
   review: string | null;
 }
 
-// ── 格式化助手 ────────────────────────────────────────────────
+// Info: (20260806 - Julian) ── 格式化助手 ────────────────────────────────────────────────
 const fmtInt = (n: number | null): string =>
   n == null ? NA : n.toLocaleString("zh-TW");
 
@@ -137,11 +137,11 @@ const WEEKDAY = ["日", "一", "二", "三", "四", "五", "六"];
 const fmtMonthDay = (d: Date): string =>
   `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
 
-/** 表格單元內換行需用 <br>；同時避免 | 破壞表格結構。 */
+/** Info: (20260806 - Julian) 表格單元內換行需用 <br>；同時避免 | 破壞表格結構。 */
 const cell = (text: string): string =>
   text.replace(/\|/g, "／").replace(/\n+/g, "<br>");
 
-// ── 各層組裝 ──────────────────────────────────────────────────
+// Info: (20260806 - Julian) ── 各層組裝 ──────────────────────────────────────────────────
 
 function sectionHeader(input: ReportTemplateInput): string[] {
   const name = PERIOD_REPORT_NAME[input.type];
@@ -181,7 +181,7 @@ function sectionBasics(input: ReportTemplateInput): string[] {
 function sectionSummary(input: ReportTemplateInput): string[] {
   const period = PERIOD_LABEL[input.type];
   const { progress, duration } = input;
-  // 缺任一側就沒有落差可言；以 0 代入等於宣稱「與預定相符」
+  // Info: (20260806 - Julian) 缺任一側就沒有落差可言；以 0 代入等於宣稱「與預定相符」
   const gap =
     progress.cumulativeActual != null && progress.cumulativePlanned != null
       ? progress.cumulativeActual - progress.cumulativePlanned
@@ -255,7 +255,7 @@ function sectionProgress(input: ReportTemplateInput): string[] {
   ];
 
   /*
-    整體進度的涵蓋範圍必須寫明。上表的百分比只算在「有預定起訖日」的工項上
+    Info: (20260806 - Julian) 整體進度的涵蓋範圍必須寫明。上表的百分比只算在「有預定起訖日」的工項上
     —— 未設定者沒有預定值可比，納入任一側都會使落差來自母體不同。
     不揭露的話，20 項中僅 1 項參與比對時，那個百分比會被當成全案進度。
   */
@@ -272,7 +272,7 @@ function sectionProgress(input: ReportTemplateInput): string[] {
   }
 
   /*
-    3.2 累計進度橫條。
+    Info: (20260806 - Julian) 3.2 累計進度橫條。
 
     第三欄（本期增量）**要嘛每一列都有、要嘛整個圍欄都不放**。
     先前是逐列判斷 `currentPercent != null`，於是有本期數量的列出三欄、
@@ -302,7 +302,7 @@ function sectionProgress(input: ReportTemplateInput): string[] {
     }
   }
 
-  // 3.3 法定明細表 + 合計
+  // Info: (20260806 - Julian) 3.3 法定明細表 + 合計
   out.push("### 3.3 工程項目估驗明細", "");
   out.push(
     `| 項次 | 工程項目 | 單位權重 | 合約金額 | ${period}完成百分比 | 累計完成百分比 | ${period}完成金額 | 累計完成金額 |`,
@@ -345,7 +345,7 @@ function sectionProgress(input: ReportTemplateInput): string[] {
     );
   } else if (missingCurrent > 0) {
     /*
-      混合情況先前完全無提示，而合計只加了有值的列 ——
+      Info: (20260806 - Julian) 混合情況先前完全無提示，而合計只加了有值的列 ——
       讀者會把它當成全部工項的總和，形成系統性低估。
     */
     out.push(
@@ -368,7 +368,7 @@ function sectionWorkLog(input: ReportTemplateInput): string[] {
     `| 天氣因素停工 | ${workDays.weatherStop} 天 | 日報載明因雨或颱風停工之日數 |`,
   );
   /*
-    地震停工固定列示（即使為 0）。
+    Info: (20260806 - Julian) 地震停工固定列示（即使為 0）。
     與天候分列是因為兩者處置不同：地震停工後常伴隨結構複檢，
     且在工期展延的契約依據上與天候屬不同款項。
     法定文件中明列 0 也有意義 —— 表示該項已審視過，而非遺漏。
@@ -384,14 +384,14 @@ function sectionWorkLog(input: ReportTemplateInput): string[] {
     out.push(`| 其他停工 | ${workDays.otherStop} 天 | 因其他原因未施工，詳見逐日明細 |`);
   }
   if (workDays.unclassified > 0) {
-    // 不臆測分類：既無停工原因亦無敘述者單獨列出，避免混入例假日而失真
+    // Info: (20260806 - Julian) 不臆測分類：既無停工原因亦無敘述者單獨列出，避免混入例假日而失真
     out.push(
       `| 未載明 | ${workDays.unclassified} 天 | 日報未填停工原因亦無工作敘述，無從判定 |`,
     );
   }
   out.push(`| 填報日數 | ${workDays.total} 天 | ${period}監造日報篇數 |`);
   /*
-    免計工期與停工天數分列：停工不必然免計工期，免計與否是監造依契約條款的宣告。
+    Info: (20260806 - Julian) 免計工期與停工天數分列：停工不必然免計工期，免計與否是監造依契約條款的宣告。
     此數在結算與工期展延爭議中有金額意義，故即使為 0 也固定列示。
   */
   out.push(
@@ -459,7 +459,7 @@ function sectionSignature(): string[] {
   ];
 }
 
-/** 組出完整五層監造報表 markdown。 */
+/** Info: (20260806 - Julian) 組出完整五層監造報表 markdown。 */
 export function buildReportMarkdown(input: ReportTemplateInput): string {
   return [
     ...sectionHeader(input),

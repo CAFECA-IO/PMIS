@@ -11,7 +11,7 @@ import {
   type QtySnapshotRow,
 } from "./report-audit";
 
-// ── describeFieldChanges ────────────────────────────────────
+// Info: (20260806 - Julian) ── describeFieldChanges ────────────────────────────────────
 
 test("describeFieldChanges 只列出真正改變的欄位", () => {
   const d = describeFieldChanges(
@@ -24,7 +24,7 @@ test("describeFieldChanges 只列出真正改變的欄位", () => {
 
 test("describeFieldChanges 保存未截斷的變更前欄位", () => {
   /*
-    摘要會截斷，而 DB 欄位會被新值覆寫。免計工期依據這類直接對應金額的
+    Info: (20260806 - Julian) 摘要會截斷，而 DB 欄位會被新值覆寫。免計工期依據這類直接對應金額的
     敘述，若只留 60 字摘要就等於從 DB 與軌跡兩邊同時消失。
   */
   const basis =
@@ -52,7 +52,7 @@ test("describeFieldChanges 無異動時回 null", () => {
     describeFieldChanges({ weather: "晴" }, { weather: "晴" }),
     null,
   );
-  // null 與空字串視為相同，避免「（空）→（空）」這種無意義紀錄
+  // Info: (20260806 - Julian) null 與空字串視為相同，避免「（空）→（空）」這種無意義紀錄
   assert.equal(describeFieldChanges({ summary: null }, { summary: "" }), null);
 });
 
@@ -71,7 +71,7 @@ test("describeFieldChanges 截斷過長的值", () => {
   assert.ok(d.summary.length < 400, "摘要不應塞入整段敘述");
 });
 
-// ── describeQtyChanges ──────────────────────────────────────
+// Info: (20260806 - Julian) ── describeQtyChanges ──────────────────────────────────────
 
 const row = (
   id: string | null,
@@ -103,7 +103,7 @@ test("describeQtyChanges 無異動時回 null", () => {
 });
 
 test("describeQtyChanges 保存變更「前」的完整明細", () => {
-  // 變更後的值讀現況即得；變更前的一旦覆寫就永遠消失，那才是要保住的
+  // Info: (20260806 - Julian) 變更後的值讀現況即得；變更前的一旦覆寫就永遠消失，那才是要保住的
   const before = [row("a", "管線", 10)];
   const c = describeQtyChanges(before, [row("a", "管線", 30)])!;
   assert.deepEqual(JSON.parse(c.before), before);
@@ -114,7 +114,7 @@ test("describeQtyChanges 記錄單位變更（量綱改變不可無痕）", () =
     [row("a", "路面刨除", 10, { unit: "m" })],
     [row("a", "路面刨除", 10, { unit: "m2" })],
   );
-  // 數量沒動但量綱改了，累計就對不上；只比 dailyQty 會讓這件事完全不留痕
+  // Info: (20260806 - Julian) 數量沒動但量綱改了，累計就對不上；只比 dailyQty 會讓這件事完全不留痕
   assert.ok(c, "只改單位也必須留下軌跡");
   assert.ok(c!.summary.includes("單位 m → m2"));
 });
@@ -160,7 +160,7 @@ test("describeQtyChanges 以名稱區分契約外項目（workItemId 為 null）
   );
 });
 
-// ── describeCreation ───────────────────────────────────────
+// Info: (20260806 - Julian) ── describeCreation ───────────────────────────────────────
 
 test("describeCreation 記下初始值而非只記欄位名", () => {
   const d = describeCreation(
@@ -194,7 +194,7 @@ test("describeCreation 無數量表時明言無資料", () => {
 });
 
 test("describeCreation 全空時仍產出可辨識的紀錄", () => {
-  // CREATE 的 detail 不可為空 —— 空白紀錄等於沒記
+  // Info: (20260806 - Julian) CREATE 的 detail 不可為空 —— 空白紀錄等於沒記
   const d = describeCreation({ summary: null, weather: null }, []);
   assert.ok(d.summary.length > 0);
   assert.ok(d.summary.includes("建立日報"));
@@ -206,7 +206,7 @@ test("describeCreation 摘要截斷但快照完整", () => {
   assert.ok(d.before.length > 1000, "快照必須保留完整內容");
 });
 
-// ── describeDeletion ───────────────────────────────────────
+// Info: (20260806 - Julian) ── describeDeletion ───────────────────────────────────────
 
 const deletion = (over: Partial<Parameters<typeof describeDeletion>[0]> = {}) =>
   describeDeletion({
@@ -218,13 +218,13 @@ const deletion = (over: Partial<Parameters<typeof describeDeletion>[0]> = {}) =>
   });
 
 test("describeDeletion 記下是哪一天的日報", () => {
-  // 本表無外鍵，刪除後 reportId 已無對應；沒有日期就不知道哪一天的量不見了
+  // Info: (20260806 - Julian) 本表無外鍵，刪除後 reportId 已無對應；沒有日期就不知道哪一天的量不見了
   assert.ok(deletion().summary.includes("2026-03-14"));
   assert.ok(deletion().summary.includes("已提送"), "狀態決定它是否曾計入累計");
 });
 
 test("describeDeletion 一律列出免計工期宣告，即使為否", () => {
-  // 免計工期在展延爭議中有金額意義；「沒有宣告」本身也是要留存的事實
+  // Info: (20260806 - Julian) 免計工期在展延爭議中有金額意義；「沒有宣告」本身也是要留存的事實
   assert.ok(deletion().summary.includes("免計工期：否"));
   const withBasis = deletion({
     fields: { excludedFromDuration: "是", exclusionBasis: "契約第 12 條" },
@@ -251,7 +251,7 @@ test("describeDeletion 無數量表時寫明，不留空白", () => {
   assert.ok(deletion({ items: [] }).summary.includes("無數量表"));
 });
 
-// ── actionsFor ──────────────────────────────────────────────
+// Info: (20260806 - Julian) ── actionsFor ──────────────────────────────────────────────
 
 test("actionsFor 新建時只記 CREATE", () => {
   assert.deepEqual(
@@ -282,14 +282,14 @@ test("actionsFor 依實際異動決定動作，無異動則不寫", () => {
   );
 });
 
-// ── 契約外同名項目（無穩定身分）──────────────────────────────
+// Info: (20260806 - Julian) ── 契約外同名項目（無穩定身分）──────────────────────────────
 
 const ext = (name: string, qty: number, over: Partial<QtySnapshotRow> = {}) =>
   row(null, name, qty, over);
 
 test("describeQtyChanges 同名契約外項目刪除其中一列必留軌跡", () => {
   /*
-    先前以 `x:${itemName}` 當 Map 鍵，同名兩列靜默收斂成最後一筆：
+    Info: (20260806 - Julian) 先前以 `x:${itemName}` 當 Map 鍵，同名兩列靜默收斂成最後一筆：
     刪掉「雜項 3」後 before/after 都只剩 7 → 判定無異動 → 完全不寫軌跡，
     而 3 已從累計與估驗金額中消失。
   */
@@ -310,7 +310,7 @@ test("describeQtyChanges 同名契約外項目新增一列不得誤述為修改"
 });
 
 test("describeQtyChanges 同名契約外項目僅調換順序視為無異動", () => {
-  // 那兩列本來就分不出誰是誰；順序不同不代表內容改變
+  // Info: (20260806 - Julian) 那兩列本來就分不出誰是誰；順序不同不代表內容改變
   assert.equal(
     describeQtyChanges(
       [ext("雜項", 3), ext("雜項", 7)],
@@ -326,7 +326,7 @@ test("describeQtyChanges 契約外項目整組移除仍記得每一列", () => {
 });
 
 test("describeQtyChanges 台帳工項仍以 workItemId 逐項比對", () => {
-  // 同名不同工項不得被併成一組
+  // Info: (20260806 - Julian) 同名不同工項不得被併成一組
   const c = describeQtyChanges(
     [row("a", "管線", 10), row("b", "管線", 20)],
     [row("a", "管線", 15), row("b", "管線", 20)],
@@ -335,11 +335,11 @@ test("describeQtyChanges 台帳工項仍以 workItemId 逐項比對", () => {
   assert.ok(!c.summary.includes("20"), "未變動的同名工項不應出現");
 });
 
-// ── 同一 workItemId 的重複列（歷史資料）──────────────────────
+// Info: (20260806 - Julian) ── 同一 workItemId 的重複列（歷史資料）──────────────────────
 
 test("describeQtyChanges 同一工項的重複列合併時必須留下軌跡", () => {
   /*
-    歷史資料可能有同一 workItemId 的多列 —— 合併是後來才加進
+    Info: (20260806 - Julian) 歷史資料可能有同一 workItemId 的多列 —— 合併是後來才加進
     `parseQtyEntries` 的，而 `SupervisionReportItem` 至今沒有
     `@@unique([reportId, workItemId])`。
 
@@ -377,7 +377,7 @@ test("describeQtyChanges 重複列整組移除時記得每一列", () => {
 });
 
 
-// ── buildAuditRows：每種動作各自帶對的 detail／snapshot ──────────
+// Info: (20260806 - Julian) ── buildAuditRows：每種動作各自帶對的 detail／snapshot ──────────
 
 const rowsFor = (over: Parameters<typeof buildAuditRows>[0]) =>
   buildAuditRows(over);
@@ -402,7 +402,7 @@ test("buildAuditRows 無異動時不產生任何列", () => {
 
 test("buildAuditRows：UPDATE 帶的是欄位差異，不是數量差異", () => {
   /*
-    先前這件事只以「整個檔案是否含 detail: fieldChanges!.summary」比對，
+    Info: (20260806 - Julian) 先前這件事只以「整個檔案是否含 detail: fieldChanges!.summary」比對，
     把這一支換成 qtyChanges!.before 照樣全綠 —— 兩個字面值都還在檔案裡。
   */
   const [r] = rowsFor({
@@ -475,6 +475,6 @@ test("buildAuditRows：一次儲存同時改欄位、狀態與數量時各寫一
     ["ITEMS", "STATUS", "UPDATE"],
     "三種異動不得互相蓋掉",
   );
-  // 每一列都要帶到自己的報表日期，否則刪除後認不出是哪一天
+  // Info: (20260806 - Julian) 每一列都要帶到自己的報表日期，否則刪除後認不出是哪一天
   assert.ok(rows.every((r) => r.reportDate?.getTime() === baseArgs.reportDate.getTime()));
 });

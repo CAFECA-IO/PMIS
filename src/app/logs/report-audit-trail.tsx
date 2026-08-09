@@ -9,7 +9,7 @@ import {
 import { reportStatusMeta } from "@/constant/pmis";
 
 /**
- * 日報變更軌跡（決策 J-b）。
+ * Info: (20260806 - Julian) 日報變更軌跡（決策 J-b）。
  *
  * 日報是施工紀錄本，本就允許更正 —— 規矩不是「不准改」而是「改了要看得出來」。
  * 且日報數量是月報金額的來源，事後修正會改變彙整結果，
@@ -19,14 +19,14 @@ import { reportStatusMeta } from "@/constant/pmis";
 type Row = {
   id: string;
   action: string;
-  /** 該日報的報表日期；專案層清單靠它辨識是哪一天（尤其是已刪除者）。 */
+  /** Info: (20260806 - Julian) 該日報的報表日期；專案層清單靠它辨識是哪一天（尤其是已刪除者）。 */
   reportDate?: Date | string | null;
   actorName: string | null;
   fromStatus: string | null;
   toStatus: string | null;
-  /** 供人閱讀的摘要；可能含換行（使用者原文）。 */
+  /** Info: (20260806 - Julian) 供人閱讀的摘要；可能含換行（使用者原文）。 */
   detail: string | null;
-  /** 變更前／建立時的完整內容 JSON。 */
+  /** Info: (20260806 - Julian) 變更前／建立時的完整內容 JSON。 */
   snapshot: string | null;
   createdAt: Date | string;
 };
@@ -51,7 +51,7 @@ const stamp = (v: Date | string) => {
 };
 
 /*
-  摘要與完整快照是兩個欄位，不再從單一字串切分。
+  Info: (20260806 - Julian) 摘要與完整快照是兩個欄位，不再從單一字串切分。
 
   先前以「第一個換行之後即為 JSON」判斷，但摘要含使用者原文，
   原文可以有換行：`施工概況：上午澆置\n下午養護` 會讓「下午養護…」
@@ -60,7 +60,7 @@ const stamp = (v: Date | string) => {
 */
 
 /**
- * 舊格式相容：`snapshot` 欄位加入之前，ITEMS／DELETE 是把摘要與 JSON
+ * Info: (20260806 - Julian) 舊格式相容：`snapshot` 欄位加入之前，ITEMS／DELETE 是把摘要與 JSON
  * 用換行接在 `detail` 裡的。那些列的 `snapshot` 為 null，若原樣輸出，
  * 一份 60 個品項的數量表異動會把整段 JSON 陣列當成摘要印在軌跡上，
  * 把同一畫面的其他紀錄整個淹掉。
@@ -92,7 +92,7 @@ export function splitLegacyDetail(
 }
 
 /**
- * 專案層的日報變更軌跡（含已刪除的日報）。
+ * Info: (20260806 - Julian) 專案層的日報變更軌跡（含已刪除的日報）。
  *
  * 逐份查看只能看到還存在的日報；而刪除正是最需要被看見的事件
  * —— 它會把某一天的數量從所有月報的累計中移除。
@@ -107,7 +107,7 @@ export function ProjectAuditTrail({ projectId }: { projectId: string }) {
   useEffect(() => {
     let stale = false;
     /*
-      不在 effect 本體同步 setState（會造成連鎖渲染，且 eslint 的
+      Info: (20260806 - Julian) 不在 effect 本體同步 setState（會造成連鎖渲染，且 eslint 的
       react-hooks/set-state-in-effect 會擋）。舊的錯誤不會被誤顯示：
       切換專案後 `loadedId !== projectId`，render 端先走載入中那一支。
     */
@@ -126,7 +126,7 @@ export function ProjectAuditTrail({ projectId }: { projectId: string }) {
         setLoadedId(projectId);
       })
       .catch(() => {
-        // 不吞例外：沒有 catch 時畫面會永遠停在「載入中」而不說原因
+        // Info: (20260806 - Julian) 不吞例外：沒有 catch 時畫面會永遠停在「載入中」而不說原因
         if (stale) return;
         setError("無法載入變更軌跡，請重新整理後再試。");
         setLoadedId(projectId);
@@ -136,7 +136,7 @@ export function ProjectAuditTrail({ projectId }: { projectId: string }) {
     };
   }, [projectId]);
 
-  /** 以最後一筆的時間為游標往下讀；用 offset 會在期間有新紀錄時錯位。 */
+  /** Info: (20260806 - Julian) 以最後一筆的時間為游標往下讀；用 offset 會在期間有新紀錄時錯位。 */
   async function loadMore() {
     const last = rows[rows.length - 1];
     if (!last) return;
@@ -171,7 +171,7 @@ export function ProjectAuditTrail({ projectId }: { projectId: string }) {
     <div className="space-y-1">
       <AuditList rows={rows} showDate />
       {/*
-        清單被截斷時必須說出來。這個區塊的標題宣稱「含已刪除」，
+        Info: (20260806 - Julian) 清單被截斷時必須說出來。這個區塊的標題宣稱「含已刪除」，
         靜默截斷會讓稽核者看到一份看起來完整、卻剛好少了那筆刪除紀錄的清單。
       */}
       {hasMore && (
@@ -224,7 +224,7 @@ export function ReportAuditTrail({ reportId }: { reportId: string }) {
 }
 
 /**
- * 軌跡列表的呈現。
+ * Info: (20260806 - Julian) 軌跡列表的呈現。
  *
  * 逐份與專案層共用同一份呈現：兩處若各寫一份，日後只改其中一處
  * 會讓同一筆紀錄在兩個畫面上說法不同 —— 那正是稽核軌跡最不該發生的事。
@@ -238,7 +238,7 @@ function AuditList({ rows, showDate = false }: { rows: Row[]; showDate?: boolean
           <li key={r.id} className="border-l-2 pl-2">
             <div className="flex flex-wrap items-baseline gap-x-2">
               <span className="font-medium">{ACTION_LABEL[r.action] ?? r.action}</span>
-              {/* 專案層需標明是哪一天的日報；已刪除者更是只剩這個線索 */}
+              {/* Info: (20260806 - Julian) 專案層需標明是哪一天的日報；已刪除者更是只剩這個線索 */}
               {showDate && (
                 <span className="font-medium">
                   {r.reportDate
@@ -260,7 +260,7 @@ function AuditList({ rows, showDate = false }: { rows: Row[]; showDate?: boolean
                 {statusLabel(r.fromStatus)} → {statusLabel(r.toStatus)}
               </div>
             )}
-            {/* 建立時的狀態即後續狀態轉換的起點，缺了它軌跡接不回起點 */}
+            {/* Info: (20260806 - Julian) 建立時的狀態即後續狀態轉換的起點，缺了它軌跡接不回起點 */}
             {r.action === "CREATE" && r.toStatus && (
               <div className="text-muted-foreground">
                 建立時狀態：{statusLabel(r.toStatus)}
@@ -274,7 +274,7 @@ function AuditList({ rows, showDate = false }: { rows: Row[]; showDate?: boolean
             {raw && (
               <details className="mt-0.5">
                 <summary className="cursor-pointer text-muted-foreground hover:underline">
-                  {/* 同一個 JSON 區塊在不同動作下語意不同，標題須跟著改 */}
+                  {/* Info: (20260806 - Julian) 同一個 JSON 區塊在不同動作下語意不同，標題須跟著改 */}
                   {r.action === "CREATE"
                     ? "建立時的完整內容"
                     : r.action === "DELETE"

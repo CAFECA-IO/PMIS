@@ -16,7 +16,7 @@ import { ReportQtyTable } from "@/app/logs/report-qty-table";
 import { ReportProgressStrip } from "@/app/logs/report-progress-strip";
 
 /**
- * 日報欄位（供 CreateRecordDialog 作為 children 使用）。
+ * Info: (20260806 - Julian) 日報欄位（供 CreateRecordDialog 作為 children 使用）。
  * 不含 <form>：由外層對話框提供 form 與送出；此處僅提供受控欄位與「帶入當日查驗/缺失」。
  */
 export function ReportDialogFields({
@@ -37,14 +37,14 @@ export function ReportDialogFields({
   const [equipment, setEquipment] = useState("");
   const [keyNotes, setKeyNotes] = useState("");
   const [loading, setLoading] = useState(false);
-  /** 已查出「該日已有日報」的結果；連同查詢時的日期一起記，供推導比對。 */
+  /** Info: (20260806 - Julian) 已查出「該日已有日報」的結果；連同查詢時的日期一起記，供推導比對。 */
   const [conflict, setConflict] = useState<{
     date: string;
     statusLabel: string | null;
   } | null>(null);
 
   /*
-    選好日期當下就告訴使用者該日已有日報。
+    Info: (20260806 - Julian) 選好日期當下就告訴使用者該日已有日報。
 
     本表單**不會載入既有內容**，送出時每個空欄位都會寫成 null；
     伺服器端已會拒絕撞日期的新建（見 fileReport），但等到使用者
@@ -69,7 +69,7 @@ export function ReportDialogFields({
     };
   }, [projectId, reportDate]);
 
-  // 只在查詢結果對應當前日期時才顯示（涵蓋清空日期與防抖空窗）
+  // Info: (20260806 - Julian) 只在查詢結果對應當前日期時才顯示（涵蓋清空日期與防抖空窗）
   const dateTaken = conflict && conflict.date === reportDate ? conflict : null;
 
   async function pull() {
@@ -132,7 +132,7 @@ export function ReportDialogFields({
           value={stopReason}
           onChange={(e) => setStopReason(e.target.value)}
         >
-          {/* 留空＝當日有施工；此欄是工作日統計的權威來源（決策 H） */}
+          {/* Info: (20260806 - Julian) 留空＝當日有施工；此欄是工作日統計的權威來源（決策 H） */}
           <option value="">當日有施工</option>
           {workStopReasonOptions.map((o) => (
             <option key={o.value} value={o.value}>
@@ -142,7 +142,7 @@ export function ReportDialogFields({
         </Select>
       </label>
       {/*
-        免計工期具法律效果（結算與工期展延爭議），故與停工原因分開：
+        Info: (20260806 - Julian) 免計工期具法律效果（結算與工期展延爭議），故與停工原因分開：
         停工不必然免計（例假日在日曆天契約下仍計工期），
         免計與否是監造依契約條款的宣告，系統不推測。
       */}

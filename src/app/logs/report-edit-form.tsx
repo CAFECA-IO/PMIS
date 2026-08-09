@@ -31,7 +31,7 @@ export function ReportEditForm({
   dateLabel: string;
   initial: {
     weather: string;
-    /** 停工原因；空字串代表當日有施工。 */
+    /** Info: (20260806 - Julian) 停工原因；空字串代表當日有施工。 */
     stopReason: string;
     excludedFromDuration: boolean;
     exclusionBasis: string;
@@ -95,7 +95,7 @@ export function ReportEditForm({
           value={stopReason}
           onChange={(e) => setStopReason(e.target.value)}
         >
-          {/* 留空＝當日有施工；此欄是工作日統計的權威來源（決策 H） */}
+          {/* Info: (20260806 - Julian) 留空＝當日有施工；此欄是工作日統計的權威來源（決策 H） */}
           <option value="">當日有施工</option>
           {workStopReasonOptions.map((o) => (
             <option key={o.value} value={o.value}>
@@ -105,7 +105,7 @@ export function ReportEditForm({
         </Select>
       </label>
       {/*
-        免計工期具法律效果（結算與工期展延爭議），故與停工原因分開：
+        Info: (20260806 - Julian) 免計工期具法律效果（結算與工期展延爭議），故與停工原因分開：
         停工不必然免計（例假日在日曆天契約下仍計工期），
         免計與否是監造依契約條款的宣告，系統不推測。
       */}
@@ -194,7 +194,7 @@ export function ReportEditForm({
         <Button type="submit" size="sm" variant="secondary">
           儲存
         </Button>
-        {/* 狀態取表單當前值：使用者剛把草稿改成已提送時，警語就該跟著出現 */}
+        {/* Info: (20260806 - Julian) 狀態取表單當前值：使用者剛把草稿改成已提送時，警語就該跟著出現 */}
         <ReportDeleteButton
           id={id}
           label={dateLabel}

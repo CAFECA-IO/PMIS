@@ -75,7 +75,7 @@ const base: ReportTemplateInput = {
 
 test("累計進度缺值時呈現「—」而非 0，且不宣稱與預定相符", () => {
   /*
-    0 代表「確實毫無進度」，缺值代表「無從計算」——在送審文件上意義完全不同。
+    Info: (20260806 - Julian) 0 代表「確實毫無進度」，缺值代表「無從計算」——在送審文件上意義完全不同。
     先前以 `?? 0` 代入，表格印 0.00% 而餵給 LLM 的事實文字是「—」，
     同一份報表兩個說法；落差還會被算成 0 而寫出「與預定相符」。
   */
@@ -105,7 +105,7 @@ test("累計進度缺值時呈現「—」而非 0，且不宣稱與預定相符
 });
 
 test("未納入進度比對的工項數必須揭露", () => {
-  // 20 項裡只有 1 項參與比對時，「累計完成 100%」是誤導性的真話
+  // Info: (20260806 - Julian) 20 項裡只有 1 項參與比對時，「累計完成 100%」是誤導性的真話
   const md = buildReportMarkdown({ ...base, unscheduledWorkItems: 20 });
   assert.ok(md.includes("20 項未設定預定起訖日"), "3.1 需說明涵蓋範圍");
   assert.ok(md.includes("| 未納入進度比對 | 20 項"), "註記表需列示");
@@ -160,7 +160,7 @@ test("工項明細合計正確（合約金額與累計金額加總）", () => {
 
 test("單位權重按合約金額比例計算", () => {
   const md = buildReportMarkdown(base);
-  // 40,000,000 / 40,300,000 = 99.256...% → 99.3%
+  // Info: (20260806 - Julian) 40,000,000 / 40,300,000 = 99.256...% → 99.3%
   assert.ok(md.includes("99.3%"), "管線工程權重應為 99.3%");
 });
 
@@ -171,7 +171,7 @@ test("落差以「超前 N 個百分點」表述，不使用達成率", () => {
 });
 
 test("本期無日報數量紀錄時顯示 — 並加註原因", () => {
-  // base 的 workItems 兩列的 currentPercent／currentAmount 皆為 null
+  // Info: (20260806 - Julian) base 的 workItems 兩列的 currentPercent／currentAmount 皆為 null
   const md = buildReportMarkdown(base);
   assert.ok(
     md.includes("尚無已提送或已核備的日報數量紀錄"),
@@ -193,7 +193,7 @@ test("部分工項無本期數量時，說明合計未含這些項目（避免�
         currentAmount: 2_000_000,
       },
       {
-        // 未計量工項：本期兩欄恆為 null，其金額不會進合計
+        // Info: (20260806 - Julian) 未計量工項：本期兩欄恆為 null，其金額不會進合計
         code: "1-2",
         name: "雜項",
         contractAmount: null,
@@ -236,7 +236,7 @@ test("無草稿日報時不出現草稿列", () => {
 });
 
 test("有日報數量時填入本期完成欄位，且不再出現暫缺註記", () => {
-  // 決策 A：本期完成 = 期間內該工項的日報 dailyQty 之和
+  // Info: (20260806 - Julian) 決策 A：本期完成 = 期間內該工項的日報 dailyQty 之和
   const md = buildReportMarkdown({
     ...base,
     workItems: [
@@ -255,7 +255,7 @@ test("有日報數量時填入本期完成欄位，且不再出現暫缺註記",
         contractAmount: 300_000,
         cumulativePercent: 30,
         cumulativeAmount: 800_000,
-        // 本期未施作。0 與 null 意義不同：此列為「確實沒做」
+        // Info: (20260806 - Julian) 本期未施作。0 與 null 意義不同：此列為「確實沒做」
         currentPercent: 0,
         currentAmount: 0,
       },
@@ -267,7 +267,7 @@ test("有日報數量時填入本期完成欄位，且不再出現暫缺註記",
     "有資料時不應再出現暫缺註記",
   );
   assert.ok(md.includes("**2,000,000**"), "本期完成金額合計應補齊");
-  // 3.2 進度圖的第三欄即本期增量
+  // Info: (20260806 - Julian) 3.2 進度圖的第三欄即本期增量
   assert.ok(md.includes("管線工程, 70, 2"), "進度圖應帶入本期增量作為第三欄");
 });
 
@@ -344,7 +344,7 @@ test("表格單元內的 | 與換行被安全轉義", () => {
 
 test("3.2 進度圖的欄數整個圍欄一致，不逐列擺盪", () => {
   /*
-    先前是逐列判斷 currentPercent 有無，於是同一個圍欄裡混有 3 欄與 2 欄。
+    Info: (20260806 - Julian) 先前是逐列判斷 currentPercent 有無，於是同一個圍欄裡混有 3 欄與 2 欄。
     解析器容忍 2–4 欄不會壞，但兩欄的那幾列會靜默失去本期標記 ——
     讀圖的人無從分辨那是「本期為 0」還是「這一列沒有本期資料」。
   */
@@ -366,7 +366,7 @@ test("3.2 進度圖的欄數整個圍欄一致，不逐列擺盪", () => {
         contractAmount: 300_000,
         cumulativePercent: 30,
         cumulativeAmount: 90_000,
-        // 無契約數量者算不出百分比，但金額仍可能有值
+        // Info: (20260806 - Julian) 無契約數量者算不出百分比，但金額仍可能有值
         currentPercent: null,
         currentAmount: 5_000,
       },
