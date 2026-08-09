@@ -1,5 +1,3 @@
-import { NextResponse } from "next/server";
-
 import * as reportService from "@/service/report.service";
 import type { ReportType } from "@/service/report.service";
 import { getCurrentUser } from "@/service/auth.service";
@@ -9,6 +7,8 @@ import {
   getUserModulePermissions,
 } from "@/service/access.service";
 import { toFaithError } from "@/service/faith-error";
+import { jsonOk, jsonFail, jsonError } from "@/lib/api-response";
+import { API_ERRORS } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 
@@ -23,7 +23,7 @@ const VALID: ReportType[] = ["WEEKLY", "MONTHLY", "QUARTERLY", "ANNUAL"];
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "未登入" }, { status: 401 });
+  if (!user) return jsonFail(API_ERRORS.AU_NOT_SIGNED_IN);
 
   /*
     ── 模組權限必須在這裡擋，不能只靠專案成員判定 ──────────────
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
   */
   const perms = await getUserModulePermissions(user);
   if (!canAccessModule(perms, "/logs")) {
-    return NextResponse.json({ error: "無權存取工程日誌" }, { status: 403 });
+    return jsonFail(API_ERRORS.FO_MODULE_FORBIDDEN);
   }
 
   try {
@@ -50,7 +50,7 @@ export async function POST(request: Request) {
       refDate?: string;
     };
     if (!body.projectId) {
-      return NextResponse.json({ error: "缺少專案" }, { status: 400 });
+      return jsonFail(API_ERRORS.VA_MISSING_PROJECT);
     }
     /*
       週期不在白名單就拒絕，不要退回 MONTHLY —— 與下方基準日同一個道理：
@@ -58,10 +58,7 @@ export async function POST(request: Request) {
       比直接報錯更難察覺。
     */
     if (!VALID.includes(body.type as ReportType)) {
-      return NextResponse.json(
-        { error: "報表週期不正確。" },
-        { status: 400 },
-      );
+      return jsonFail(API_ERRORS.VA_INVALID_REPORT_TYPE);
     }
     const type = body.type as ReportType;
 
@@ -70,10 +67,7 @@ export async function POST(request: Request) {
       使用者以為在產 2026 年 8 月，系統卻默默產了本月，那比報錯更糟。
     */
     if (reportService.parseRefDate(body.refDate) === null) {
-      return NextResponse.json(
-        { error: "基準日不正確，請確認年份。" },
-        { status: 400 },
-      );
+      return jsonFail(API_ERRORS.VA_INVALID_REF_DATE);
     }
 
     /*
@@ -97,15 +91,19 @@ export async function POST(request: Request) {
       persist,
     );
     if (!view) {
-      return NextResponse.json({ error: "無法存取此專案或專案不存在" }, { status: 403 });
+      return jsonFail(API_ERRORS.FO_PROJECT_INACCESSIBLE);
     }
-    return NextResponse.json({
+    return jsonOk({
       ...view.report,
       savedId: view.savedId,
       confirmedId: view.confirmedId,
     });
   } catch (error) {
-    const message = toFaithError(error).message;
-    return NextResponse.json({ error: message }, { status: 500 });
+    /*
+      Info: (20260810 - Luphia) 沿用 `toFaithError` 整理過的可讀訊息 ——
+      LLM 失敗的原因（額度、逾時、模型拒答）對使用者有意義，
+      不該換成罐頭的「系統忙線中」。語意碼仍統一為 IN000001。
+    */
+    return jsonError(error, toFaithError(error).message);
   }
 }

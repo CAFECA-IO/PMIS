@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, FileText, Lock, RefreshCw, Sparkles } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import type { IApiResponse } from "@/lib/api-response";
 import { loadPeriodReportAction } from "@/app/logs/actions";
 import { ReportArchive } from "@/app/logs/report-archive";
 import { Input } from "@/components/ui/input";
@@ -33,12 +34,16 @@ const TYPES = [
 
 type ReportType = (typeof TYPES)[number]["value"];
 
-/** /api/report 的回應形狀（見 route.ts）。 */
-type ReportResponse = {
+/**
+ * /api/report 的 payload 形狀（見 route.ts）。
+ *
+ * 外層是全站統一的 `IApiResponse` 信封（`success`／`code`／`message`／
+ * `payload`），故報表欄位都在 `payload` 之下 —— 不是回應的頂層。
+ */
+type ReportPayload = {
   markdown?: string;
   savedId?: string | null;
   confirmedId?: string | null;
-  error?: string;
 };
 
 /** 畫面上這一份的來源：剛產出的，或是先前留存的。 */
@@ -197,15 +202,23 @@ export function ReportGenerator({
         body: JSON.stringify({ projectId, type, refDate }),
         signal: controller.signal,
       });
-      const data = (await res.json()) as ReportResponse;
+      const data = (await res.json()) as IApiResponse<ReportPayload>;
       if (isStale()) return;
-      if (!res.ok) throw new Error(data.error ?? "報告生成失敗");
+      /*
+        Info: (20260810 - Luphia) 以信封的 `success` 判斷，而非只看 `res.ok`：
+        兩者目前一致（HTTP 狀態由 `def.status` 推導），但錯誤文案在
+        `message` 而非 `error`，漏改會讓失敗時顯示罐頭字串。
+      */
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || "報告生成失敗");
+      }
+      const payload = data.payload;
       setShown({
-        markdown: data.markdown ?? "",
-        // 本期已有定稿時伺服器不留存，回傳的 savedId 為 null
-        persisted: Boolean(data.savedId),
-        savedId: data.savedId ?? null,
-        confirmedId: data.confirmedId ?? null,
+        markdown: payload?.markdown ?? "",
+        // Info: (20260810 - Luphia) 本期已有定稿時伺服器不留存，回傳的 savedId 為 null
+        persisted: Boolean(payload?.savedId),
+        savedId: payload?.savedId ?? null,
+        confirmedId: payload?.confirmedId ?? null,
         generatedAt: null,
         generatedBy: null,
       });
