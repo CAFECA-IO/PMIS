@@ -60,9 +60,23 @@ return jsonOk({ id: row.id });
 - 錯誤一律登錄於 `src/lib/api-error.ts` 的 `API_ERRORS`，讓前端有穩定的
   `errorCode` 可判斷；不要就地拼裝 `IErrorDef`，那等於沒有穩定識別碼。
 - 回應資料在信封的 `payload` 之下，錯誤文案在 `message`。
+- 失敗但仍有結果要交還時（例如檔案已歸檔但判讀失敗）用
+  `jsonFailWithPayload`／`jsonErrorWithPayload`，不要讓那個事實隨錯誤消失。
+- 訊息需動態組字（含檔名、含後端回報的原因）時用
+  `withMessage(API_ERRORS.X, msg)`，碼固定、訊息浮動；不要就地拼 `IErrorDef`。
 - 檔案下載用 `src/lib/file-response.ts` 的 `fileResponse`。
-- `src/lib/api-response.test.ts` 有 source-guard：未遷移路由的豁免清單
-  只能變短。遷移一個就從清單移除一個。
+
+**內容型回應**（圖磚、GeoJSON、KML、檔案本體）以 `new NextResponse` 回傳
+本體是正確的 —— 那些不是 JSON API，包進信封會讓 Leaflet 與下載連結壞掉。
+但它們的**錯誤**路徑仍須走 `jsonFail`。這類路由列於
+`api-response.test.ts` 的 `CONTENT_ROUTES`。
+
+唯一整支豁免的是 `api/gis/tiles`：它轉發上游（NLSC）的任意 HTTP 狀態，
+不是 `ApiCode` 能列舉的集合，且 Leaflet 只看狀態與位元組、永不讀 body。
+
+`src/lib/api-response.test.ts` 有三道 source-guard：不得出現
+`NextResponse.json`、每支路由都必須用信封或明列為內容型、不得手寫
+`status: <數字>`。
 
 此契約與 iSunFA `src/lib/utils/response.ts` 相同，匯出名稱一致；
 檔名採本專案的 kebab-case（`src/lib/utils.ts` 已存在，無法再建同名目錄）。

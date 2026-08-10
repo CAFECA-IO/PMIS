@@ -1,17 +1,18 @@
-import { NextResponse } from "next/server";
 
 import * as faith from "@/service/faith.service";
 import type { FaithMessage, ResponseSchema } from "@/service/faith.service";
 import * as projectService from "@/service/project.service";
 import * as designService from "@/service/designVersion.service";
 import { getCurrentUser } from "@/service/auth.service";
+import { jsonFail } from "@/lib/api-response";
+import { API_ERRORS } from "@/lib/api-error";
 import { withLogContext } from "@/service/faithLog.service";
 import { toFaithError } from "@/service/faith-error";
 
 export const runtime = "nodejs";
 
 /**
- * 費思・3D 施工設計生成（串流、分段回報進度）。
+ * Info: (20260804 - Luphia) 費思・3D 施工設計生成（串流、分段回報進度）。
  *
  * 使用者在 3D 工程視覺頁不選擇專案，改由目前鎖定的專案提供資訊。
  * 本端點於伺服器端讀取該專案，並把「生成」拆成數個小步驟逐一回報：
@@ -25,11 +26,11 @@ type Body = {
   messages?: FaithMessage[];
   projectId?: string | null;
   /**
-   * revise：基於 baseVersion 那一版繼續修改（保留其風格與結構）。
+   * Info: (20260804 - Luphia) revise：基於 baseVersion 那一版繼續修改（保留其風格與結構）。
    * new：完全重做，不參考任何既有版本。
    */
   mode?: "new" | "revise";
-  /** 修訂基礎的版號；mode 為 revise 時必要，找不到則退回從零生成。 */
+  /** Info: (20260804 - Luphia) 修訂基礎的版號；mode 為 revise 時必要，找不到則退回從零生成。 */
   baseVersion?: number | null;
   conversationId?: string;
   turnId?: string;
@@ -110,7 +111,7 @@ const SCHEDULE_INSTRUCTION = `你是「PMIS 智慧監造管理系統」的工程
 - 權重為正整數、總和宜接近 100。繁體中文；不確定的日期留空。僅輸出 JSON。`;
 
 /**
- * 第三段：把施工設計畫成一份自成一體的 3D 動畫網頁。
+ * Info: (20260804 - Luphia) 第三段：把施工設計畫成一份自成一體的 3D 動畫網頁。
  *
  * 產出會以 iframe（sandbox）嵌入頁面，故要求「單一 HTML、不依賴外部狀態」。
  * 明確禁止對外通訊與儲存 API：沙箱本來就會阻擋，但把規則寫進提示詞，
@@ -143,7 +144,7 @@ const HTML_INSTRUCTION = `你是資深 WebGL 視覺化工程師，專長是工�
 
 輸出要求：**只輸出 HTML 原始碼本身**，從 <!DOCTYPE html> 開始、以 </html> 結束。不要加上任何說明文字，也不要用 Markdown 程式碼區塊包裹。`;
 
-/** 修訂既有版本時附加的規則：以該版為底改，而非重寫。 */
+/** Info: (20260804 - Luphia) 修訂既有版本時附加的規則：以該版為底改，而非重寫。 */
 const REVISE_SUFFIX = `
 
 本次為**修訂既有版本**：使用者提供了目前版本的 HTML。請以它為基礎進行修改 ——
@@ -151,11 +152,11 @@ const REVISE_SUFFIX = `
 - 不要重新從零設計；未被要求變更的部分應與原版一致。
 - 仍須輸出**完整**的 HTML 檔（不是差異或片段）。`;
 
-/** HTML 產出的長度上限，避免超大回應拖垮頁面（約 400KB）。 */
+/** Info: (20260804 - Luphia) HTML 產出的長度上限，避免超大回應拖垮頁面（約 400KB）。 */
 const MAX_HTML_CHARS = 400_000;
 
 /**
- * 清理模型回傳的 HTML。
+ * Info: (20260804 - Luphia) 清理模型回傳的 HTML。
  *
  * 模型常不顧指示而用 ```html 包裹，或在前面加一句「以下是…」；
  * 這裡剝掉圍籬並從第一個 <!DOCTYPE 或 <html 起裁切。
@@ -165,16 +166,16 @@ function cleanHtml(raw: string | null | undefined): string | null {
   if (!raw) return null;
   let s = raw.trim();
 
-  // 去掉 Markdown 程式碼圍籬
+  // Info: (20260804 - Luphia) 去掉 Markdown 程式碼圍籬
   const fence = s.match(/^```(?:html)?\s*\n([\s\S]*?)\n?```\s*$/i);
   if (fence) s = fence[1].trim();
 
-  // 從文件起點裁切，丟掉前面的贅述
+  // Info: (20260804 - Luphia) 從文件起點裁切，丟掉前面的贅述
   const start = s.search(/<!DOCTYPE\s+html|<html[\s>]/i);
   if (start > 0) s = s.slice(start);
   else if (start < 0) return null;
 
-  // 裁到 </html> 為止，丟掉後面的贅述
+  // Info: (20260804 - Luphia) 裁到 </html> 為止，丟掉後面的贅述
   const end = s.toLowerCase().lastIndexOf("</html>");
   if (end >= 0) s = s.slice(0, end + "</html>".length);
 
@@ -184,7 +185,7 @@ function cleanHtml(raw: string | null | undefined): string | null {
 
 const iso = (d: Date | null | undefined) => (d ? new Date(d).toISOString().slice(0, 10) : null);
 
-/** 最後一則使用者訊息，作為此版本的「本次要求」摘要。 */
+/** Info: (20260804 - Luphia) 最後一則使用者訊息，作為此版本的「本次要求」摘要。 */
 function lastUserInstruction(messages: FaithMessage[]): string | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const m = messages[i];
@@ -221,14 +222,11 @@ function projectContext(p: NonNullable<Awaited<ReturnType<typeof projectService.
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "未登入" }, { status: 401 });
+  if (!user) return jsonFail(API_ERRORS.AU_NOT_SIGNED_IN);
 
   const body = (await request.json().catch(() => ({}))) as Body;
   if (!body.projectId) {
-    return NextResponse.json(
-      { error: "尚未鎖定專案，請先於左上角選擇目前專案。" },
-      { status: 400 },
-    );
+    return jsonFail(API_ERRORS.VA_NO_PROJECT_LOCKED);
   }
 
   const encoder = new TextEncoder();
@@ -249,7 +247,7 @@ export async function POST(request: Request) {
             userName: user.name,
           },
           async () => {
-            // 1) 讀取專案資訊
+            // Info: (20260804 - Luphia) 1) 讀取專案資訊
             step("load", "讀取專案資訊", "start");
             const project = await projectService.getProject(body.projectId!, user);
             if (!project) {
@@ -258,7 +256,7 @@ export async function POST(request: Request) {
             }
             const ctx = projectContext(project);
 
-            // 修訂模式：撈出作為基礎的那一版（找不到就退回從零生成）
+            // Info: (20260804 - Luphia) 修訂模式：撈出作為基礎的那一版（找不到就退回從零生成）
             const base =
               body.mode === "revise"
                 ? await designService.getBase(project.id, body.baseVersion)
@@ -278,7 +276,7 @@ export async function POST(request: Request) {
                 `\n請以此為基礎依使用者要求調整，未被要求變更的項目請保持一致。`
               : "";
 
-            // 2) 規劃工程分項
+            // Info: (20260804 - Luphia) 2) 規劃工程分項
             step("items", base ? "更新工程分項" : "規劃工程分項", "start");
             const itemsRes = await faith.askStructured<{ reply?: string; workItems?: unknown[] }>({
               instruction: ITEMS_INSTRUCTION,
@@ -300,7 +298,7 @@ export async function POST(request: Request) {
               count: workItems.length,
             });
 
-            // 3) 規劃時程里程碑（以工程分項為輸入）
+            // Info: (20260804 - Luphia) 3) 規劃時程里程碑（以工程分項為輸入）
             step("schedule", base ? "更新時程里程碑" : "規劃時程里程碑", "start");
             const scheduleRes = await faith.askStructured<{ milestones?: unknown[] }>({
               instruction: SCHEDULE_INSTRUCTION,
@@ -318,7 +316,7 @@ export async function POST(request: Request) {
               count: milestones.length,
             });
 
-            // 4) 產生 3D 動畫網頁（由模型直接寫出一份 HTML，前端以 iframe 嵌入）
+            // Info: (20260804 - Luphia) 4) 產生 3D 動畫網頁（由模型直接寫出一份 HTML，前端以 iframe 嵌入）
             const htmlLabel = base ? "更新 3D 動畫網頁" : "產生 3D 動畫網頁";
             step("html", htmlLabel, "start");
             const design = { reply: itemsRes?.reply ?? "", workItems, milestones };
@@ -343,7 +341,7 @@ export async function POST(request: Request) {
             });
 
             if (!html) {
-              // 設計本身已完成，仍交付出去；僅告知動畫網頁這段失敗
+              // Info: (20260804 - Luphia) 設計本身已完成，仍交付出去；僅告知動畫網頁這段失敗
               controller.enqueue(line({ type: "result", design, html: null, saved: null }));
               controller.enqueue(
                 line({ type: "error", message: "動畫網頁產生失敗（回傳內容不是 HTML），設計已保留，可重新生成。" }),
@@ -351,7 +349,7 @@ export async function POST(request: Request) {
               return;
             }
 
-            // 5) 保存為新版本（永久留存，供日後切換與再修訂）
+            // Info: (20260804 - Luphia) 5) 保存為新版本（永久留存，供日後切換與再修訂）
             step("save", "保存為新版本", "start");
             const saved = await designService.saveVersion({
               projectId: project.id,

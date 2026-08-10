@@ -16,6 +16,7 @@ export enum ApiCode {
   FORBIDDEN = "FORBIDDEN", // Info: (20260810 - Luphia) 403: 權限不足
   NOT_FOUND = "NOT_FOUND", // Info: (20260810 - Luphia) 404: 資源不存在
   CONFLICT = "CONFLICT", // Info: (20260810 - Luphia) 409: 資源衝突（例如同期已有定稿）
+  UNSUPPORTED_MEDIA_TYPE = "UNSUPPORTED_MEDIA_TYPE", // Info: (20260810 - Luphia) 415: 上傳的檔案格式無法處理
   RATE_LIMIT = "RATE_LIMIT", // Info: (20260810 - Luphia) 429: 請求過於頻繁
   CLIENT_CLOSED_REQUEST = "CLIENT_CLOSED_REQUEST", // Info: (20260810 - Luphia) 499: 客戶端於伺服器回應前中止連線；非伺服器故障，不應計入 5xx
 
@@ -39,6 +40,7 @@ export const HTTP_MAP: Record<ApiCode, number> = {
   [ApiCode.FORBIDDEN]: 403,
   [ApiCode.NOT_FOUND]: 404,
   [ApiCode.CONFLICT]: 409,
+  [ApiCode.UNSUPPORTED_MEDIA_TYPE]: 415,
   [ApiCode.RATE_LIMIT]: 429,
   [ApiCode.CLIENT_CLOSED_REQUEST]: 499,
   [ApiCode.INTERNAL_SERVER_ERROR]: 500,
