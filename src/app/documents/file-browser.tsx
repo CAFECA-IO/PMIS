@@ -38,11 +38,12 @@ import {
   deleteFileAction,
   deleteFolderAction,
 } from "./file-actions";
+import type { IApiResponse } from "@/lib/api-response";
 
-/** 一次送出的檔案數上限，避免單一請求過大。超過則自動分批。 */
+/** Info: (20260728 - Luphia) 一次送出的檔案數上限，避免單一請求過大。超過則自動分批。 */
 const BATCH_SIZE = 20;
 
-/** 搜尋輸入的延遲，避免每個按鍵都打一次伺服器。 */
+/** Info: (20260728 - Luphia) 搜尋輸入的延遲，避免每個按鍵都打一次伺服器。 */
 const SEARCH_DEBOUNCE_MS = 300;
 
 export function FileBrowser({
@@ -65,9 +66,9 @@ export function FileBrowser({
   readOnly: boolean;
   usage: Usage;
   canEdit: boolean;
-  /** 目前的搜尋字串；非空時 nodes 為搜尋結果。 */
+  /** Info: (20260728 - Luphia) 目前的搜尋字串；非空時 nodes 為搜尋結果。 */
   query?: string;
-  /** 搜尋結果的說明（筆數／是否截斷）。 */
+  /** Info: (20260728 - Luphia) 搜尋結果的說明（筆數／是否截斷）。 */
   searchNote?: string | null;
 }) {
   const router = useRouter();
@@ -85,7 +86,7 @@ export function FileBrowser({
   const searching = query.trim() !== "";
   const writable = canEdit && !readOnly && !searching;
 
-  /** 組出前往某資料夾的網址，保留 ?project= 與搜尋字串。 */
+  /** Info: (20260728 - Luphia) 組出前往某資料夾的網址，保留 ?project= 與搜尋字串。 */
   function hrefFor(id: string | null, q: string = query): string {
     const sp = new URLSearchParams();
     sp.set("project", projectId);
@@ -94,7 +95,7 @@ export function FileBrowser({
     return `/documents?${sp.toString()}`;
   }
 
-  // 搜尋以網址參數驅動（伺服器端渲染），輸入延遲後才更新網址
+  // Info: (20260728 - Luphia) 搜尋以網址參數驅動（伺服器端渲染），輸入延遲後才更新網址
   useEffect(() => {
     if (term.trim() === query.trim()) return;
     const timer = setTimeout(() => {
@@ -110,13 +111,13 @@ export function FileBrowser({
     router.replace(hrefFor(folderId, ""), { scroll: false });
   }
 
-  /** 目前上傳目的地的名稱，用於通知說明。 */
+  /** Info: (20260728 - Luphia) 目前上傳目的地的名稱，用於通知說明。 */
   const destination = breadcrumb.length
     ? breadcrumb[breadcrumb.length - 1].name
     : projectName;
 
   /**
-   * 上傳一批檔案。
+   * Info: (20260728 - Luphia) 上傳一批檔案。
    * paths 帶入 webkitRelativePath，伺服器端據以逐層建立資料夾；
    * 拖曳單檔時該值即檔名。
    */
@@ -124,7 +125,7 @@ export function FileBrowser({
     if (files.length === 0) return;
     const total = files.length;
 
-    // 進行中的通知只開一則並持續更新，否則右下角會被逐批訊息塞滿
+    // Info: (20260728 - Luphia) 進行中的通知只開一則並持續更新，否則右下角會被逐批訊息塞滿
     const start = uploadStartCopy(total, destination);
     const toast = notifyProgress({ ...start, percent: 0 });
 
@@ -153,18 +154,20 @@ export function FileBrowser({
           method: "POST",
           body: form,
         });
-        const json = (await res.json()) as {
+        // Info: (20260810 - Luphia) 回應為全站統一信封：內容在 payload、錯誤文案在 message
+        const json = (await res.json()) as IApiResponse<{
           savedCount?: number;
           failedCount?: number;
           failed?: { name: string; reason: string }[];
-          error?: string;
-        };
-        if (!res.ok) throw new Error(json.error ?? "上傳失敗");
-        done += json.savedCount ?? 0;
-        failed += json.failedCount ?? 0;
-        failures.push(...(json.failed ?? []));
+        }>;
+        if (!res.ok || !json.success) {
+          throw new Error(json.message || "上傳失敗");
+        }
+        done += json.payload?.savedCount ?? 0;
+        failed += json.payload?.failedCount ?? 0;
+        failures.push(...(json.payload?.failed ?? []));
       } catch (e) {
-        // 整批請求失敗（網路或權限），該批全數計為失敗
+        // Info: (20260728 - Luphia) 整批請求失敗（網路或權限），該批全數計為失敗
         const reason = e instanceof Error ? e.message : "上傳失敗";
         failed += batch.length;
         for (const b of batch) failures.push({ name: b.file.name, reason });
@@ -178,17 +181,17 @@ export function FileBrowser({
       failures,
       folderName: destination,
     });
-    // 同一則通知收尾，使用者視線不必轉移
+    // Info: (20260728 - Luphia) 同一則通知收尾，使用者視線不必轉移
     toast.settle(result);
     setMessage(null);
     router.refresh();
   }
 
-  /** 從拖曳事件取出檔案（含資料夾，透過 webkitGetAsEntry 遞迴）。 */
+  /** Info: (20260728 - Luphia) 從拖曳事件取出檔案（含資料夾，透過 webkitGetAsEntry 遞迴）。 */
   async function filesFromDrop(dt: DataTransfer) {
     const out: { file: File; path: string }[] = [];
 
-    // 有 entry API 時可支援拖曳整個資料夾
+    // Info: (20260728 - Luphia) 有 entry API 時可支援拖曳整個資料夾
     const entries = Array.from(dt.items)
       .map((i) => (i.webkitGetAsEntry ? i.webkitGetAsEntry() : null))
       .filter(Boolean) as FileSystemEntry[];
@@ -214,7 +217,7 @@ export function FileBrowser({
       if (out.length > 0) return out;
     }
 
-    // 退回一般檔案清單
+    // Info: (20260728 - Luphia) 退回一般檔案清單
     return Array.from(dt.files).map((f) => ({ file: f, path: f.name }));
   }
 
@@ -233,7 +236,7 @@ export function FileBrowser({
   }
 
   /**
-   * 刪除前一律先確認。
+   * Info: (20260728 - Luphia) 刪除前一律先確認。
    * 資料夾的確認文案會列出子層與檔案數，讓使用者知道連帶影響的範圍。
    */
   async function remove(node: TreeNode) {
@@ -265,7 +268,7 @@ export function FileBrowser({
 
   return (
     <div className="space-y-4">
-      {/* 使用空間狀況 */}
+      {/* Info: (20260728 - Luphia) 使用空間狀況 */}
       <Card>
         <CardContent className="space-y-2 p-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -277,7 +280,7 @@ export function FileBrowser({
               </span>
             </span>
           </div>
-          {/* 各來源佔比 */}
+          {/* Info: (20260728 - Luphia) 各來源佔比 */}
           <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted">
             {usage.sources.map((s, i) => (
               <div
@@ -309,7 +312,7 @@ export function FileBrowser({
         </CardContent>
       </Card>
 
-      {/* 路徑導覽 ＋ 搜尋 */}
+      {/* Info: (20260728 - Luphia) 路徑導覽 ＋ 搜尋 */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-1 text-sm">
           {breadcrumb.map((c, i) => (
@@ -337,7 +340,7 @@ export function FileBrowser({
           ) : null}
         </div>
 
-        {/* 搜尋範圍為整個專案，不限目前資料夾 */}
+        {/* Info: (20260728 - Luphia) 搜尋範圍為整個專案，不限目前資料夾 */}
         <div className="relative w-full max-w-xs">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -363,7 +366,7 @@ export function FileBrowser({
         </div>
       </div>
 
-      {/* 操作列 */}
+      {/* Info: (20260728 - Luphia) 操作列 */}
       {writable ? (
         <div className="flex flex-wrap items-center gap-2">
           <Button
@@ -419,7 +422,7 @@ export function FileBrowser({
               void upload(list);
             }}
           />
-          {/* webkitdirectory 讓瀏覽器提供整個資料夾與其相對路徑 */}
+          {/* Info: (20260728 - Luphia) webkitdirectory 讓瀏覽器提供整個資料夾與其相對路徑 */}
           <input
             ref={dirInputRef}
             type="file"
@@ -472,7 +475,7 @@ export function FileBrowser({
         <p className="text-xs text-muted-foreground">{searchNote}</p>
       ) : null}
 
-      {/* 檔案清單（含拖曳上傳區） */}
+      {/* Info: (20260728 - Luphia) 檔案清單（含拖曳上傳區） */}
       <Card
         className={cn(
           "transition-colors",
@@ -557,7 +560,7 @@ export function FileBrowser({
                               {n.name}
                             </span>
                           )}
-                          {/* 搜尋結果必須顯示所在路徑，否則同名檔案無法分辨 */}
+                          {/* Info: (20260728 - Luphia) 搜尋結果必須顯示所在路徑，否則同名檔案無法分辨 */}
                           {searching && n.path ? (
                             <Link
                               href={hrefFor(n.parentFolderId ?? null, "")}

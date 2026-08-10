@@ -1,16 +1,16 @@
-import { NextResponse } from "next/server";
-
 import * as screenFocus from "@/service/screenFocus.service";
 import * as faith from "@/service/faith.service";
 import { getCurrentUser } from "@/service/auth.service";
 import { toFaithError } from "@/service/faith-error";
+import { jsonOk, jsonFail, jsonError } from "@/lib/api-response";
+import { API_ERRORS } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   const user = await getCurrentUser();
   if (!user) {
-    return NextResponse.json({ error: "未登入" }, { status: 401 });
+    return jsonFail(API_ERRORS.AU_NOT_SIGNED_IN);
   }
 
   try {
@@ -20,10 +20,9 @@ export async function GET(request: Request) {
       role: user.role,
     });
     const text = await faith.summarizeScreenFocus(focus.label, focus.facts);
-    return NextResponse.json({ label: focus.label, facts: focus.facts, text });
+    return jsonOk({ label: focus.label, facts: focus.facts, text });
   } catch (error) {
-    const message =
-      toFaithError(error).message;
-    return NextResponse.json({ error: message }, { status: 500 });
+    // Info: (20260810 - Luphia) 沿用 toFaithError 整理過的可讀訊息，語意碼統一為 IN000001
+    return jsonError(error, toFaithError(error).message);
   }
 }

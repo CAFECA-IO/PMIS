@@ -1,12 +1,12 @@
-import { NextResponse } from "next/server";
-
 import { getCurrentUser } from "@/service/auth.service";
 import { logFeedback } from "@/service/faithLog.service";
+import { jsonOk, jsonFail } from "@/lib/api-response";
+import { API_ERRORS } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 
 /**
- * 使用者對某則費思回答的評價。
+ * Info: (20260728 - Luphia) 使用者對某則費思回答的評價。
  *
  * 與互動紀錄寫入同一個資料夾、同一份每日檔案，並以 conversationId／turnId
  * 對應到當時的模型往返，因此除錯時可直接看到「被評為差的那次，
@@ -14,7 +14,7 @@ export const runtime = "nodejs";
  */
 export async function POST(request: Request) {
   const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "未登入" }, { status: 401 });
+  if (!user) return jsonFail(API_ERRORS.AU_NOT_SIGNED_IN);
 
   let body: {
     conversationId?: string;
@@ -27,14 +27,11 @@ export async function POST(request: Request) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
+    return jsonFail(API_ERRORS.VA_BAD_JSON);
   }
 
   if (body.rating !== "up" && body.rating !== "down") {
-    return NextResponse.json(
-      { error: "rating 必須為 up 或 down" },
-      { status: 400 },
-    );
+    return jsonFail(API_ERRORS.VA_BAD_RATING);
   }
 
   await logFeedback({
@@ -48,5 +45,5 @@ export async function POST(request: Request) {
     path: body.path,
   });
 
-  return NextResponse.json({ ok: true });
+  return jsonOk(null, "已記錄評價");
 }

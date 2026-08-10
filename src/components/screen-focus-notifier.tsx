@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 
 import { useNotification } from "@/components/ui/notification";
+import type { IApiResponse } from "@/lib/api-response";
 
 /**
  * Info: (20260721 - Luphia)
@@ -27,8 +28,13 @@ export function ScreenFocusNotifier() {
           { signal: controller.signal },
         );
         if (!res.ok) return;
-        const data = (await res.json()) as { label?: string; text?: string };
-        if (data.text) {
+        // Info: (20260810 - Luphia) 回應為全站統一信封：內容在 payload
+        const json = (await res.json()) as IApiResponse<{
+          label?: string;
+          text?: string;
+        }>;
+        const data = json.payload;
+        if (json.success && data?.text) {
           notify({
             variant: "info",
             title: data.label ?? "畫面重點",

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import type { IApiResponse } from "@/lib/api-response";
 import { faithStatus, isExpandedStatus } from "@/service/faith-status";
 import { shouldSendOnEnter } from "@/lib/ime";
 import { Markdown } from "@/components/markdown";
@@ -23,7 +24,7 @@ import { useAiAssistant, type FaithStep } from "@/components/ai-assistant-contex
 import { FaithSteps } from "@/components/faith-steps";
 import { FAITH_DOCK_POSITION, PANE_WIDTH_CLASS } from "@/lib/faith-dock";
 
-/** 歸檔後的附件資訊，隨使用者訊息一起顯示，讓上傳者立刻知道檔案已入庫。 */
+/** Info: (20260804 - Luphia) 歸檔後的附件資訊，隨使用者訊息一起顯示，讓上傳者立刻知道檔案已入庫。 */
 type Archived = {
   id: string;
   fileName: string;
@@ -36,23 +37,23 @@ type Message = {
   text: string;
   archived?: Archived;
   archiveError?: string;
-  /** 這則回答對應的送出識別，供評價與互動紀錄對應。 */
+  /** Info: (20260804 - Luphia) 這則回答對應的送出識別，供評價與互動紀錄對應。 */
   turnId?: string;
   /**
-   * 這則回答參考了哪些專案資料。
+   * Info: (20260804 - Luphia) 這則回答參考了哪些專案資料。
    *
    * 可追溯性的最後一哩：使用者要能分辨答案是讀了合約得出的，
    * 還是模型的通識；沒讀到的部分也一併寫在這裡。
    */
   sources?: string;
-  /** 已送出的評價（單選，可改）。 */
+  /** Info: (20260804 - Luphia) 已送出的評價（單選，可改）。 */
   rating?: "up" | "down";
 };
 type Typing = { index: number; full: string; shown: number };
 
 const MAX_FILE_MB = 25;
 
-/** 產生識別碼。用於把「對話」與「每次送出」串起紀錄。 */
+/** Info: (20260804 - Luphia) 產生識別碼。用於把「對話」與「每次送出」串起紀錄。 */
 function newId(prefix: string): string {
   const rand =
     typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -62,7 +63,7 @@ function newId(prefix: string): string {
 }
 
 /**
- * 目前鎖定的專案（側邊欄寫入的 ?project=）。
+ * Info: (20260804 - Luphia) 目前鎖定的專案（側邊欄寫入的 ?project=）。
  * 刻意在送出當下讀取 window.location，而非 useSearchParams ——
  * 本元件掛在 layout，改用 hook 會要求整個外殼加上 Suspense 邊界。
  */
@@ -71,7 +72,7 @@ function currentProjectId(): string | null {
   return new URLSearchParams(window.location.search).get("project");
 }
 
-/** 檔案大小的可讀格式。 */
+/** Info: (20260804 - Luphia) 檔案大小的可讀格式。 */
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
@@ -108,7 +109,7 @@ export function AiPanel() {
     setExpanded: setOpen,
     task,
     endTask,
-    // 工作中狀態放在 context：交出表單的功能端需據此淡化並鎖定表單
+    // Info: (20260804 - Luphia) 工作中狀態放在 context：交出表單的功能端需據此淡化並鎖定表單
     working,
     setWorking,
     offer,
@@ -122,32 +123,32 @@ export function AiPanel() {
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  // 工作指示：暫時性狀態，不進入 messages，結束後清除
+  // Info: (20260804 - Luphia) 工作指示：暫時性狀態，不進入 messages，結束後清除
   const [activity, setActivity] = useState<string | null>(null);
-  // 通用多步驟進度：串流任務回報的最新步驟快照；與 activity 二選一呈現
+  // Info: (20260804 - Luphia) 通用多步驟進度：串流任務回報的最新步驟快照；與 activity 二選一呈現
   const [activitySteps, setActivitySteps] = useState<FaithStep[] | null>(null);
-  // 進行中每 100ms 前進一次，驅動步驟卡的即時耗時顯示
+  // Info: (20260804 - Luphia) 進行中每 100ms 前進一次，驅動步驟卡的即時耗時顯示
   const [nowTick, setNowTick] = useState<number>(() => Date.now());
-  // 一般問答且已鎖定專案時，回答前會多一次「要不要調閱資料」的判斷
+  // Info: (20260804 - Luphia) 一般問答且已鎖定專案時，回答前會多一次「要不要調閱資料」的判斷
   const [retrieving, setRetrieving] = useState(false);
-  // 負評時可補充原因（除錯價值最高的部分）；key 為訊息索引
+  // Info: (20260804 - Luphia) 負評時可補充原因（除錯價值最高的部分）；key 為訊息索引
   const [reasonFor, setReasonFor] = useState<number | null>(null);
   const [reason, setReason] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Info: IME 選字中的 Enter 屬於選字確認，不可送出
+  // Info: (20260804 - Luphia) IME 選字中的 Enter 屬於選字確認，不可送出
   const composingRef = useRef(false);
-  // Info: 任務切換時重置對話，taskId 用於偵測切換
+  // Info: (20260804 - Luphia) 任務切換時重置對話，taskId 用於偵測切換
   const taskIdRef = useRef<string | null>(null);
-  // 一次對話的識別；任務切換時重新產生，讓紀錄能區分不同工作階段
+  // Info: (20260804 - Luphia) 一次對話的識別；任務切換時重新產生，讓紀錄能區分不同工作階段
   const conversationRef = useRef<string>(newId("conv"));
-  // 目前這次送出的識別，供串流事件與評價共用
+  // Info: (20260804 - Luphia) 目前這次送出的識別，供串流事件與評價共用
   const turnRef = useRef<string | null>(null);
 
   const busy = loading || typing !== null || working;
 
-  // 右下角狀態顯示：全站唯一的費思狀態來源
-  // 已在進行中的任務不再視為「可協助」，避免同時顯示兩種語意
+  // Info: (20260804 - Luphia) 右下角狀態顯示：全站唯一的費思狀態來源
+  // Info: (20260804 - Luphia) 已在進行中的任務不再視為「可協助」，避免同時顯示兩種語意
   const pendingOffer = task ? null : offer;
   const status = faithStatus({
     taskTitle: task?.title ?? null,
@@ -158,7 +159,7 @@ export function AiPanel() {
   const expandedStatus = isExpandedStatus(status.state);
   const suggestions = task?.suggestions ?? SUGGESTIONS;
 
-  // 進入／離開任務時重置對話並換上任務開場白
+  // Info: (20260804 - Luphia) 進入／離開任務時重置對話並換上任務開場白
   useEffect(() => {
     const id = task?.id ?? null;
     if (taskIdRef.current === id) return;
@@ -175,7 +176,7 @@ export function AiPanel() {
     setActivitySteps(null);
   }, [task, setWorking]);
 
-  // 工作中才計時：驅動步驟卡即時耗時，閒置時不空轉
+  // Info: (20260804 - Luphia) 工作中才計時：驅動步驟卡即時耗時，閒置時不空轉
   useEffect(() => {
     if (!working) return;
     const id = setInterval(() => setNowTick(Date.now()), 100);
@@ -222,7 +223,7 @@ export function AiPanel() {
   }, [typing]);
 
   /**
-   * 消費 NDJSON 串流。
+   * Info: (20260804 - Luphia) 消費 NDJSON 串流。
    *
    * 進度回報與對話內容刻意分離：
    *  - 進度走「工作指示區」（activity），只顯示當下狀態，後續狀態覆蓋前一則，
@@ -241,7 +242,7 @@ export function AiPanel() {
     let buffer = "";
     let posted = false;
 
-    // 收到第一則狀態前就先顯示工作中，避免出現「什麼都沒發生」的空窗
+    // Info: (20260804 - Luphia) 收到第一則狀態前就先顯示工作中，避免出現「什麼都沒發生」的空窗
     setLoading(false);
     setWorking(true);
     setActivity("正在讀取文件…");
@@ -252,12 +253,12 @@ export function AiPanel() {
       try {
         event = JSON.parse(raw);
       } catch {
-        return; // 忽略不完整或非 JSON 的行
+        return; // Info: (20260804 - Luphia) 忽略不完整或非 JSON 的行
       }
 
-      // 歸檔資訊掛回使用者那則訊息（與非串流路徑一致）。
-      // 不在此 return —— 任務端也需要知道檔案 id（例如專案建置完成後，
-      // 要把這些檔案從「未指派」改歸新建立的專案）。
+      // Info: (20260804 - Luphia) 歸檔資訊掛回使用者那則訊息（與非串流路徑一致）。
+      // Info: (20260804 - Luphia) 不在此 return —— 任務端也需要知道檔案 id（例如專案建置完成後，
+      // Info: (20260804 - Luphia) 要把這些檔案從「未指派」改歸新建立的專案）。
       if (event.type === "archived" && hadAttachment) {
         setMessages((prev) =>
           prev.map((m, i) =>
@@ -272,8 +273,8 @@ export function AiPanel() {
         );
       }
 
-      // 串流模式一律走 onEvent：由任務決定事件的去向。
-      // 不呼叫 onResult，避免與非串流的「一次交付完整結果」語意混淆。
+      // Info: (20260804 - Luphia) 串流模式一律走 onEvent：由任務決定事件的去向。
+      // Info: (20260804 - Luphia) 不呼叫 onResult，避免與非串流的「一次交付完整結果」語意混淆。
       const outcome = activeTask.onEvent?.(event);
       if (!outcome) return;
 
@@ -281,7 +282,7 @@ export function AiPanel() {
         setActivity(outcome.text);
         return;
       }
-      // 通用多步驟進度：任務回報整份最新快照，覆蓋前一份
+      // Info: (20260804 - Luphia) 通用多步驟進度：任務回報整份最新快照，覆蓋前一份
       if (outcome.kind === "steps") {
         setActivitySteps(outcome.steps);
         return;
@@ -310,7 +311,7 @@ export function AiPanel() {
       if (buffer.trim()) handle(buffer);
     } finally {
       reader.releaseLock();
-      // 工作指示區為暫時性，結束一律清除
+      // Info: (20260804 - Luphia) 工作指示區為暫時性，結束一律清除
       setWorking(false);
       setActivity(null);
       setActivitySteps(null);
@@ -325,7 +326,7 @@ export function AiPanel() {
   }
 
   /**
-   * 送出對某則回答的評價。
+   * Info: (20260804 - Luphia) 送出對某則回答的評價。
    *
    * 立即更新畫面（樂觀更新）再送出；紀錄與該次模型往返以
    * conversationId／turnId 對應，除錯時可看到當時模型收到什麼、回了什麼。
@@ -343,9 +344,9 @@ export function AiPanel() {
     const next = target.rating === rating ? null : rating;
     if (!next) {
       setReasonFor(null);
-      return; // 取消評價：不再送出
+      return; // Info: (20260804 - Luphia) 取消評價：不再送出
     }
-    // 負評才追問原因；正評不打擾使用者
+    // Info: (20260804 - Luphia) 負評才追問原因；正評不打擾使用者
     setReasonFor(next === "down" ? index : null);
     setReason("");
 
@@ -366,7 +367,7 @@ export function AiPanel() {
     }
   }
 
-  /** 補送負評的原因說明。 */
+  /** Info: (20260804 - Luphia) 補送負評的原因說明。 */
   async function sendReason(index: number) {
     const target = messages[index];
     const comment = reason.trim();
@@ -405,8 +406,8 @@ export function AiPanel() {
     setFile(null);
     setFileError(null);
     setLoading(true);
-    // 任務模式一律進入工作中：交出表單的功能端據此淡化並鎖定表單，
-    // 非串流任務（如表單助手）同樣需要，否則使用者會邊等邊改到同一欄位
+    // Info: (20260804 - Luphia) 任務模式一律進入工作中：交出表單的功能端據此淡化並鎖定表單，
+    // Info: (20260804 - Luphia) 非串流任務（如表單助手）同樣需要，否則使用者會邊等邊改到同一欄位
     if (task) setWorking(true);
     scrollToEnd();
 
@@ -419,11 +420,11 @@ export function AiPanel() {
           name: attached.name,
         };
       }
-      // 任務模式：改打任務專用 API，並把結構化結果交還功能端填表
+      // Info: (20260804 - Luphia) 任務模式：改打任務專用 API，並把結構化結果交還功能端填表
       const endpoint = task ? task.endpoint : "/api/chat";
       const projectId = currentProjectId();
-      // 每次送出一個 turnId：一次送出可能觸發多次模型呼叫（如四段解析），
-      // 全部歸屬到同一個 turnId，評價才能對應到「這一次的回答」
+      // Info: (20260804 - Luphia) 每次送出一個 turnId：一次送出可能觸發多次模型呼叫（如四段解析），
+      // Info: (20260804 - Luphia) 全部歸屬到同一個 turnId，評價才能對應到「這一次的回答」
       const turnId = newId("turn");
       turnRef.current = turnId;
       const ids = {
@@ -434,7 +435,7 @@ export function AiPanel() {
       const body = task
         ? { ...task.buildBody({ messages: history, attachment }), ...ids }
         : { messages: history, attachment, ...ids };
-      // 任務模式不檢索（它有自己的文件來源），故只在一般問答時提示
+      // Info: (20260804 - Luphia) 任務模式不檢索（它有自己的文件來源），故只在一般問答時提示
       setRetrieving(!task && Boolean(projectId));
 
       const res = await fetch(endpoint, {
@@ -443,7 +444,7 @@ export function AiPanel() {
         body: JSON.stringify(body),
       });
 
-      // 串流模式：逐行讀取 NDJSON，邊解析邊把狀態寫進對話
+      // Info: (20260804 - Luphia) 串流模式：逐行讀取 NDJSON，邊解析邊把狀態寫進對話
       if (task?.stream && res.ok && res.body) {
         await consumeStream(
           res.body,
@@ -454,15 +455,24 @@ export function AiPanel() {
         return;
       }
 
-      const data = (await res.json()) as {
+      /*
+        Info: (20260810 - Luphia) 非串流回應一律是全站統一的 IApiResponse 信封，
+        實際內容在 `payload` 之下、錯誤文案在 `message`。
+
+        歸檔資訊（archived／archiveError）在**失敗時也會有** ——
+        forms/assist 與 projects/wizard 先歸檔才送模型，故判讀失敗仍須
+        取 payload（見 jsonFailWithPayload）。因此這裡先取 payload，
+        再判斷成敗，順序不可調換。
+      */
+      const envelope = (await res.json()) as IApiResponse<{
         text?: string;
         reply?: string;
-        error?: string;
         note?: string | null;
         archived?: Archived;
         archiveError?: string;
-      };
-      // 附件已歸檔：即使後續判讀失敗，也要讓使用者看到檔案已入庫
+      }>;
+      const data = envelope.payload ?? {};
+      // Info: (20260721 - Luphia) 附件已歸檔：即使後續判讀失敗，也要讓使用者看到檔案已入庫
       if (attached && (data.archived || data.archiveError)) {
         const at = history.length - 1;
         setMessages((prev) =>
@@ -473,11 +483,13 @@ export function AiPanel() {
           ),
         );
       }
-      if (!res.ok) throw new Error(data.error ?? "AI 服務錯誤");
+      if (!res.ok || !envelope.success) {
+        throw new Error(envelope.message || "AI 服務錯誤");
+      }
 
       let full: string;
       if (task) {
-        // 功能端可回傳說明取代模型的 reply —— 只有它知道實際填入了什麼
+        // Info: (20260804 - Luphia) 功能端可回傳說明取代模型的 reply —— 只有它知道實際填入了什麼
         const override = task.onResult(data);
         full =
           (typeof override === "string" && override.trim() ? override : null) ??
@@ -504,8 +516,8 @@ export function AiPanel() {
       ]);
     } finally {
       setRetrieving(false);
-      // 一律解除工作中：非串流任務沒有 consumeStream 的收尾，
-      // 漏掉這行會讓交出表單的一方永遠停在鎖定狀態
+      // Info: (20260804 - Luphia) 一律解除工作中：非串流任務沒有 consumeStream 的收尾，
+      // Info: (20260804 - Luphia) 漏掉這行會讓交出表單的一方永遠停在鎖定狀態
       setWorking(false);
       scrollToEnd();
     }
@@ -514,7 +526,7 @@ export function AiPanel() {
   return (
     <>
       {/*
-        收合時的費思狀態顯示，錨定視窗右下。
+        Info: (20260804 - Luphia) 收合時的費思狀態顯示，錨定視窗右下。
         這是全站唯一的費思狀態來源與入口 —— 各功能頁不再各放一顆
         「AI 協助…」按鈕，避免同一件事有兩個入口、兩種說法。
         待命時收合為圓鈕；接手任務或工作中則展開為長條並說明現況。
@@ -524,7 +536,7 @@ export function AiPanel() {
           type="button"
           onClick={() => {
             /*
-              建置畫面上，點右下角等同啟動該表單的 AI 協助 ——
+              Info: (20260804 - Luphia) 建置畫面上，點右下角等同啟動該表單的 AI 協助 ——
               否則使用者按下去只會得到一個與眼前表單無關的一般問答。
               start() 內部會 startTask，面板隨之展開，不需再 setOpen。
             */
@@ -537,7 +549,7 @@ export function AiPanel() {
             "animate-fab-in flex items-center rounded-full bg-primary text-primary-foreground shadow-overlay transition-all hover:scale-105",
             FAITH_DOCK_POSITION,
             /*
-              一律 z-40，不再浮到對話框之上。
+              Info: (20260804 - Luphia) 一律 z-40，不再浮到對話框之上。
               先前為了「在對話框裡也點得到費思」而在有 offer 時提到 z-[90]，
               代價是這顆按鈕會蓋住對話框自己的按鈕。那個需求已有兩個更好的
               入口：對話框內建的「請費思協助」，以及彈出通知上的「好，交給費思」。
@@ -555,7 +567,7 @@ export function AiPanel() {
             <span className="relative flex shrink-0">
               <Bot className="size-5" />
               {status.state === "task" ? (
-                // 有任務在身時加一個標記，收合狀態下仍能一眼看出
+                // Info: (20260804 - Luphia) 有任務在身時加一個標記，收合狀態下仍能一眼看出
                 <span className="absolute -right-1 -top-1 size-2 rounded-full bg-primary-foreground" />
               ) : null}
             </span>
@@ -576,7 +588,7 @@ export function AiPanel() {
       ) : null}
 
       {/*
-        分欄外殼一律掛載，才能讓寬度轉場「雙向」播放——
+        Info: (20260804 - Luphia) 分欄外殼一律掛載，才能讓寬度轉場「雙向」播放——
         展開時工作區平順讓位、收合時平順收回，而不是瞬間跳動。
         收合狀態以 inert 移出 tab 順序與輔助技術。
       */}
@@ -585,20 +597,20 @@ export function AiPanel() {
         aria-hidden={!open}
         className={cn(
           "ai-pane-shell overflow-hidden transition-[width] duration-300 ease-out",
-          // justify-end 讓分欄貼齊右緣：寬度變化時內容原地被揭開，
-          // 而不是隨著外殼左移造成文字晃動
+          // Info: (20260804 - Luphia) justify-end 讓分欄貼齊右緣：寬度變化時內容原地被揭開，
+          // Info: (20260804 - Luphia) 而不是隨著外殼左移造成文字晃動
           "lg:relative lg:z-[130] lg:flex lg:h-full lg:shrink-0 lg:justify-end",
           open ? PANE_WIDTH_CLASS : "lg:w-0",
-          // 窄視窗改為全螢幕覆蓋，收合時整塊不渲染於畫面上
+          // Info: (20260804 - Luphia) 窄視窗改為全螢幕覆蓋，收合時整塊不渲染於畫面上
           !open && "max-lg:hidden",
         )}
       >
         <aside
       className={cn(
         "flex h-full flex-col overflow-hidden bg-card",
-        // 視窗寬度不足（< lg）：覆蓋全螢幕，由下方滑入
+        // Info: (20260804 - Luphia) 視窗寬度不足（< lg）：覆蓋全螢幕，由下方滑入
         "max-lg:fixed max-lg:inset-0 max-lg:z-[130] max-lg:animate-pane-slide-up",
-        // 桌機：固定欄寬，避免寬度轉場期間內容被壓縮變形；內容淡入
+        // Info: (20260804 - Luphia) 桌機：固定欄寬，避免寬度轉場期間內容被壓縮變形；內容淡入
         PANE_WIDTH_CLASS,
         "lg:border-l lg:animate-pane-fade-in",
         task && "lg:ring-2 lg:ring-inset lg:ring-primary/40",
@@ -632,7 +644,7 @@ export function AiPanel() {
             <Bot className="size-4" />
           </div>
           <span className="shrink-0 text-sm font-semibold">費思</span>
-          {/* 標題列的工作中指示：捲動到對話上方時仍看得到 AI 還在跑 */}
+          {/* Info: (20260804 - Luphia) 標題列的工作中指示：捲動到對話上方時仍看得到 AI 還在跑 */}
           {working ? (
             <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
               <Loader2 className="size-2.5 animate-spin" />
@@ -691,7 +703,7 @@ export function AiPanel() {
                 <span className="ml-0.5 inline-block h-3.5 w-1.5 translate-y-0.5 animate-pulse bg-current align-middle" />
               ) : null}
               {/*
-                參考來源。等打字動畫結束才顯示 —— 答案還在逐字出現時
+                Info: (20260804 - Luphia) 參考來源。等打字動畫結束才顯示 —— 答案還在逐字出現時
                 就先亮出來源，視覺上會像是來源屬於下一句。
               */}
               {m.sources && !(typing && typing.index === i) ? (
@@ -729,7 +741,7 @@ export function AiPanel() {
               ) : null}
 
               {/*
-                回答評價。只出現在助理訊息、且該訊息確實來自一次模型往返
+                Info: (20260804 - Luphia) 回答評價。只出現在助理訊息、且該訊息確實來自一次模型往返
                 （有 turnId）；開場白與錯誤訊息不需評價。
                 評價與當次互動一起寫入費思紀錄資料夾，供追蹤與除錯。
               */}
@@ -808,7 +820,7 @@ export function AiPanel() {
               <Dot delay="150ms" />
               <Dot delay="300ms" />
               {/*
-                鎖定專案時，回答前會先判斷需不需要調閱本案資料，
+                Info: (20260804 - Luphia) 鎖定專案時，回答前會先判斷需不需要調閱本案資料，
                 因此比一般問答多一次模型往返。等待明顯變長，
                 總得說一句它在做什麼 —— 措辭停在「判斷」，
                 因為此刻還不知道會不會真的去讀。
@@ -824,13 +836,13 @@ export function AiPanel() {
       </div>
 
       {/*
-        工作指示區：與對話內容分離的暫時性區域。
+        Info: (20260804 - Luphia) 工作指示區：與對話內容分離的暫時性區域。
         只顯示「當下」在做什麼，後續狀態覆蓋前一則，結束即消失，
         不會在對話中累積成一長串流水訊息。
       */}
       {working ? (
         activitySteps && activitySteps.length ? (
-          // 通用多步驟進度卡：拆細的小工作、目前到哪、各步驟耗時
+          // Info: (20260804 - Luphia) 通用多步驟進度卡：拆細的小工作、目前到哪、各步驟耗時
           <div className="mx-4 mb-2">
             <FaithSteps steps={activitySteps} now={nowTick} />
           </div>
@@ -927,7 +939,7 @@ export function AiPanel() {
             composingRef.current = false;
           }}
           onKeyDown={(e) => {
-            // IME 選字中的 Enter 交還輸入法，避免誤送並吃掉選字
+            // Info: (20260804 - Luphia) IME 選字中的 Enter 交還輸入法，避免誤送並吃掉選字
             if (e.key !== "Enter") return;
             if (!shouldSendOnEnter(e.nativeEvent, composingRef.current)) {
               e.preventDefault();

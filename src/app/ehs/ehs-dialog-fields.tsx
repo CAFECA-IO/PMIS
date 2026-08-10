@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ehsTypeOptions, ehsResultOptions } from "@/constant/pmis";
+import type { IApiResponse } from "@/lib/api-response";
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -26,7 +27,7 @@ function fileToBase64(file: File): Promise<string> {
 const today = () => new Date().toISOString().slice(0, 10);
 
 /**
- * 環安衛稽核欄位（供 CreateRecordDialog 作為 children）。
+ * Info: (20260728 - Luphia) 環安衛稽核欄位（供 CreateRecordDialog 作為 children）。
  * 保留費思 AI 照片判讀：上傳照片可自動填入類別/結果/缺失，照片一併存為附件。
  * 不含 <form>／送出鈕（由對話框提供）。
  */
@@ -42,7 +43,7 @@ export function EhsDialogFields({
   const [analyzing, setAnalyzing] = useState(false);
   const [aiNote, setAiNote] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  // 影像歸檔需知道所屬專案；預設與表單的專案下拉一致
+  // Info: (20260728 - Luphia) 影像歸檔需知道所屬專案；預設與表單的專案下拉一致
   const [projectId, setProjectId] = useState(projects[0]?.id ?? "");
 
   async function analyze() {
@@ -65,14 +66,17 @@ export function EhsDialogFields({
           projectId: projectId || null,
         }),
       });
-      const json = (await res.json()) as {
+      // Info: (20260810 - Luphia) 回應為全站統一信封：內容在 payload、錯誤文案在 message
+      const json = (await res.json()) as IApiResponse<{
         fields?: { type: string; result: string; findings: string };
-        error?: string;
-      };
-      if (!res.ok || !json.fields) throw new Error(json.error ?? "判讀失敗");
-      setType(json.fields.type);
-      setResult(json.fields.result);
-      setFindings(json.fields.findings);
+      }>;
+      const fields = json.payload?.fields;
+      if (!res.ok || !json.success || !fields) {
+        throw new Error(json.message || "判讀失敗");
+      }
+      setType(fields.type);
+      setResult(fields.result);
+      setFindings(fields.findings);
       setAiNote("已由費思判讀並填入，請確認後儲存。");
     } catch (e) {
       setAiNote(e instanceof Error ? e.message : "判讀失敗，請手動輸入。");
@@ -83,7 +87,7 @@ export function EhsDialogFields({
 
   return (
     <>
-      {/* 照片判讀（選填）：費思填入欄位，照片一併存為附件 */}
+      {/* Info: (20260728 - Luphia) 照片判讀（選填）：費思填入欄位，照片一併存為附件 */}
       <div className="space-y-3 rounded-lg border border-dashed p-3 sm:col-span-2">
         <div className="flex items-center gap-1.5 text-sm font-medium">
           <Sparkles className="size-4 text-primary" />

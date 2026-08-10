@@ -77,11 +77,44 @@ export const jsonFail = (def: IErrorDef, init?: ResponseInit) =>
   });
 
 /**
+ * Info: (20260810 - Luphia) 帶 payload 的失敗回應。
+ *
+ * 用於「失敗了，但仍有使用者必須知道的結果」。目前唯一的用途是檔案歸檔：
+ * `/api/forms/assist` 與 `/api/projects/wizard` 都先歸檔再送模型，
+ * 判讀失敗時檔案**已經進了檔案管理**。若這個事實隨著錯誤回應一起消失，
+ * 使用者會以為檔案沒上傳而重傳一次，於是同一份文件在庫裡出現兩份。
+ *
+ * 一般失敗請用 `jsonFail`：payload 為 null 是預設，也是多數情況。
+ */
+export const jsonFailWithPayload = <T>(
+  def: IErrorDef,
+  payload: T,
+  init?: ResponseInit,
+) =>
+  NextResponse.json<IApiResponse<T | null>>(
+    { ...fail(def), payload },
+    {
+      status: httpStatusOf(def.status),
+      ...init,
+    },
+  );
+
+/**
  * Info: (20260810 - Luphia) 由任意例外產生失敗回應。
  * `catch` 區塊用這個，避免每個路由各自判斷例外型別。
  */
 export const jsonError = (error: unknown, fallbackMessage?: string) =>
   jsonFail(errorDefOf(error, fallbackMessage));
+
+/**
+ * Info: (20260810 - Luphia) 由任意例外產生失敗回應，並保留 payload。
+ * 同 `jsonFailWithPayload`，用於 catch 區塊。
+ */
+export const jsonErrorWithPayload = <T>(
+  error: unknown,
+  payload: T,
+  fallbackMessage?: string,
+) => jsonFailWithPayload(errorDefOf(error, fallbackMessage), payload);
 
 /**
  * Info: (20260810 - Luphia) 以 `HTTP_MAP` 為唯一對照來源。

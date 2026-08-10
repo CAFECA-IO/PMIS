@@ -64,6 +64,39 @@ export const API_ERRORS = {
     message: "無法存取此專案或專案不存在",
     status: ApiCode.FORBIDDEN,
   } as IErrorDef,
+  FO_FILE_FORBIDDEN: {
+    code: "FO000003",
+    message: "無權存取此檔案",
+    status: ApiCode.FORBIDDEN,
+  } as IErrorDef,
+  FO_NO_EDIT_PERMISSION: {
+    code: "FO000004",
+    message: "權限不足",
+    status: ApiCode.FORBIDDEN,
+  } as IErrorDef,
+  /** Info: (20260810 - Luphia) 訊息由 fileManager.canWriteInto 提供，以 withMessage 覆寫。 */
+  FO_UPLOAD_NOT_ALLOWED: {
+    code: "FO000005",
+    message: "無法上傳至此位置。",
+    status: ApiCode.FORBIDDEN,
+  } as IErrorDef,
+  FO_GIS_PROJECT_INACCESSIBLE: {
+    code: "FO000006",
+    message: "無權限或查無專案",
+    status: ApiCode.FORBIDDEN,
+  } as IErrorDef,
+
+  // Info: (20260810 - Luphia) --- 404 不存在 ---
+  NF_FILE_NOT_FOUND: {
+    code: "NF000001",
+    message: "找不到檔案",
+    status: ApiCode.NOT_FOUND,
+  } as IErrorDef,
+  NF_LAYER_VECTOR_NOT_FOUND: {
+    code: "NF000002",
+    message: "查無圖層向量資料",
+    status: ApiCode.NOT_FOUND,
+  } as IErrorDef,
 
   // Info: (20260810 - Luphia) --- 400 參數 ---
   VA_MISSING_PROJECT: {
@@ -81,6 +114,60 @@ export const API_ERRORS = {
     message: "基準日不正確，請確認年份。",
     status: ApiCode.VALIDATION_ERROR,
   } as IErrorDef,
+  VA_BAD_JSON: {
+    code: "VA000004",
+    message: "請求格式錯誤",
+    status: ApiCode.VALIDATION_ERROR,
+  } as IErrorDef,
+  VA_MISSING_INSTRUCTION: {
+    code: "VA000005",
+    message: "請描述您想要的預警規則。",
+    status: ApiCode.VALIDATION_ERROR,
+  } as IErrorDef,
+  VA_MISSING_IMAGE: {
+    code: "VA000006",
+    message: "缺少影像內容",
+    status: ApiCode.VALIDATION_ERROR,
+  } as IErrorDef,
+  VA_MISSING_FILE_CONTENT: {
+    code: "VA000007",
+    message: "缺少檔案內容",
+    status: ApiCode.VALIDATION_ERROR,
+  } as IErrorDef,
+  VA_BAD_RATING: {
+    code: "VA000008",
+    message: "rating 必須為 up 或 down",
+    status: ApiCode.VALIDATION_ERROR,
+  } as IErrorDef,
+  VA_UNKNOWN_FORM: {
+    code: "VA000009",
+    message: "未知的表單",
+    status: ApiCode.VALIDATION_ERROR,
+  } as IErrorDef,
+  VA_VIRTUAL_FOLDER: {
+    code: "VA000010",
+    message: "系統歸檔資料夾不可上傳。",
+    status: ApiCode.VALIDATION_ERROR,
+  } as IErrorDef,
+  VA_NO_FILES: {
+    code: "VA000011",
+    message: "沒有檔案",
+    status: ApiCode.VALIDATION_ERROR,
+  } as IErrorDef,
+  VA_NO_PROJECT_LOCKED: {
+    code: "VA000012",
+    message: "尚未鎖定專案，請先於左上角選擇目前專案。",
+    status: ApiCode.VALIDATION_ERROR,
+  } as IErrorDef,
+
+  // Info: (20260810 - Luphia) --- 415 檔案格式 ---
+  /** Info: (20260810 - Luphia) 訊息含檔名，以 withMessage 覆寫。 */
+  UM_UNSUPPORTED_FILE: {
+    code: "UM000001",
+    message:
+      "不支援的檔案格式。可上傳 PDF、圖片、Word (.docx)、Excel (.xlsx)、PowerPoint (.pptx) 或純文字檔。",
+    status: ApiCode.UNSUPPORTED_MEDIA_TYPE,
+  } as IErrorDef,
 
   // Info: (20260810 - Luphia) --- 500 伺服器 ---
   IN_UNKNOWN: {
@@ -88,7 +175,24 @@ export const API_ERRORS = {
     message: "系統忙線中，請稍後再試。",
     status: ApiCode.INTERNAL_SERVER_ERROR,
   } as IErrorDef,
+  /** Info: (20260810 - Luphia) 訊息含具體缺陷，以 withMessage 覆寫。 */
+  IN_BAD_FORM_SPEC: {
+    code: "IN000002",
+    message: "表單規格有誤。",
+    status: ApiCode.INTERNAL_SERVER_ERROR,
+  } as IErrorDef,
 } as const;
+
+/**
+ * Info: (20260810 - Luphia) 沿用字典項的 `code` 與 `status`，只換訊息。
+ *
+ * 有些訊息本質上是動態的（含檔名、含後端回報的具體原因），但那不該成為
+ * 就地拼裝 `IErrorDef` 的理由 —— 就地拼裝等於沒有穩定的 `code`，
+ * 前端只能比對文案。此處讓「碼固定、訊息浮動」成為一個明確的動作。
+ */
+export function withMessage(def: IErrorDef, message: string): IErrorDef {
+  return { ...def, message };
+}
 
 /**
  * Info: (20260810 - Luphia) 把任意例外轉成錯誤定義。
