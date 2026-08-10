@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 
 import * as gisService from "@/service/gis.service";
 import { getCurrentUser } from "@/service/auth.service";
+import { jsonFail } from "@/lib/api-response";
+import { API_ERRORS } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 
@@ -60,7 +62,7 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const user = await getCurrentUser();
-  if (!user) return new NextResponse("未登入", { status: 401 });
+  if (!user) return jsonFail(API_ERRORS.AU_NOT_SIGNED_IN);
 
   const { projectId } = await params;
   const format = new URL(request.url).searchParams.get("format") ?? "geojson";
@@ -69,7 +71,7 @@ export async function GET(
     id: user.id,
     role: user.role,
   });
-  if (geojson == null) return new NextResponse("無權限或查無專案", { status: 403 });
+  if (geojson == null) return jsonFail(API_ERRORS.FO_GIS_PROJECT_INACCESSIBLE);
 
   if (format === "kml") {
     return new NextResponse(geojsonToKml(geojson), {

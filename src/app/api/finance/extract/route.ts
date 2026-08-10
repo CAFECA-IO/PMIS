@@ -1,15 +1,15 @@
-import { NextResponse } from "next/server";
-
 import * as faith from "@/service/faith.service";
 import { getCurrentUser } from "@/service/auth.service";
 import { archiveAttachment } from "@/service/faithArchive";
 import { toFaithError } from "@/service/faith-error";
+import { jsonOk, jsonFail, jsonError } from "@/lib/api-response";
+import { API_ERRORS } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "未登入" }, { status: 401 });
+  if (!user) return jsonFail(API_ERRORS.AU_NOT_SIGNED_IN);
 
   try {
     const body = (await request.json()) as {
@@ -19,10 +19,10 @@ export async function POST(request: Request) {
       projectId?: string | null;
     };
     if (!body.data) {
-      return NextResponse.json({ error: "缺少檔案內容" }, { status: 400 });
+      return jsonFail(API_ERRORS.VA_MISSING_FILE_CONTENT);
     }
 
-    // 先歸檔：憑證本身是原始憑據，判讀結果僅為輔助，檔案應留存可查
+    // Info: (20260729 - Luphia) 先歸檔：憑證本身是原始憑據，判讀結果僅為輔助，檔案應留存可查
     const { archived, archiveError } = await archiveAttachment(
       {
         mimeType: body.mimeType ?? "application/octet-stream",
@@ -39,9 +39,9 @@ export async function POST(request: Request) {
       body.data,
       body.mimeType ?? "application/octet-stream",
     );
-    return NextResponse.json({ fields, archived, archiveError });
+    return jsonOk({ fields, archived, archiveError });
   } catch (error) {
-    const message = toFaithError(error).message;
-    return NextResponse.json({ error: message }, { status: 500 });
+    // Info: (20260810 - Luphia) 沿用 toFaithError 整理過的可讀訊息，語意碼統一為 IN000001
+    return jsonError(error, toFaithError(error).message);
   }
 }

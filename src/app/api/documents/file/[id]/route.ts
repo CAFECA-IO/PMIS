@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { jsonFail } from "@/lib/api-response";
+import { API_ERRORS } from "@/lib/api-error";
 
 import * as documentsService from "@/service/documents.service";
 import * as memberRepo from "@/repository/projectMember.repository";
@@ -9,7 +10,7 @@ import { fileResponse, wantsDownload } from "@/lib/file-response";
 export const runtime = "nodejs";
 
 /**
- * 檔案管理（PMIS-13）舊版數位檔案的取檔。
+ * Info: (20260728 - Luphia) 檔案管理（PMIS-13）舊版數位檔案的取檔。
  * 先前僅驗「已登入」；現收斂為專案成員層級。
  */
 export async function GET(
@@ -17,12 +18,12 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "未登入" }, { status: 401 });
+  if (!user) return jsonFail(API_ERRORS.AU_NOT_SIGNED_IN);
 
   const { id } = await params;
   const file = await documentsService.getMediaFile(id);
   if (!file) {
-    return NextResponse.json({ error: "找不到檔案" }, { status: 404 });
+    return jsonFail(API_ERRORS.NF_FILE_NOT_FOUND);
   }
 
   const isMember = Boolean(await memberRepo.exists(file.projectId, user.id));
@@ -35,7 +36,7 @@ export async function GET(
     { projectId: file.projectId },
   );
   if (!allowed) {
-    return NextResponse.json({ error: "無權存取此檔案" }, { status: 403 });
+    return jsonFail(API_ERRORS.FO_FILE_FORBIDDEN);
   }
 
   return fileResponse(

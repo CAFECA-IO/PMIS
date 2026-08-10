@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { financeCategoryOptions } from "@/constant/pmis";
 import { createVoucherAction } from "./actions";
+import type { IApiResponse } from "@/lib/api-response";
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -52,12 +53,13 @@ export function VoucherForm({ projectId }: { projectId: string }) {
         body: JSON.stringify({
           mimeType: file.type,
           data,
-          // 檔名與專案供歸檔到檔案管理使用
+          // Info: (20260728 - Luphia) 檔名與專案供歸檔到檔案管理使用
           fileName: file.name,
           projectId,
         }),
       });
-      const json = (await res.json()) as {
+      // Info: (20260810 - Luphia) 回應為全站統一信封：內容在 payload、錯誤文案在 message
+      const json = (await res.json()) as IApiResponse<{
         fields?: {
           date: string;
           direction: string;
@@ -66,10 +68,11 @@ export function VoucherForm({ projectId }: { projectId: string }) {
           counterparty: string;
           summary: string;
         };
-        error?: string;
-      };
-      if (!res.ok || !json.fields) throw new Error(json.error ?? "判讀失敗");
-      const f = json.fields;
+      }>;
+      const f = json.payload?.fields;
+      if (!res.ok || !json.success || !f) {
+        throw new Error(json.message || "判讀失敗");
+      }
       if (f.date) setDate(f.date);
       setDirection(f.direction === "INCOME" ? "INCOME" : "EXPENSE");
       if (f.category) setCategory(f.category);
